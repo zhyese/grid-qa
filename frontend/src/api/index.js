@@ -9,7 +9,9 @@ export const configMilvus = (indexType, param) => request.post('/system/config/m
 export const configModel = (modelType, param) => request.post('/system/config/model', { modelType, param })
 
 // 文档
-export const uploadDocs = (form) => request.post('/document/upload', form)
+export const uploadDocs = (form, onProgress) => request.post('/document/upload', form, {
+  onUploadProgress: onProgress,
+})
 export const listDocs = (keyword = '') => request.get('/document/list', { params: { keyword } })
 export const parseDocs = (docIds) => request.post('/document/parse', { docIds })
 export const vectorize = (docId) => request.post('/document/vector/generate', { docId })
