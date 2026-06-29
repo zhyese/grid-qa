@@ -19,3 +19,8 @@ export const answer = (query, modelType) => request.post('/qa/answer', { query, 
 export const mixedRetrieval = (query, topK) => request.post('/retrieval/mixed', { query, topK })
 export const sendFeedback = (query, answer, feedback, conversationId) =>
   request.post('/qa/feedback', { query, answer, feedback, conversationId })
+
+// 对话历史
+export const getConversations = () => request.get('/qa/conversations')
+export const getHistory = (conversationId) =>
+  request.get('/qa/history', { params: { conversationId } })
