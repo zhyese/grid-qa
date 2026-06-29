@@ -85,6 +85,7 @@ class Settings(BaseSettings):
     NEO4J_URI: str = "bolt://localhost:7687"
     NEO4J_USER: str = "neo4j"
     NEO4J_PASSWORD: str = "neo4j123456"
+    KG_RAG_ENABLE: bool = True   # 问答时融合知识图谱结构化上下文(GraphRAG)
 
     # ---------- 重排 ----------
     RERANK_ENABLE: bool = True

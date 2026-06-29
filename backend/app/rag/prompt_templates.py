@@ -8,6 +8,7 @@ SYSTEM_PROMPT = """你是电网运维专业问答助手，严格依据"参考资
 4) 答案中引用资料时，在对应句末标注 [1]、[2] 等编号，编号对应参考资料序号。
 5) 专业术语首次出现时给出全称（如"主变压器(主变)"）。
 6) 输出格式：先给"结论"，再给"依据/步骤"，最后给"引用来源"。
+7) 若提供了"知识图谱(结构化关系)"，可作为结构化依据补充作答（与资料不矛盾时优先采纳，仍需标注来源）。
 """
 
 
@@ -24,17 +25,25 @@ def build_messages(query: str, contexts: list[dict]) -> list[dict]:
     ]
 
 
-def build_messages_with_history(query: str, contexts: list[dict], history: list[dict]) -> list[dict]:
-    """多轮：system(规则) + 历史对话 + 当前(资料+问题)。history: [{role, content}]。"""
+def build_messages_with_history(query: str, contexts: list[dict], history: list[dict],
+                                graph: list[str] | None = None) -> list[dict]:
+    """多轮：system(规则) + 历史对话 + 当前(资料+图谱+问题)。
+
+    history: [{role, content}]；graph: 知识图谱结构化三元组文本列表（GraphRAG 增强）。
+    """
     refs = "\n\n".join(
         f"[{i + 1}] {c.get('docName', '')}：{c.get('chunk', '')}"
         for i, c in enumerate(contexts)
     )
+    graph_block = ""
+    if graph:
+        graph_block = "\n\n【知识图谱(结构化关系)】\n" + "\n".join(f"- {g}" for g in graph)
     msgs = [{"role": "system", "content": SYSTEM_PROMPT}]
     for h in history:
         msgs.append({"role": h["role"], "content": h["content"]})
     msgs.append(
-        {"role": "user", "content": f"【参考资料】\n{refs}\n\n【问题】{query}\n\n请严格依据参考资料并结合上文按规则作答。"}
+        {"role": "user",
+         "content": f"【参考资料】\n{refs}{graph_block}\n\n【问题】{query}\n\n请严格依据参考资料(及知识图谱)并结合上文按规则作答。"}
     )
     return msgs
 

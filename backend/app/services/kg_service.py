@@ -149,6 +149,22 @@ async def get_hubs(limit: int = 15) -> list[dict]:
         return []
 
 
+async def graph_context(query: str, topk: int = 8) -> list[str]:
+    """GraphRAG：从 query 提取关键词查 Neo4j 关联三元组，文本化作为问答结构化上下文。
+
+    让问答"走 Neo4j"——检索文档分块之外，补充图谱结构化关系（设备-故障-处置链）。
+    """
+    import jieba
+    words = [w for w in jieba.cut(query) if len(w.strip()) > 1]
+    if not words:
+        return []
+    try:
+        rows = await neo4j_client.query_triples_by_keywords(words, topk)
+    except Exception:
+        return []
+    return [f"{r['s']} --{r['rel']}--> {r['o']}" for r in rows if r.get("s") and r.get("o")]
+
+
 async def get_stats(db: AsyncSession) -> dict:
     """知识图谱统计（MySQL 三元组表）。"""
     triple_total = (await db.execute(select(func.count()).select_from(KgTriple))).scalar() or 0

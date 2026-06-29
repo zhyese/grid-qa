@@ -12,6 +12,7 @@ from app.config import settings
 from app.core.response import BizError
 from app.models.chunk import Chunk
 from app.models.document import Document
+from app.models.kg_triple import KgTriple
 from app.services import chunk_service, embedding_service, parse_service
 
 # 允许的扩展名（接口主推 PDF，MVP 放开常见格式含扫描件/图片）
@@ -143,6 +144,14 @@ async def vectorize_document(db: AsyncSession, doc_id: str) -> dict:
         metrics.VECTOR_ROUTE.labels(route).inc()
     except Exception:
         pass
+    # 数据链路闭环：向量化同时后台触发知识图谱三元组抽取（写 MySQL+Neo4j），不阻塞返回
+    # 注：asyncio 用模块级 import（顶部已 import），函数内再 import 会遮蔽致 UnboundLocalError
+    try:
+        _t = asyncio.create_task(_kg_extract_bg(doc_id))
+        _bg_tasks.add(_t)
+        _t.add_done_callback(_bg_tasks.discard)
+    except Exception:
+        pass
     return {
         "docId": doc_id, "vectorCount": len(vectors),
         "milvusCollection": collection, "embeddingRoute": route, "docChars": total_chars,
@@ -158,6 +167,13 @@ async def delete_document(db: AsyncSession, doc_id: str) -> None:
         pass
     try:
         milvus_client.delete_by_doc(doc_id)
+    except Exception:
+        pass
+    # 联动删知识图谱：MySQL 三元组 + Neo4j 边
+    await db.execute(delete(KgTriple).where(KgTriple.doc_id == doc_id))
+    try:
+        from app.clients import neo4j_client
+        await neo4j_client.delete_by_doc(doc_id)
     except Exception:
         pass
     await db.execute(delete(Chunk).where(Chunk.doc_id == doc_id))
@@ -193,3 +209,21 @@ async def get_stats(db: AsyncSession) -> dict:
         "byStatus": by_status,
         "byType": by_type,
     }
+
+
+_bg_tasks: set = set()   # 持有后台 task 引用，防 GC 回收导致 task 不执行（asyncio 官方推荐 fire-and-forget）
+
+
+async def _kg_extract_bg(doc_id: str, model_type: str | None = None) -> None:
+    """后台抽取三元组写 MySQL+Neo4j（向量化后自动建图谱，形成数据链路）。
+
+    独立 db session（fire-and-forget，不阻塞 vectorize 接口返回）。
+    """
+    from app.db.session import AsyncSessionLocal
+    from app.services import kg_service
+    async with AsyncSessionLocal() as db:
+        try:
+            res = await kg_service.extract_triples(db, doc_id, model_type)
+            print(f"[kg] 文档 {doc_id} 自动抽取：{res.get('tripleCount', 0)} 条三元组")
+        except Exception as e:
+            print(f"[kg] 文档 {doc_id} 自动抽取失败：{e}")

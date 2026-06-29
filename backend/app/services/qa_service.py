@@ -9,7 +9,7 @@ from app.clients import redis_client
 from app.config import settings
 from app.providers.factory import get_llm_provider
 from app.rag import citation, prompt_templates
-from app.services import conversation_service, retrieval_service, term_service
+from app.services import conversation_service, kg_service, retrieval_service, term_service
 
 _HISTORY_LIMIT = 6  # 拼接最近 3 轮（6 条消息）
 
@@ -53,7 +53,14 @@ async def answer(
     history = []
     if conversation_id:
         history = await conversation_service.get_messages(db, conversation_id, _HISTORY_LIMIT)
-    messages = prompt_templates.build_messages_with_history(nq, contexts, history)
+    # GraphRAG：融合知识图谱结构化上下文（KG_RAG_ENABLE 默认开）
+    graph: list[str] = []
+    if settings.KG_RAG_ENABLE:
+        try:
+            graph = await kg_service.graph_context(nq)
+        except Exception:
+            graph = []
+    messages = prompt_templates.build_messages_with_history(nq, contexts, history, graph)
     _llm0 = time.time()
     ans = await get_llm_provider(model_type).chat(messages, temperature=0.2)
     try:
@@ -80,6 +87,7 @@ async def answer(
     result = {
         "answer": ans,
         "retrievalSource": [{"docName": c.get("docName", ""), "text": c["chunk"][:200]} for c in contexts],
+        "graphCount": len(graph),
         "responseTime": round(time.time() - t0, 3),
         "hallucinationRate": _halluc,
         "cached": False,
@@ -149,7 +157,14 @@ async def stream_answer(
     history = []
     if conversation_id:
         history = await conversation_service.get_messages(db, conversation_id, _HISTORY_LIMIT)
-    messages = prompt_templates.build_messages_with_history(nq, contexts, history)
+    # GraphRAG：融合知识图谱结构化上下文（KG_RAG_ENABLE 默认开）
+    graph: list[str] = []
+    if settings.KG_RAG_ENABLE:
+        try:
+            graph = await kg_service.graph_context(nq)
+        except Exception:
+            graph = []
+    messages = prompt_templates.build_messages_with_history(nq, contexts, history, graph)
 
     # 流式前先建会话，确保 conversationId 可随 meta 下发
     if is_single:
@@ -216,6 +231,7 @@ async def stream_answer(
         "type": "done",
         "responseTime": round(time.time() - t0, 3),
         "hallucinationRate": halluc,
+        "graphCount": len(graph),
         "conversationId": conversation_id,
         "cached": False,
     }

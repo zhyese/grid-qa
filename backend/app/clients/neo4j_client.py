@@ -120,3 +120,22 @@ async def get_hubs(limit: int = 15) -> list[dict]:
         )
         rows = [rec async for rec in result]
     return [{"name": rec["name"], "outDegree": rec["outDegree"]} for rec in rows]
+
+
+async def query_triples_by_keywords(words: list[str], limit: int = 8) -> list[dict]:
+    """查 name 含任一关键词的实体一跳三元组（GraphRAG 问答增强用）。"""
+    if not words:
+        return []
+    async with _get().session() as s:
+        result = await s.run(
+            """
+            UNWIND $words AS w
+            MATCH (n:Entity)-[r:REL]->(m:Entity)
+            WHERE n.name CONTAINS w OR m.name CONTAINS w
+            RETURN DISTINCT n.name AS s, r.type AS rel, m.name AS o
+            LIMIT $limit
+            """,
+            words=words, limit=limit,
+        )
+        rows = [rec async for rec in result]
+    return [{"s": rec["s"], "rel": rec["rel"], "o": rec["o"]} for rec in rows]

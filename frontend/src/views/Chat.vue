@@ -59,6 +59,7 @@
               </div>
               <div class="meta" v-if="m.time">
                 耗时 {{ m.time }}s · 幻觉率 {{ m.halluc }}
+                <span v-if="m.graphCount" class="kg-tag" title="本次问答融合的知识图谱结构化三元组数">🔗 图谱{{ m.graphCount }}</span>
                 <span class="fb">
                   <a class="fb-btn" @click="like(m)" :class="{ on: m.fb === 'like' }">👍</a>
                   <a class="fb-btn" @click="dislike(m)" :class="{ on: m.fb === 'dislike' }">👎</a>
@@ -223,6 +224,7 @@ async function ask() {
         if (ev.content) msg.content = ev.content               // 无来源时的兜底文案
         if (typeof ev.responseTime === 'number') msg.time = ev.responseTime
         if (typeof ev.hallucinationRate === 'number') msg.halluc = ev.hallucinationRate
+        if (typeof ev.graphCount === 'number') msg.graphCount = ev.graphCount
         if (ev.conversationId) msg.conversationId = ev.conversationId
         msg.streaming = false
         currentConvId.value = msg.conversationId
@@ -340,6 +342,7 @@ onMounted(loadConversations)
 .src { margin-top: 10px; padding-top: 8px; border-top: 1px dashed #e2e8f0; font-size: 13px; }
 .src-item { color: #475569; margin: 2px 0; }
 .meta { color: #94a3b8; font-size: 12px; margin-top: 6px; }
+.kg-tag { display: inline-block; margin-left: 10px; padding: 1px 8px; background: #ddd6fe; color: #6d28d9; border-radius: 10px; font-size: 11px; }
 .fb { margin-left: 12px; }
 .related { margin-top: 10px; font-size: 13px; }
 .rq-list { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
