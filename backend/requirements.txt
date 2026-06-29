@@ -5,8 +5,14 @@ pydantic>=2.9,<3
 pydantic-settings>=2.5,<3
 python-dotenv>=1.0,<2
 
-# ===== 后续切片按需追加（S1 暂不安装）=====
-# S2 认证:      SQLAlchemy>=2.0 aiomysql passlib[bcrypt] python-jose[cryptography]
+# ===== S2 认证（bcrypt 直连 + PyJWT，规避 passlib/bcrypt4.x 兼容坑）=====
+SQLAlchemy[asyncio]>=2.0,<3
+aiomysql>=0.2,<0.3
+bcrypt>=4.0,<5
+PyJWT>=2.8,<3
+email-validator>=2.0
+
+# ===== 后续切片按需追加（暂不安装）=====
 # S3 文档上传:  minio
 # S4 解析:       pdfplumber pypdf python-docx pymupdf paddlepaddle paddleocr
 # S5 向量化:     pymilvus openai

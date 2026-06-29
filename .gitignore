@@ -41,3 +41,7 @@ Thumbs.db
 # ===== 日志 =====
 *.log
 logs/
+
+# ===== 根目录规划文档仅本地保留，不入库（README.md 除外）=====
+/*.md
+!README.md
