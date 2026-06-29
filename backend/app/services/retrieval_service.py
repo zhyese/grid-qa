@@ -1,23 +1,31 @@
-"""混合检索编排：Milvus 稠密检索 + BM25 稀疏检索 + RRF 融合。"""
+"""混合检索编排：Milvus 稠密 + BM25 稀疏 + RRF 融合 + 重排。"""
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.clients import milvus_client
+from app.config import settings
 from app.rag import rrf
-from app.services import bm25_service, embedding_service
+from app.services import bm25_service, embedding_service, rerank_service
+
+
+def _to_item(h: dict) -> dict:
+    return {
+        "chunk": h.get("text", ""),
+        "score": h.get("score", 0.0),
+        "docId": h.get("doc_id", ""),
+        "docName": h.get("doc_name", ""),
+    }
 
 
 async def mixed_search(db: AsyncSession, query: str, topk: int = 10) -> list[dict]:
     # 1) 向量稠密检索（Milvus）
     qvec = await embedding_service.embed_query(query)
-    dense = milvus_client.search(qvec, topk=max(topk * 2, 20))
-    dense_hits = [
-        {**d, "key": (d.get("doc_id"), d.get("chunk_idx"))} for d in dense
-    ]
+    dense = milvus_client.search(qvec, topk=max(topk * 4, 20))
+    dense_hits = [{**d, "key": (d.get("doc_id"), d.get("chunk_idx"))} for d in dense]
 
     # 2) BM25 稀疏检索（内存语料）
     await bm25_service.ensure_built(db)
     sparse_hits = []
-    for s in bm25_service.search(query, topk=max(topk * 2, 20)):
+    for s in bm25_service.search(query, topk=max(topk * 4, 20)):
         c = bm25_service.get_chunk(s["idx"])
         if not c:
             continue
@@ -29,12 +37,21 @@ async def mixed_search(db: AsyncSession, query: str, topk: int = 10) -> list[dic
             }
         )
 
-    # 3) RRF 融合
+    # 3) RRF 融合（取较多候选供重排）
     fused = rrf.rrf_fuse([dense_hits, sparse_hits], key_fn=lambda h: h["key"])
-    return [
-        {
-            "chunk": h.get("text", ""), "score": h["score"],
-            "docId": h.get("doc_id", ""), "docName": h.get("doc_name", ""),
-        }
-        for h in fused[:topk]
-    ]
+
+    # 4) 重排（百炼 gte-rerank），失败兜底用 RRF 顺序
+    if settings.RERANK_ENABLE and len(fused) > 1:
+        try:
+            docs = [h.get("text", "") for h in fused]
+            ranked = await rerank_service.get_reranker().rerank(query, docs, top_n=topk)
+            out = []
+            for idx, score in ranked:
+                h = fused[idx]
+                out.append({**_to_item(h), "score": round(score, 4)})
+            if out:
+                return out
+        except Exception:
+            pass
+
+    return [_to_item(h) for h in fused[:topk]]

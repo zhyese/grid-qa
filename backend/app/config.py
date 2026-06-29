@@ -81,6 +81,10 @@ class Settings(BaseSettings):
     REDIS_URL: str = "redis://localhost:6379/0"
     QA_CACHE_TTL: int = 3600
 
+    # ---------- 重排 ----------
+    RERANK_ENABLE: bool = True
+    RERANK_MODEL: str = "gte-rerank-v2"
+
     # ---------- 分块 ----------
     CHUNK_SIZE: int = 500
     CHUNK_OVERLAP: int = 80
