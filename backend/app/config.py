@@ -81,6 +81,11 @@ class Settings(BaseSettings):
     REDIS_URL: str = "redis://localhost:6379/0"
     QA_CACHE_TTL: int = 3600
 
+    # ---------- Neo4j（知识图谱：设备-故障-处置 多跳推理）----------
+    NEO4J_URI: str = "bolt://localhost:7687"
+    NEO4J_USER: str = "neo4j"
+    NEO4J_PASSWORD: str = "neo4j123456"
+
     # ---------- 重排 ----------
     RERANK_ENABLE: bool = True
     RERANK_MODEL: str = "gte-rerank-v2"

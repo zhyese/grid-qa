@@ -1,7 +1,7 @@
-"""知识图谱服务：LLM 抽取三元组 / 关联查询 / 图数据导出。
+"""知识图谱服务：LLM 抽取三元组 → 双写 MySQL(统计/审计) + Neo4j(图查询/多跳推理)。
 
-抽取：分块批量喂 LLM，输出 JSON 三元组，清旧写新入 kg_triples 表。
-图数据：按实体模糊匹配组装 echarts force 所需 nodes/links。
+图查询与多跳推理走 Neo4j（影响链/枢纽分析）；Neo4j 未启动时 get_graph 回退 MySQL 一跳查询，
+保证图谱页不崩。统计仍用 MySQL 三元组表。
 """
 import json
 import re
@@ -9,6 +9,7 @@ import re
 from sqlalchemy import delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.clients import neo4j_client
 from app.core.response import BizError
 from app.models.chunk import Chunk
 from app.models.document import Document
@@ -49,7 +50,7 @@ def _parse_triples(ans: str) -> list[dict]:
 
 
 async def extract_triples(db: AsyncSession, doc_id: str, model_type: str | None = None) -> dict:
-    """对某文档分块批量抽取三元组，清旧写新。"""
+    """对某文档分块批量抽取三元组，双写 MySQL + Neo4j（清旧写新）。"""
     doc = (await db.execute(select(Document).where(Document.id == doc_id))).scalar_one_or_none()
     if not doc:
         raise BizError("文档不存在", 404)
@@ -73,12 +74,22 @@ async def extract_triples(db: AsyncSession, doc_id: str, model_type: str | None 
         except Exception:
             continue  # 单批失败不中断整体抽取
 
-    # 清旧 + 写新
+    # 清旧：MySQL + Neo4j
     await db.execute(delete(KgTriple).where(KgTriple.doc_id == doc_id))
+    try:
+        await neo4j_client.delete_by_doc(doc_id)
+    except Exception:
+        pass
+    # 写 MySQL（统计/审计来源）
     for tp in triples:
         db.add(KgTriple(subject=tp["s"], relation=tp["r"], object=tp["o"],
                         doc_id=doc_id, doc_name=doc.doc_name))
     await db.commit()
+    # 写 Neo4j（图查询/多跳推理）
+    try:
+        await neo4j_client.upsert_triples(triples, doc_id, doc.doc_name)
+    except Exception as e:
+        print(f"[kg] Neo4j 写入跳过：{e}")
 
     try:
         from app.core import metrics
@@ -90,15 +101,14 @@ async def extract_triples(db: AsyncSession, doc_id: str, model_type: str | None 
     return {"tripleCount": len(triples), "docName": doc.doc_name, "sample": triples[:30]}
 
 
-async def get_graph(db: AsyncSession, entity: str = "", limit: int = 300) -> dict:
-    """按实体模糊匹配三元组，组装 echarts force 图数据。"""
+async def _get_graph_mysql(db: AsyncSession, entity: str, limit: int) -> dict:
+    """MySQL 一跳查询（Neo4j 不可用时的回退）。"""
     stmt = select(KgTriple)
     if entity:
         kw = f"%{entity}%"
         stmt = stmt.where(or_(KgTriple.subject.like(kw), KgTriple.object.like(kw)))
     stmt = stmt.limit(limit)
     rows = (await db.execute(stmt)).scalars().all()
-
     nodes: dict[str, dict] = {}
     links: list[dict] = []
     for t in rows:
@@ -108,15 +118,39 @@ async def get_graph(db: AsyncSession, entity: str = "", limit: int = 300) -> dic
             nodes[t.object] = {"id": t.object, "name": t.object, "category": 1, "symbolSize": 28}
         links.append({"source": t.subject, "target": t.object, "value": t.relation})
     return {
-        "nodes": list(nodes.values()),
-        "links": links,
-        "categories": [{"name": "实体"}, {"name": "属性/关系"}],
-        "total": len(rows),
+        "nodes": list(nodes.values()), "links": links,
+        "categories": [{"name": "实体"}, {"name": "属性/关系"}], "total": len(rows),
     }
 
 
+async def get_graph(db: AsyncSession, entity: str = "", limit: int = 300) -> dict:
+    """关系图谱：优先 Neo4j 图查询，未启动则回退 MySQL 一跳。"""
+    try:
+        return await neo4j_client.get_neighbors(entity, limit)
+    except Exception as e:
+        print(f"[kg] Neo4j 不可用，回退 MySQL：{e}")
+        return await _get_graph_mysql(db, entity, limit)
+
+
+async def get_paths(entity: str, depth: int = 3, limit: int = 20) -> list[dict]:
+    """多跳影响链：设备→故障→处置→关联设备 的因果传播（仅 Neo4j）。"""
+    try:
+        return await neo4j_client.get_paths(entity, depth, limit)
+    except Exception as e:
+        print(f"[kg] 多跳查询失败：{e}")
+        return []
+
+
+async def get_hubs(limit: int = 15) -> list[dict]:
+    """枢纽实体：出度最高（影响传播源头，核心设备/故障，仅 Neo4j）。"""
+    try:
+        return await neo4j_client.get_hubs(limit)
+    except Exception:
+        return []
+
+
 async def get_stats(db: AsyncSession) -> dict:
-    """知识图谱统计：三元组/实体/关系类型数 + 文档分布 top。"""
+    """知识图谱统计（MySQL 三元组表）。"""
     triple_total = (await db.execute(select(func.count()).select_from(KgTriple))).scalar() or 0
     entity_total = (await db.execute(
         select(func.count(func.distinct(KgTriple.subject)))

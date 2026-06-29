@@ -42,4 +42,7 @@ slowapi>=0.1        # 限流(Q3)
 prometheus-client>=0.20  # Prometheus 指标(Q9)
 sentence-transformers>=3.0  # 本地 bge embedding(P1)
 
+# ===== 知识图谱：Neo4j 图数据库（设备-故障-处置 多跳推理）=====
+neo4j>=5.23            # AsyncGraphDatabase 异步驱动（bolt 协议）
+
 # ===== 后续切片按需追加（暂不安装）=====

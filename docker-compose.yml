@@ -113,6 +113,19 @@ services:
       timeout: 3s
       retries: 5
 
+  # ---------- Neo4j：知识图谱（设备-故障-处置 多跳推理）----------
+  neo4j:
+    image: neo4j:5-community
+    container_name: grid-neo4j
+    restart: unless-stopped
+    environment:
+      NEO4J_AUTH: neo4j/${NEO4J_PASSWORD:-neo4j123456}
+    ports:
+      - "7474:7474"   # Neo4j Browser
+      - "7687:7687"   # Bolt 协议
+    volumes:
+      - neo4j-data:/data
+
   # ---------- 后端 ----------
   backend:
     build: ./backend
@@ -123,16 +136,18 @@ services:
       - minio
       - milvus
       - redis
+      - neo4j
     env_file: .env
     environment:
       # 容器内用 service name + 内部端口连接（覆盖 .env 的 localhost）
       DATABASE_URL: mysql+aiomysql://grid:grid123456@mysql:3306/grid_qa?charset=utf8mb4
       MINIO_ENDPOINT: minio:9000
       MILVUS_HOST: milvus
+      NEO4J_URI: bolt://neo4j:7687
       # 容器访问外网(云API + bge模型下载)走宿主机代理; 内部服务不走代理
       HTTPS_PROXY: http://host.docker.internal:7897
       HTTP_PROXY: http://host.docker.internal:7897
-      NO_PROXY: localhost,127.0.0.1,mysql,minio,milvus,redis,prometheus,grafana
+      NO_PROXY: localhost,127.0.0.1,mysql,minio,milvus,redis,neo4j,prometheus,grafana
     extra_hosts:
       - "host.docker.internal:host-gateway"
     ports:
@@ -181,4 +196,5 @@ volumes:
   etcd-data:
   milvus-minio-data:
   redis-data:
+  neo4j-data:
   grafana-data:

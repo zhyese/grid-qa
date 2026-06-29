@@ -45,3 +45,25 @@ async def stats(
 ):
     data = await kg_service.get_stats(db)
     return success(data, "查询成功")
+
+
+@router.get("/path")
+async def kg_path(
+    entity: str,
+    depth: int = 3,
+    limit: int = 20,
+    user: User = Depends(get_current_user),
+):
+    """多跳影响链：从某实体出发的 N 跳因果路径（故障传播/影响分析，Neo4j）。"""
+    paths = await kg_service.get_paths(entity, depth, limit)
+    return success({"entity": entity, "depth": depth, "paths": paths}, "查询成功")
+
+
+@router.get("/influence")
+async def influence(
+    limit: int = 15,
+    user: User = Depends(get_current_user),
+):
+    """枢纽实体：出度最高（影响传播源头，Neo4j）。"""
+    hubs = await kg_service.get_hubs(limit)
+    return success({"hubs": hubs}, "查询成功")

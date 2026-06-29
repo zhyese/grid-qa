@@ -31,8 +31,19 @@ async def lifespan(app: FastAPI):
     from app.clients.milvus_client import ensure_collections
 
     ensure_collections()  # 确保 云 + bge 双 collection
+
+    try:
+        from app.clients import neo4j_client
+        await neo4j_client.ensure_constraint()  # Neo4j 知识图谱索引（未启用则跳过）
+    except Exception as e:
+        print(f"[neo4j] 初始化跳过（未启动?）：{e}")
     # ---- 关闭 ----
     yield
+    try:
+        from app.clients import neo4j_client
+        await neo4j_client.close()
+    except Exception:
+        pass
 
 
 app = FastAPI(title=settings.APP_NAME, version=settings.APP_VERSION, lifespan=lifespan)

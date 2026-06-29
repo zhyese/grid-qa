@@ -22,6 +22,8 @@ export const getStats = () => request.get('/document/stats')
 export const extractKg = (docId, modelType) => request.post('/kg/extract', { docId, modelType })
 export const getKgGraph = (entity = '', limit = 300) => request.get('/kg/graph', { params: { entity, limit } })
 export const getKgStats = () => request.get('/kg/stats')
+export const getKgPaths = (entity, depth = 3, limit = 20) => request.get('/kg/path', { params: { entity, depth, limit } })
+export const getKgInfluence = (limit = 15) => request.get('/kg/influence', { params: { limit } })
 
 // 检索与问答
 export const answer = (query, modelType) => request.post('/qa/answer', { query, modelType })
