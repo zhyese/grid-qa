@@ -1,8 +1,8 @@
-"""Milvus 向量库封装（pymilvus 2.4 经典 API：connections + Collection）。
+"""Milvus 向量库封装（pymilvus 2.4 经典 API）。
 
 Collection: pk(VARCHAR,64) + embedding(FLOAT_VECTOR,EMBEDDING_DIM) + text(VARCHAR,4096)
            + doc_id(VARCHAR,64) + doc_name(VARCHAR,256) + chunk_idx(INT64)
-索引: IVF_FLAT + COSINE。
+索引: HNSW + COSINE（中小规模下查询速度与召回优于 IVF_FLAT，无需训练 nlist）。
 """
 from pymilvus import (
     Collection,
@@ -42,9 +42,13 @@ def ensure_collection() -> None:
         col = Collection(name, CollectionSchema(fields, "电网运维知识分块"), using="default")
         col.create_index(
             "embedding",
-            {"index_type": "IVF_FLAT", "metric_type": "COSINE", "params": {"nlist": 1024}},
+            {
+                "index_type": "HNSW",
+                "metric_type": "COSINE",
+                "params": {"M": 16, "efConstruction": 200},
+            },
         )
-        print(f"[milvus] 已创建 collection: {name} (dim={settings.EMBEDDING_DIM})")
+        print(f"[milvus] 已创建 collection: {name} (dim={settings.EMBEDDING_DIM}, HNSW)")
     Collection(name).load()
 
 
@@ -64,7 +68,7 @@ def search(query_vec, topk: int = 10) -> list[dict]:
     res = col.search(
         [query_vec],
         "embedding",
-        param={"metric_type": "COSINE", "params": {"nprobe": 16}},
+        param={"metric_type": "COSINE", "params": {"ef": 64}},
         limit=topk,
         output_fields=["text", "doc_id", "doc_name", "chunk_idx"],
     )
