@@ -18,6 +18,11 @@ export const vectorize = (docId) => request.post('/document/vector/generate', { 
 export const deleteDoc = (docId) => request.delete('/document/delete', { params: { docId } })
 export const getStats = () => request.get('/document/stats')
 
+// 知识图谱
+export const extractKg = (docId, modelType) => request.post('/kg/extract', { docId, modelType })
+export const getKgGraph = (entity = '', limit = 300) => request.get('/kg/graph', { params: { entity, limit } })
+export const getKgStats = () => request.get('/kg/stats')
+
 // 检索与问答
 export const answer = (query, modelType) => request.post('/qa/answer', { query, modelType })
 export const mixedRetrieval = (query, topK) => request.post('/retrieval/mixed', { query, topK })

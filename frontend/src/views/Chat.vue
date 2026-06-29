@@ -25,6 +25,7 @@
       </div>
       <div class="side-nav">
         <router-link to="/dashboard">统计</router-link> ·
+        <router-link to="/kg">图谱</router-link> ·
         <router-link to="/documents">文档</router-link> ·
         <router-link to="/admin" v-if="auth.role === 'admin'">管理</router-link> ·
         <a href="#" @click.prevent="logout">退出({{ auth.username }})</a>

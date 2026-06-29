@@ -45,3 +45,6 @@ VECTOR_ROUTE = Counter("grid_vector_route_total", "向量化路由", ["route"])
 KB_DOCS = Gauge("grid_kb_docs", "知识库文档总数")
 KB_CHUNKS = Gauge("grid_kb_chunks", "知识库分块总数")
 KB_VECTORS = Gauge("grid_kb_vectors", "知识库向量总数")
+# 知识图谱
+KG_EXTRACT = Counter("grid_kg_extract_total", "知识图谱抽取次数")
+KB_TRIPLES = Gauge("grid_kb_triples", "知识图谱三元组总数")
