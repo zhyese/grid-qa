@@ -58,19 +58,30 @@ async def upload_documents(
     return {"successList": success_list, "failList": fail_list}
 
 
-async def list_documents(db: AsyncSession, keyword: str = "") -> list[dict]:
-    stmt = select(Document).order_by(Document.created_at.desc())
+async def list_documents(db: AsyncSession, keyword: str = "", page: int = 1, size: int = 20) -> dict:
+    from sqlalchemy import func
+    stmt = select(Document)
+    cnt = select(func.count()).select_from(Document)
     if keyword:
         stmt = stmt.where(Document.doc_name.like(f"%{keyword}%"))
-    rows = (await db.execute(stmt)).scalars().all()
-    return [
-        {
-            "docId": r.id, "docName": r.doc_name, "docType": r.doc_type,
-            "status": r.status, "chunkCount": r.chunk_count, "uploadUser": r.upload_user,
-            "createdAt": r.created_at.strftime("%Y-%m-%d %H:%M:%S") if r.created_at else "",
-        }
-        for r in rows
-    ]
+        cnt = cnt.where(Document.doc_name.like(f"%{keyword}%"))
+    total = (await db.execute(cnt)).scalar() or 0
+    rows = (
+        await db.execute(
+            stmt.order_by(Document.created_at.desc()).offset((page - 1) * size).limit(size)
+        )
+    ).scalars().all()
+    return {
+        "total": total,
+        "list": [
+            {
+                "docId": r.id, "docName": r.doc_name, "docType": r.doc_type,
+                "status": r.status, "chunkCount": r.chunk_count, "uploadUser": r.upload_user,
+                "createdAt": r.created_at.strftime("%Y-%m-%d %H:%M:%S") if r.created_at else "",
+            }
+            for r in rows
+        ],
+    }
 
 
 async def get_document(db: AsyncSession, doc_id: str) -> Document:

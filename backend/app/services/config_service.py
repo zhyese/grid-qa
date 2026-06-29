@@ -1,26 +1,27 @@
-"""运行时配置（Milvus 索引参数、模型推理参数）。内存单例，MVP 不持久化。
+"""运行时配置：Redis 持久化（重启不丢，替代内存单例）。"""
+from app.clients import redis_client
 
-实际生效为 best-effort：检索/问答读取当前值；重建 Milvus 索引需手动触发（避免在线抖动）。
-"""
-_runtime = {
-    "milvus": {"indexType": "IVF_FLAT", "param": {"nlist": 1024, "nprobe": 16}},
-    "model": {"modelType": "default", "param": {"temperature": 0.2, "max_tokens": 2048}},
-}
+_DEFAULT_MILVUS = {"indexType": "HNSW", "param": {"M": 16, "efConstruction": 200, "ef": 64}}
+_DEFAULT_MODEL = {"modelType": "default", "param": {"temperature": 0.2, "max_tokens": 2048}}
 
 
-def get_milvus_config() -> dict:
-    return _runtime["milvus"]
+async def get_milvus_config() -> dict:
+    v = await redis_client.cache_get_json("config:milvus")
+    return v or _DEFAULT_MILVUS
 
 
-def update_milvus_config(index_type: str, param: dict) -> dict:
-    _runtime["milvus"] = {"indexType": index_type, "param": param or {}}
-    return _runtime["milvus"]
+async def update_milvus_config(index_type: str, param: dict) -> dict:
+    data = {"indexType": index_type, "param": param or {}}
+    await redis_client.cache_set_json_persistent("config:milvus", data)
+    return data
 
 
-def get_model_config() -> dict:
-    return _runtime["model"]
+async def get_model_config() -> dict:
+    v = await redis_client.cache_get_json("config:model")
+    return v or _DEFAULT_MODEL
 
 
-def update_model_config(model_type: str, param: dict) -> dict:
-    _runtime["model"] = {"modelType": model_type, "param": param or {}}
-    return _runtime["model"]
+async def update_model_config(model_type: str, param: dict) -> dict:
+    data = {"modelType": model_type, "param": param or {}}
+    await redis_client.cache_set_json_persistent("config:model", data)
+    return data

@@ -1,4 +1,4 @@
-"""系统接口：登录 / 注册 / 操作日志（角色+时间过滤） / 配置（管理员）。"""
+"""系统接口：登录 / 注册 / 操作日志（角色+时间过滤） / 配置（管理员，Redis 持久化）。"""
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -42,7 +42,6 @@ async def logs(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    # admin 查所有；operator 仅查自己
     operate_user = None if user.role == "admin" else user.username
     data = await query_logs(
         db, page, size, operate_user=operate_user, start_time=startTime, end_time=endTime
@@ -52,11 +51,21 @@ async def logs(
 
 @router.post("/config/milvus")
 async def config_milvus(body: MilvusConfigRequest, admin: User = Depends(require_admin)):
-    data = config_service.update_milvus_config(body.indexType, body.param)
+    data = await config_service.update_milvus_config(body.indexType, body.param)
     return success(data, "配置成功")
 
 
 @router.post("/config/model")
 async def config_model(body: ModelConfigRequest, admin: User = Depends(require_admin)):
-    data = config_service.update_model_config(body.modelType, body.param)
+    data = await config_service.update_model_config(body.modelType, body.param)
     return success(data, "配置成功")
+
+
+@router.get("/config/milvus")
+async def get_milvus_config_route(admin: User = Depends(require_admin)):
+    return success(await config_service.get_milvus_config(), "查询成功")
+
+
+@router.get("/config/model")
+async def get_model_config_route(admin: User = Depends(require_admin)):
+    return success(await config_service.get_model_config(), "查询成功")

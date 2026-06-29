@@ -119,3 +119,13 @@ docker compose up -d --build
 - `DEEPSEEK_API_KEY`、`DASHSCOPE_API_KEY`、`ARK_API_KEY`
 - 火山方舟需在控制台创建推理接入点，将 endpoint id 填入 `DOUBAO_LLM_ENDPOINT_ID`
 - `LLM_PROVIDER` / `EMB_PROVIDER` 控制当前使用的模型；`EMBEDDING_DIM` 固定 1024
+
+## 生产部署（多 worker）
+
+开发用 `uvicorn --reload`（单进程）；Linux/Docker 生产用 gunicorn + uvicorn worker 多进程提并发：
+
+```bash
+pip install gunicorn
+gunicorn app.main:app -k uvicorn.workers.UvicornWorker -w 4 -b 0.0.0.0:8001 --app-dir backend
+```
+> Windows 不支持 gunicorn 的 fork，Windows 上仍用 `uvicorn` 单进程；多 worker 部署请在 Linux/Docker 环境。

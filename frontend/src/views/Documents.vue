@@ -57,7 +57,10 @@ const uploading = ref(false)
 const busy = reactive({})
 const statusMap = { pending: '待解析', parsed: '已解析', vectorized: '已向量化' }
 
-async function load() { docs.value = (await listDocs()).data }
+async function load() {
+  const r = await listDocs()
+  docs.value = r.data.list  // 分页: {total, list}
+}
 function onFile(e) { files.value = Array.from(e.target.files) }
 async function upload() {
   const form = new FormData()

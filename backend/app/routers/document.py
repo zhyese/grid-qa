@@ -39,10 +39,12 @@ async def upload(
 @router.get("/list")
 async def document_list(
     keyword: str = Query(""),
+    page: int = Query(1, ge=1),
+    size: int = Query(20, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    data = await list_documents(db, keyword)
+    data = await list_documents(db, keyword, page, size)
     return success(data, "查询成功")
 
 

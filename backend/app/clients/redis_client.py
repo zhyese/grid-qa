@@ -25,6 +25,11 @@ async def cache_set_json(key: str, value: dict, ttl: int) -> None:
     await get_redis().set(key, json.dumps(value, ensure_ascii=False), ex=ttl)
 
 
+async def cache_set_json_persistent(key: str, value: dict) -> None:
+    """无 TTL 永久存储（配置持久化）。"""
+    await get_redis().set(key, json.dumps(value, ensure_ascii=False))
+
+
 async def ping() -> bool:
     try:
         return bool(await get_redis().ping())
