@@ -32,3 +32,9 @@ class FeedbackRequest(BaseModel):
 
 class RenameRequest(BaseModel):
     title: str
+
+
+class RelatedRequest(BaseModel):
+    query: str
+    answer: str = ""
+    modelType: Optional[str] = None       # deepseek | qwen | doubao

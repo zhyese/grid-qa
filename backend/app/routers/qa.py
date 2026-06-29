@@ -10,7 +10,13 @@ from app.core.response import success
 from app.db.session import get_db
 from app.dependencies import get_current_user
 from app.models.user import User
-from app.schemas.qa import FeedbackRequest, QaAnswerRequest, RenameRequest, TermRequest
+from app.schemas.qa import (
+    FeedbackRequest,
+    QaAnswerRequest,
+    RelatedRequest,
+    RenameRequest,
+    TermRequest,
+)
 from app.services import conversation_service, feedback_service, qa_service, term_service
 from app.services.log_service import write_log
 
@@ -117,3 +123,15 @@ async def feedback(
         answer=body.answer, feedback=body.feedback, username=user.username,
     )
     return success(None, "感谢反馈")
+
+
+@router.post("/related")
+@limiter.limit("20/minute")
+async def related(
+    request: Request,
+    body: RelatedRequest,
+    user: User = Depends(get_current_user),
+):
+    """智能推荐：基于当前问答生成 3 个相关追问问题（独立接口，不拖慢流式）。"""
+    questions = await qa_service.generate_related(body.query, body.answer, body.modelType)
+    return success({"questions": questions}, "生成成功")

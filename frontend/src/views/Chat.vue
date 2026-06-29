@@ -65,6 +65,12 @@
                   <span v-if="m.fb" class="fb-done">已记录</span>
                 </span>
               </div>
+              <div class="related" v-if="!m.streaming && m.related && m.related.length">
+                <b>💡 相关追问：</b>
+                <div class="rq-list">
+                  <button class="rq" v-for="(rq, k) in m.related" :key="k" @click="askRelated(rq)">{{ rq }}</button>
+                </div>
+              </div>
             </div>
           </div>
           <div v-if="!messages.length" class="empty">
@@ -118,7 +124,7 @@ hljs.registerLanguage('xml', xml)
 hljs.registerLanguage('html', xml)
 hljs.registerLanguage('markdown', markdown)
 hljs.registerLanguage('md', markdown)
-import { streamAnswer, sendFeedback, getConversations, getHistory, deleteConversation, renameConversation } from '../api'
+import { streamAnswer, sendFeedback, getRelatedQuestions, getConversations, getHistory, deleteConversation, renameConversation } from '../api'
 
 // F1: Markdown 渲染 + 代码高亮
 const md = new MarkdownIt({
@@ -161,6 +167,15 @@ const quickQuestions = [
   '变压器日常巡视检查哪些项目？',
 ]
 function quickAsk(q) { query.value = q; ask() }
+
+// 智能推荐相关问题：答案渲染后异步拉取（不阻塞流式），点击直接追问
+function askRelated(q) { query.value = q; ask() }
+async function loadRelated(m) {
+  try {
+    const r = await getRelatedQuestions(m.query, m.content, modelType.value || undefined)
+    m.related = (r.data && r.data.questions) || []
+  } catch (e) { m.related = [] }
+}
 
 async function loadConversations() {
   try { conversations.value = (await getConversations(searchKw.value)).data || [] } catch (e) {}
@@ -212,6 +227,7 @@ async function ask() {
         msg.streaming = false
         currentConvId.value = msg.conversationId
         loadConversations()      // 刷新侧栏（新对话进列表）
+        loadRelated(msg)          // 智能推荐：答案渲染后异步拉取 3 个相关问题（不阻塞流式）
       }
     })
   } catch (e) {
@@ -325,6 +341,10 @@ onMounted(loadConversations)
 .src-item { color: #475569; margin: 2px 0; }
 .meta { color: #94a3b8; font-size: 12px; margin-top: 6px; }
 .fb { margin-left: 12px; }
+.related { margin-top: 10px; font-size: 13px; }
+.rq-list { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
+.rq { background: var(--surface-2); border: 1px solid var(--border); color: var(--primary); padding: 6px 12px; border-radius: 16px; cursor: pointer; font-size: 12px; transition: all .15s; }
+.rq:hover { background: var(--primary); color: #fff; }
 .fb-btn { cursor: pointer; margin: 0 4px; opacity: .6; }
 .fb-btn:hover, .fb-btn.on { opacity: 1; }
 .cursor { color: #2563eb; font-weight: bold; animation: blink 1s step-end infinite; }

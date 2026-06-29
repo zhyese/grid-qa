@@ -1,4 +1,6 @@
-"""RAG 问答编排：热点缓存 / 多轮上下文 / 检索 / prompt / LLM / 后处理。"""
+"""RAG 问答编排：热点缓存 / 多轮上下文 / 检索 / prompt / LLM / 后处理 / 相关问题推荐。"""
+import json
+import re
 import time
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -217,3 +219,33 @@ async def stream_answer(
         "conversationId": conversation_id,
         "cached": False,
     }
+
+
+async def generate_related(
+    query: str, answer: str = "", model_type: str | None = None
+) -> list[str]:
+    """基于当前问答，LLM 生成 3 个相关追问问题（引导深挖）。
+
+    独立接口：避免塞进流式 done 拖慢首字延迟，由前端答案渲染后异步拉取。
+    """
+    provider = get_llm_provider(model_type)
+    prompt = (
+        "基于以下电网运维问答，生成 3 个用户可能继续追问的相关问题。\n"
+        "要求：与原问题相关但换角度或更深一层；简短具体（10-25 字）；聚焦变电/配电/输电运维。\n"
+        "只输出 JSON 字符串数组，如 [\"问题1\",\"问题2\",\"问题3\"]，不要任何解释或代码块。\n\n"
+        f"【原问题】{query}\n【答案摘要】{(answer or '')[:500]}"
+    )
+    try:
+        ans = await provider.chat(
+            [{"role": "user", "content": prompt}], temperature=0.5, max_tokens=400
+        )
+    except Exception:
+        return []
+    m = re.search(r"\[.*\]", ans or "", re.S)
+    if not m:
+        return []
+    try:
+        arr = json.loads(m.group(0))
+    except Exception:
+        return []
+    return [str(x).strip()[:60] for x in arr if str(x).strip()][:3]

@@ -61,6 +61,10 @@ export const streamAnswer = async (query, modelType, conversationId, onEvent) =>
 export const sendFeedback = (query, answer, feedback, conversationId) =>
   request.post('/qa/feedback', { query, answer, feedback, conversationId })
 
+// 智能推荐：生成 3 个相关问题（答案渲染后异步拉取，不阻塞流式）
+export const getRelatedQuestions = (query, answer, modelType) =>
+  request.post('/qa/related', { query, answer, modelType })
+
 // 对话历史
 export const getConversations = (keyword = '') => request.get('/qa/conversations', { params: { keyword } })
 export const deleteConversation = (id) => request.delete(`/qa/conversations/${id}`)
