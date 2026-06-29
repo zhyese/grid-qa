@@ -6,5 +6,5 @@ async def embed_texts(texts: list[str]) -> list[list[float]]:
     return await get_embedding_provider().embed(texts)
 
 
-async def embed_query(text: str) -> list[float]:
-    return (await get_embedding_provider().embed([text]))[0]
+async def embed_query(text: str, provider: str | None = None) -> list[float]:
+    return (await get_embedding_provider(provider).embed([text]))[0]

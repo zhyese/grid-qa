@@ -85,6 +85,12 @@ class Settings(BaseSettings):
     RERANK_ENABLE: bool = True
     RERANK_MODEL: str = "gte-rerank-v2"
 
+    # ---------- 本地 embedding（bge，文档小走本地；大文档走云）----------
+    BGE_MODEL: str = "BAAI/bge-small-zh-v1.5"   # 可换 bge-large-zh-v1.5(1024维,效果更好)
+    BGE_DIM: int = 512
+    DOC_SIZE_THRESHOLD: int = 5000   # 文档总字数超此值 → 走云 embedding；否则本地 bge
+    MILVUS_COLLECTION_BGE: str = "grid_chunks_bge"   # 本地 bge 向量库(独立 collection, 向量空间不混)
+
     # ---------- 分块 ----------
     CHUNK_SIZE: int = 500
     CHUNK_OVERLAP: int = 80

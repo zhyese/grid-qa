@@ -112,7 +112,9 @@ async def parse_documents(db: AsyncSession, doc_ids: List[str]) -> list[dict]:
 
 
 async def vectorize_document(db: AsyncSession, doc_id: str) -> dict:
-    """chunks → 向量(EmbeddingProvider) → Milvus 存储。"""
+    """chunks → 向量 → Milvus。按文档大小路由：大→云, 小→本地 bge（向量空间独立分 collection）。"""
+    from app.providers.factory import get_embedding_provider
+
     doc = await get_document(db, doc_id)
     rows = (
         await db.execute(select(Chunk).where(Chunk.doc_id == doc_id).order_by(Chunk.chunk_idx))
@@ -120,17 +122,25 @@ async def vectorize_document(db: AsyncSession, doc_id: str) -> dict:
     if not rows:
         raise BizError("文档尚未解析，请先调用解析接口", 400)
     texts = [r.content for r in rows]
-    vectors = await embedding_service.embed_texts(texts)
+    total_chars = sum(len(t) for t in texts)
+
+    # 路由：文档大走云 embedding，小走本地 bge
+    if total_chars > settings.DOC_SIZE_THRESHOLD:
+        provider, collection, route = settings.EMB_PROVIDER, settings.MILVUS_COLLECTION, "cloud"
+    else:
+        provider, collection, route = "bge", settings.MILVUS_COLLECTION_BGE, "bge"
+
+    vectors = await get_embedding_provider(provider).embed(texts)
+    milvus_client.delete_by_doc(doc_id)  # 先清旧（双 collection）
     await asyncio.to_thread(
-        milvus_client.insert_chunks,
-        vectors, texts,
+        milvus_client.insert_chunks, collection, vectors, texts,
         [doc_id] * len(texts), [doc.doc_name] * len(texts), [r.chunk_idx for r in rows],
     )
     doc.status = "vectorized"
     await db.commit()
     return {
         "docId": doc_id, "vectorCount": len(vectors),
-        "milvusCollection": settings.MILVUS_COLLECTION,
+        "milvusCollection": collection, "embeddingRoute": route, "docChars": total_chars,
     }
 
 

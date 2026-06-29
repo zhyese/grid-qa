@@ -1,4 +1,4 @@
-"""混合检索编排：Milvus 稠密 + BM25 稀疏 + RRF 融合 + 重排。"""
+"""混合检索编排：双 collection(云+bge) 稠密 + BM25 稀疏 + RRF 融合 + 重排。"""
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.clients import milvus_client
@@ -17,38 +17,39 @@ def _to_item(h: dict) -> dict:
 
 
 async def mixed_search(db: AsyncSession, query: str, topk: int = 10) -> list[dict]:
-    # 1) 向量稠密检索（Milvus）
-    qvec = await embedding_service.embed_query(query)
-    dense = milvus_client.search(qvec, topk=max(topk * 4, 20))
+    cand = max(topk * 4, 20)
+
+    # 1) 双 collection 稠密检索（云 + 本地 bge，向量空间各自独立）
+    qvec_cloud = await embedding_service.embed_query(query, settings.EMB_PROVIDER)
+    qvec_bge = await embedding_service.embed_query(query, "bge")
+    dense = milvus_client.search(settings.MILVUS_COLLECTION, qvec_cloud, topk=cand)
+    dense += milvus_client.search(settings.MILVUS_COLLECTION_BGE, qvec_bge, topk=cand)
     dense_hits = [{**d, "key": (d.get("doc_id"), d.get("chunk_idx"))} for d in dense]
 
-    # 2) BM25 稀疏检索（内存语料）
+    # 2) BM25 稀疏检索（内存语料，覆盖两路 chunk 文本）
     await bm25_service.ensure_built(db)
     sparse_hits = []
-    for s in bm25_service.search(query, topk=max(topk * 4, 20)):
+    for s in bm25_service.search(query, topk=cand):
         c = bm25_service.get_chunk(s["idx"])
         if not c:
             continue
-        sparse_hits.append(
-            {
-                "key": (c["doc_id"], c["chunk_idx"]),
-                "text": c["text"], "doc_id": c["doc_id"],
-                "doc_name": c["doc_name"], "chunk_idx": c["chunk_idx"],
-            }
-        )
+        sparse_hits.append({
+            "key": (c["doc_id"], c["chunk_idx"]),
+            "text": c["text"], "doc_id": c["doc_id"],
+            "doc_name": c["doc_name"], "chunk_idx": c["chunk_idx"],
+        })
 
-    # 3) RRF 融合（取较多候选供重排）
+    # 3) RRF 融合
     fused = rrf.rrf_fuse([dense_hits, sparse_hits], key_fn=lambda h: h["key"])
 
-    # 4) 重排（百炼 gte-rerank），失败兜底用 RRF 顺序
+    # 4) 重排（百炼 gte-rerank），失败兜底 RRF
     if settings.RERANK_ENABLE and len(fused) > 1:
         try:
             docs = [h.get("text", "") for h in fused]
             ranked = await rerank_service.get_reranker().rerank(query, docs, top_n=topk)
             out = []
             for idx, score in ranked:
-                h = fused[idx]
-                out.append({**_to_item(h), "score": round(score, 4)})
+                out.append({**_to_item(fused[idx]), "score": round(float(score), 4)})
             if out:
                 return out
         except Exception:

@@ -6,15 +6,18 @@ from app.config import settings
 from app.providers.base import EmbeddingProvider, LLMProvider
 
 
-def get_embedding_provider() -> EmbeddingProvider:
-    p = settings.EMB_PROVIDER
+def get_embedding_provider(provider: str | None = None) -> EmbeddingProvider:
+    p = provider or settings.EMB_PROVIDER
     if p == "qwen":
         from app.providers.embedding.qwen_embedding import QwenEmbedding
         return QwenEmbedding()
     if p == "doubao":
         from app.providers.embedding.doubao_embedding import DoubaoEmbedding
         return DoubaoEmbedding()
-    raise ValueError(f"未知 EMB_PROVIDER: {p}（支持: qwen | doubao）")
+    if p == "bge":
+        from app.providers.embedding.bge_embedding import BgeEmbedding
+        return BgeEmbedding()
+    raise ValueError(f"未知 EMB_PROVIDER: {p}（支持: qwen | doubao | bge）")
 
 
 def get_llm_provider(provider: str | None = None) -> LLMProvider:

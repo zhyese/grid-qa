@@ -120,6 +120,14 @@ docker compose up -d --build
 - 火山方舟需在控制台创建推理接入点，将 endpoint id 填入 `DOUBAO_LLM_ENDPOINT_ID`
 - `LLM_PROVIDER` / `EMB_PROVIDER` 控制当前使用的模型；`EMBEDDING_DIM` 固定 1024
 
+### 双 Embedding 路由（云 + 本地 bge）
+
+- 文档总字数 > `DOC_SIZE_THRESHOLD`（默认 5000）→ **云 embedding**（百炼/火山），入 `grid_chunks`
+- 小文档 → **本地 bge**（`BGE_MODEL`，默认 `bge-small-zh-v1.5` 512维，可换 `bge-large-zh-v1.5` 1024维改 `BGE_DIM`），入 `grid_chunks_bge`
+- 两套向量空间独立，检索时 query 双路 embedding、双 collection 查询 + RRF 融合（保证各自向量一致性）
+- 本地 bge 首次下载模型需访问 HuggingFace：设 `HF_ENDPOINT=https://hf-mirror.com` 或代理或预下到 HF 缓存
+- 生产多并发用 gunicorn 多 worker（见下"生产部署"，Windows 用 uvicorn）
+
 ## 生产部署（多 worker）
 
 开发用 `uvicorn --reload`（单进程）；Linux/Docker 生产用 gunicorn + uvicorn worker 多进程提并发：

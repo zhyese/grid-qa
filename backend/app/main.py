@@ -28,9 +28,9 @@ async def lifespan(app: FastAPI):
 
     await init_bucket()  # 确保 MinIO bucket
 
-    from app.clients.milvus_client import ensure_collection
+    from app.clients.milvus_client import ensure_collections
 
-    ensure_collection()  # 确保 Milvus collection
+    ensure_collections()  # 确保 云 + bge 双 collection
     # ---- 关闭 ----
     yield
 
