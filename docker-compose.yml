@@ -1,0 +1,49 @@
+# 电网运维 RAG 智能问答系统 - 基础设施编排
+# 分阶段启用：S1 仅 mysql + minio；S5 增加 etcd + milvus-minio + milvus；S11 增加 backend。
+
+services:
+  # ---------- MySQL：结构化元数据（用户/文档/chunks/日志）----------
+  mysql:
+    image: mysql:8.0
+    container_name: grid-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root123456}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-grid_qa}
+      MYSQL_USER: ${MYSQL_USER:-grid}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-grid123456}
+      TZ: Asia/Shanghai
+    ports:
+      # 宿主机映射到 3307，避开本机已安装的 MySQL(3306)；容器内部仍为 3306
+      - "3307:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+    command:
+      --character-set-server=utf8mb4
+      --collation-server=utf8mb4_unicode_ci
+      --default-authentication-plugin=mysql_native_password
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-p${MYSQL_ROOT_PASSWORD:-root123456}"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+  # ---------- MinIO：源文档对象存储 ----------
+  minio:
+    image: minio/minio:latest
+    container_name: grid-minio
+    restart: unless-stopped
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-minioadmin}
+    ports:
+      - "9000:9000"   # S3 API
+      - "9001:9001"   # Web Console
+    volumes:
+      - minio-data:/data
+    command: server /data --console-address ":9001"
+
+volumes:
+  mysql-data:
+  minio-data:

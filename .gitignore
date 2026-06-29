@@ -1,0 +1,43 @@
+# ===== Python =====
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+
+# 虚拟环境
+venv/
+.venv/
+env/
+ENV/
+
+# ===== 环境与密钥（绝不提交）=====
+.env
+.env.local
+.env.*.local
+
+# ===== 运行时数据 =====
+data/
+backend/data/
+uploads/
+chroma/
+*.db
+*.sqlite3
+
+# ===== 前端 =====
+node_modules/
+frontend/node_modules/
+frontend/dist/
+dist/
+
+# ===== IDE / OS =====
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# ===== 日志 =====
+*.log
+logs/
