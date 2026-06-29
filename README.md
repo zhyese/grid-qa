@@ -67,7 +67,7 @@ curl http://localhost:8001/health
 ## 开发切片进度
 
 - [x] **S1** 地基 + 骨架 + `/health`
-- [ ] S2 认证（登录/注册/JWT）
+- [x] **S2** 认证（登录/注册/JWT/操作日志）
 - [ ] S3 文档上传（MinIO）
 - [ ] S4 解析 + 分块（PaddleOCR）
 - [ ] S5 Embedding + Milvus
