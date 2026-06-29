@@ -12,8 +12,11 @@ bcrypt>=4.0,<5
 PyJWT>=2.8,<3
 email-validator>=2.0
 
+# ===== S3 文档上传（form-data 需要 python-multipart）=====
+minio>=7.2,<8
+python-multipart>=0.0.9
+
 # ===== 后续切片按需追加（暂不安装）=====
-# S3 文档上传:  minio
 # S4 解析:       pdfplumber pypdf python-docx pymupdf paddlepaddle paddleocr
 # S5 向量化:     pymilvus openai
 # S6 检索:       rank-bm25 jieba

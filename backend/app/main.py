@@ -19,7 +19,10 @@ async def lifespan(app: FastAPI):
     from app.db.init_db import init_db
 
     await init_db()  # S2: 建表 + 初始管理员
-    # S3: from app.clients.minio_client import init_bucket; await init_bucket()
+
+    from app.clients.minio_client import init_bucket
+
+    await init_bucket()  # S3: 确保 MinIO bucket 存在
     # S5: from app.clients.milvus_client import ensure_collection; ensure_collection()
     # ---- 关闭 ----
     yield
@@ -42,10 +45,10 @@ async def health():
 
 
 # ---- 路由挂载 ----
-from app.routers import system  # noqa: E402
+from app.routers import document, system  # noqa: E402
 
 app.include_router(system.router, prefix=settings.API_PREFIX)
-# S3+: app.include_router(document.router, prefix=settings.API_PREFIX)
+app.include_router(document.router, prefix=settings.API_PREFIX)
 # S6:  app.include_router(retrieval.router, prefix=settings.API_PREFIX)
 # S7:  app.include_router(qa.router, prefix=settings.API_PREFIX)
 
