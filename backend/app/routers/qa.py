@@ -1,10 +1,11 @@
-"""问答接口：智能问答(普通/流式/多轮) / 对话历史 / 术语归一化。"""
+"""问答接口：智能问答(普通/流式/多轮) / 对话历史 / 反馈 / 术语归一化。"""
 import json
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.limiter import limiter
 from app.core.response import success
 from app.db.session import get_db
 from app.dependencies import get_current_user
@@ -17,7 +18,9 @@ router = APIRouter(prefix="/qa", tags=["检索与问答"])
 
 
 @router.post("/answer")
+@limiter.limit("30/minute")
 async def answer(
+    request: Request,
     body: QaAnswerRequest,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
@@ -30,7 +33,9 @@ async def answer(
 
 
 @router.post("/answer/stream")
+@limiter.limit("30/minute")
 async def answer_stream(
+    request: Request,
     body: QaAnswerRequest,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
@@ -56,7 +61,7 @@ async def conversations(
 
 @router.get("/history")
 async def history(
-    conversationId: str = Query(...),
+    conversationId: str,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):

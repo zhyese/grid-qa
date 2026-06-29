@@ -19,11 +19,18 @@ def _to_item(h: dict) -> dict:
 async def mixed_search(db: AsyncSession, query: str, topk: int = 10) -> list[dict]:
     cand = max(topk * 4, 20)
 
-    # 1) 双 collection 稠密检索（云 + 本地 bge，向量空间各自独立）
-    qvec_cloud = await embedding_service.embed_query(query, settings.EMB_PROVIDER)
-    qvec_bge = await embedding_service.embed_query(query, "bge")
-    dense = milvus_client.search(settings.MILVUS_COLLECTION, qvec_cloud, topk=cand)
-    dense += milvus_client.search(settings.MILVUS_COLLECTION_BGE, qvec_bge, topk=cand)
+    # 1) 双 collection 稠密检索（云 + 本地 bge，并行 embedding + 并行查询）
+    import asyncio
+
+    qvec_cloud, qvec_bge = await asyncio.gather(
+        embedding_service.embed_query(query, settings.EMB_PROVIDER),
+        embedding_service.embed_query(query, "bge"),
+    )
+    dense_cloud, dense_bge = await asyncio.gather(
+        asyncio.to_thread(milvus_client.search, settings.MILVUS_COLLECTION, qvec_cloud, cand),
+        asyncio.to_thread(milvus_client.search, settings.MILVUS_COLLECTION_BGE, qvec_bge, cand),
+    )
+    dense = dense_cloud + dense_bge
     dense_hits = [{**d, "key": (d.get("doc_id"), d.get("chunk_idx"))} for d in dense]
 
     # 2) BM25 稀疏检索（内存语料，覆盖两路 chunk 文本）

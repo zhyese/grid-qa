@@ -1,9 +1,10 @@
 """文档接口：上传 / 列表 / 解析 / 向量化 / 删除。"""
 from typing import List
 
-from fastapi import APIRouter, Depends, File, Form, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.limiter import limiter
 from app.core.response import success
 from app.db.session import get_db
 from app.dependencies import get_current_user
@@ -22,7 +23,9 @@ router = APIRouter(prefix="/document", tags=["文档处理"])
 
 
 @router.post("/upload")
+@limiter.limit("10/minute")
 async def upload(
+    request: Request,
     files: List[UploadFile] = File(...),
     docType: str = Form("运维手册"),
     db: AsyncSession = Depends(get_db),
