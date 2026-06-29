@@ -95,12 +95,43 @@ async def stream_answer(
     db: AsyncSession, query: str, model_type: str | None = None,
     topk: int = 5, conversation_id: str | None = None, username: str = "",
 ):
-    """流式问答：meta(引用+会话) → 逐 token → done(耗时+幻觉率)。
+    """流式问答：单轮查热点缓存(命中则快流不调LLM) → 否则 meta/token/done 三段。
 
-    若只流 token 会丢失引用溯源/耗时/反馈所需元数据，故分三段事件下发。
+    补齐 LLM 调用埋点 + 缓存命中埋点（流式路径原本缺失，导致 Grafana LLM/缓存面板 No data）。
     """
     t0 = time.time()
     nq = term_service.normalize(query)
+    _p = model_type or settings.LLM_PROVIDER
+    is_single = not conversation_id  # 仅单轮查/写缓存（多轮上下文变化不缓存）
+
+    # 0) 单轮查热点缓存 → 命中则不调 LLM，一次性下发完整答案（cached=true）
+    if is_single:
+        try:
+            cached = await redis_client.cache_get_json(_cache_key(model_type, nq))
+        except Exception:
+            cached = None
+        if cached:
+            conv = await conversation_service.create_conversation(db, username, query)
+            cid = conv.id
+            try:
+                await conversation_service.save_message(db, cid, "user", query)
+                await conversation_service.save_message(db, cid, "assistant", cached.get("answer", ""))
+            except Exception:
+                pass
+            yield {"type": "meta", "sources": cached.get("retrievalSource", []), "conversationId": cid}
+            yield {"type": "token", "content": cached.get("answer", "")}
+            try:
+                from app.core import metrics
+                metrics.QA_TOTAL.labels(_p, "true").inc()
+            except Exception:
+                pass
+            yield {
+                "type": "done", "responseTime": round(time.time() - t0, 3),
+                "hallucinationRate": cached.get("hallucinationRate", 0.0),
+                "conversationId": cid, "cached": True,
+            }
+            return
+
     contexts = await retrieval_service.mixed_search(db, nq, topk)
     if not contexts:
         yield {"type": "done", "content": "根据现有资料无法确认该问题，请先上传并解析相关运维文档后重试。"}
@@ -113,38 +144,65 @@ async def stream_answer(
     messages = prompt_templates.build_messages_with_history(nq, contexts, history)
 
     # 流式前先建会话，确保 conversationId 可随 meta 下发
-    if not conversation_id:
+    if is_single:
         conv = await conversation_service.create_conversation(db, username, query)
         conversation_id = conv.id
 
-    # 1) meta：引用来源 + 会话 ID（前端据此显示溯源、刷新侧栏）
+    # 1) meta：引用来源 + 会话 ID
     yield {
         "type": "meta",
         "sources": [{"docName": c.get("docName", ""), "text": c["chunk"][:200]} for c in contexts],
         "conversationId": conversation_id,
     }
 
-    # 2) 逐 token 流式（打字机效果）
+    # 2) 逐 token 流式（打字机）+ LLM 调用埋点
     parts: list[str] = []
+    _llm0 = time.time()
     async for token in get_llm_provider(model_type).stream(messages, temperature=0.2):
         parts.append(token)
         yield {"type": "token", "content": token}
+    try:
+        from app.core import metrics
+        metrics.LLM_CALLS.labels(_p).inc()
+        metrics.LLM_LATENCY.labels(_p).observe(time.time() - _llm0)
+    except Exception:
+        pass
 
-    # 3) 持久化完整答案 + done（耗时/幻觉率）
+    # 3) 持久化完整答案
     full = "".join(parts)
     try:
         await conversation_service.save_message(db, conversation_id, "user", query)
         await conversation_service.save_message(db, conversation_id, "assistant", full)
     except Exception:
         pass
+
+    # 4) 单轮写热点缓存
+    halluc = citation.estimate_hallucination(full, len(contexts))
+    if is_single:
+        try:
+            await redis_client.cache_set_json(
+                _cache_key(model_type, nq),
+                {
+                    "answer": full,
+                    "retrievalSource": [{"docName": c.get("docName", ""), "text": c["chunk"][:200]} for c in contexts],
+                    "responseTime": round(time.time() - t0, 3),
+                    "hallucinationRate": halluc,
+                    "cached": False,
+                    "conversationId": conversation_id,
+                },
+                settings.QA_CACHE_TTL,
+            )
+        except Exception:
+            pass
     try:
         from app.core import metrics
-        metrics.QA_TOTAL.labels(model_type or settings.LLM_PROVIDER, "false").inc()
+        metrics.QA_TOTAL.labels(_p, "false").inc()
     except Exception:
         pass
     yield {
         "type": "done",
         "responseTime": round(time.time() - t0, 3),
-        "hallucinationRate": citation.estimate_hallucination(full, len(contexts)),
+        "hallucinationRate": halluc,
         "conversationId": conversation_id,
+        "cached": False,
     }
