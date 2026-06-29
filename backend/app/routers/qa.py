@@ -1,5 +1,8 @@
-"""问答接口：智能问答 / 术语归一化。"""
+"""问答接口：智能问答(普通/流式) / 术语归一化。"""
+import json
+
 from fastapi import APIRouter, Depends
+from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.response import success
@@ -22,6 +25,22 @@ async def answer(
     data = await qa_service.answer(db, body.query, body.modelType)
     await write_log(db, user.username, "智能问答", f"提问：{body.query[:50]}")
     return success(data, "问答成功")
+
+
+@router.post("/answer/stream")
+async def answer_stream(
+    body: QaAnswerRequest,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """SSE 流式问答：逐 token 推送，首字延迟 <1s。"""
+
+    async def gen():
+        async for token in qa_service.stream_answer(db, body.query, body.modelType):
+            yield f"data: {json.dumps({'content': token}, ensure_ascii=False)}\n\n"
+        yield "data: [DONE]\n\n"
+
+    return StreamingResponse(gen(), media_type="text/event-stream")
 
 
 @router.post("/term/normalize")

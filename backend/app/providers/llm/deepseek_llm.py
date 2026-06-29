@@ -18,3 +18,12 @@ class DeepSeekLLM(LLMProvider):
             temperature=temperature, max_tokens=max_tokens, **kw,
         )
         return r.choices[0].message.content
+
+    async def stream(self, messages, temperature=0.2, max_tokens=2048, **kw):
+        r = await self.client.chat.completions.create(
+            model=self.model, messages=messages,
+            temperature=temperature, max_tokens=max_tokens, stream=True, **kw,
+        )
+        async for chunk in r:
+            if chunk.choices and chunk.choices[0].delta.content:
+                yield chunk.choices[0].delta.content

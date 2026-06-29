@@ -62,3 +62,19 @@ async def answer(
     except Exception:
         pass
     return result
+
+
+async def stream_answer(
+    db: AsyncSession, query: str, model_type: str | None = None, topk: int = 5
+):
+    """流式问答：检索 → LLM 逐 token yield（不走缓存，首字 <1s）。"""
+    nq = term_service.normalize(query)
+    contexts = await retrieval_service.mixed_search(db, nq, topk)
+    if not contexts:
+        yield "根据现有资料无法确认该问题，请先上传并解析相关运维文档后重试。"
+        return
+    messages = prompt_templates.build_messages(
+        nq, [{"docName": c["docName"], "chunk": c["chunk"]} for c in contexts]
+    )
+    async for token in get_llm_provider(model_type).stream(messages, temperature=0.2):
+        yield token
