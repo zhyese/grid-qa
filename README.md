@@ -81,7 +81,7 @@ npm --prefix frontend run dev
 - [x] **S8** 配置接口 + 日志（角色/时间过滤）
 - [x] **S9** 前端联调（Vue3 + Vite + Pinia）
 - [x] **S10** 评测 + 性能（召回100% / 单请求0.95s）
-- [ ] S11 镜像化 + 全栈部署
+- [x] **S11** 镜像化 + 全栈部署
 
 ## 评测结果（S10，6 文档 demo 库）
 
@@ -94,6 +94,23 @@ npm --prefix frontend run dev
 > 高并发下 P50 ~20s，瓶颈在百炼 embedding 云 API 限流（非 Milvus/系统瓶颈）。生产优化方向：本地 embedding 模型 / query 向量缓存 / 提升 API 配额。
 
 评测脚本：`python scripts/seed_demo.py`（建库）→ `python scripts/eval_retrieval.py`（召回）→ `python scripts/benchmark.py 50`（压测）。
+
+## 一键部署（Docker Compose）
+
+```bash
+# 1. 准备配置（填入三家云 API Key）
+cp .env.example .env
+
+# 2. 一键构建并启动全栈（MySQL/MinIO/Milvus/后端/前端 共 7 个服务）
+docker compose up -d --build
+
+# 3. 访问
+#   前端:   http://localhost:5173   (admin / admin123)
+#   后端:   http://localhost:8001/docs
+#   MinIO:  http://localhost:9001
+```
+
+容器间用 service name 通信：backend 连 `mysql:3306` / `minio:9000` / `milvus:19530`（由 compose `environment` 覆盖 `.env` 中的 localhost，API Key 等仍由 `.env` 注入）。
 
 ## 配置说明
 

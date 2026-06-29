@@ -1,5 +1,6 @@
-# 电网运维 RAG 智能问答系统 - 基础设施编排
-# S1: mysql + minio | S5: + etcd + milvus-minio + milvus | S11: + backend
+# 电网运维 RAG 智能问答系统 - 全栈编排
+# S1: mysql + minio | S5: + etcd + milvus-minio + milvus | S11: + backend + frontend
+# 一键启动: docker compose up -d --build
 
 services:
   # ---------- MySQL：结构化元数据 ----------
@@ -14,8 +15,7 @@ services:
       MYSQL_PASSWORD: ${MYSQL_PASSWORD:-grid123456}
       TZ: Asia/Shanghai
     ports:
-      # 宿主机映射到 3307，避开本机已安装的 MySQL(3306)；容器内部仍为 3306
-      - "3307:3306"
+      - "3307:3306"   # 宿主机 3307，避开本机 MySQL
     volumes:
       - mysql-data:/var/lib/mysql
     command:
@@ -38,8 +38,8 @@ services:
       MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-minioadmin}
       MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-minioadmin}
     ports:
-      - "9000:9000"   # S3 API
-      - "9001:9001"   # Web Console
+      - "9000:9000"
+      - "9001:9001"
     volumes:
       - minio-data:/data
     command: server /data --console-address ":9001"
@@ -63,7 +63,7 @@ services:
       timeout: 20s
       retries: 3
 
-  # ---------- Milvus 专用对象存储（独立于业务 minio）----------
+  # ---------- Milvus 专用对象存储 ----------
   milvus-minio:
     image: minio/minio:latest
     container_name: grid-milvus-minio
@@ -75,7 +75,7 @@ services:
       - milvus-minio-data:/minio_data
     command: minio server /minio_data
 
-  # ---------- Milvus 2.4 向量库（2.4 的 pymilvus 支持 py3.13）----------
+  # ---------- Milvus 2.4 向量库 ----------
   milvus:
     image: milvusdb/milvus:v2.4.10
     container_name: grid-milvus
@@ -88,14 +88,42 @@ services:
       ETCD_ENDPOINTS: etcd:2379
       MINIO_ADDRESS: milvus-minio:9000
     ports:
-      - "19530:19530"   # gRPC（pymilvus 连接）
-      - "9091:9091"     # 健康检查 / metrics
+      - "19530:19530"
+      - "9091:9091"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9091/healthz"]
       interval: 30s
       start_period: 90s
       timeout: 20s
       retries: 3
+
+  # ---------- 后端 ----------
+  backend:
+    build: ./backend
+    container_name: grid-backend
+    restart: unless-stopped
+    depends_on:
+      - mysql
+      - minio
+      - milvus
+    env_file: .env
+    environment:
+      # 容器内用 service name + 内部端口连接（覆盖 .env 的 localhost）
+      DATABASE_URL: mysql+aiomysql://grid:grid123456@mysql:3306/grid_qa?charset=utf8mb4
+      MINIO_ENDPOINT: minio:9000
+      MILVUS_HOST: milvus
+    ports:
+      - "8001:8001"
+
+  # ---------- 前端（nginx）----------
+  frontend:
+    build: ./frontend
+    container_name: grid-frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "5173:80"
 
 volumes:
   mysql-data:
