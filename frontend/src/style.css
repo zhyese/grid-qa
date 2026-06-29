@@ -1,13 +1,42 @@
 * { box-sizing: border-box; }
+
+/* 主题变量：亮色 */
+:root {
+  --bg: #f4f6f9;
+  --surface: #ffffff;
+  --surface-2: #f8fafc;
+  --text: #1e293b;
+  --text-muted: #64748b;
+  --border: #e2e8f0;
+  --border-soft: #eef2f7;
+  --primary: #2563eb;
+  --primary-dark: #1e3a8a;
+  --shadow: 0 1px 4px rgba(0, 0, 0, .06);
+}
+/* 主题变量：暗色 */
+html.dark {
+  --bg: #0f172a;
+  --surface: #1e293b;
+  --surface-2: #334155;
+  --text: #e2e8f0;
+  --text-muted: #94a3b8;
+  --border: #334155;
+  --border-soft: #2d3a4f;
+  --primary: #3b82f6;
+  --primary-dark: #1e40af;
+  --shadow: 0 1px 4px rgba(0, 0, 0, .3);
+}
+
 body {
   margin: 0;
   font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
-  background: #f4f6f9;
-  color: #222;
+  background: var(--bg);
+  color: var(--text);
+  transition: background .2s, color .2s;
 }
 .topbar {
   height: 52px;
-  background: linear-gradient(90deg, #1e3a8a, #2563eb);
+  background: linear-gradient(90deg, var(--primary-dark), var(--primary));
   color: #fff;
   display: flex;
   align-items: center;
@@ -23,7 +52,7 @@ button {
   border: none;
   border-radius: 6px;
   padding: 8px 16px;
-  background: #2563eb;
+  background: var(--primary);
   color: #fff;
   font-size: 14px;
 }
@@ -32,19 +61,79 @@ button.secondary { background: #64748b; }
 button.danger { background: #dc2626; }
 input, select, textarea {
   padding: 8px 12px;
-  border: 1px solid #cbd5e1;
+  border: 1px solid var(--border);
   border-radius: 6px;
   font-size: 14px;
   outline: none;
+  background: var(--surface);
+  color: var(--text);
 }
-input:focus { border-color: #2563eb; }
+input:focus { border-color: var(--primary); }
 .card {
-  background: #fff;
+  background: var(--surface);
   border-radius: 10px;
   padding: 20px;
-  box-shadow: 0 1px 4px rgba(0,0,0,.06);
+  box-shadow: var(--shadow);
   margin-bottom: 16px;
 }
 table { width: 100%; border-collapse: collapse; font-size: 14px; }
-th, td { padding: 8px 10px; border-bottom: 1px solid #eef2f7; text-align: left; }
-th { background: #f8fafc; color: #475569; }
+th, td { padding: 8px 10px; border-bottom: 1px solid var(--border-soft); text-align: left; }
+th { background: var(--surface-2); color: var(--text-muted); }
+
+/* ===== 暗色模式：覆盖各组件 scoped 内的硬编码颜色 ===== */
+/* 全局 html.dark .xxx 优先级高于组件 scoped .xxx[data-v] */
+html.dark .chat-page,
+html.dark .doc-wrap,
+html.dark .dash-wrap,
+html.dark .admin-wrap { background: var(--bg); color: var(--text); }
+
+/* Chat 气泡 / 答案 / 来源 */
+html.dark .msg.assistant .bubble { background: var(--surface); color: var(--text); box-shadow: 0 1px 3px rgba(0,0,0,.3); }
+html.dark .msg.user .bubble { background: #1e3a8a; color: #e0edff; }
+html.dark .ans h1, html.dark .ans h2, html.dark .ans h3, html.dark .ans h4 { color: #f1f5f9; }
+html.dark .ans code { background: #0f172a; color: #fbbf24; }
+html.dark .ans pre.hljs { background: #020617; }
+html.dark .ans blockquote { border-left-color: #475569; color: var(--text-muted); }
+html.dark .ans th, html.dark .ans td { border-color: var(--border); }
+html.dark .src { border-top-color: var(--border); }
+html.dark .src-item { color: var(--text-muted); }
+html.dark .src-item:hover { background: var(--surface-2); }
+html.dark .src-item.hi { background: #422006; }
+html.dark .src-doc { color: #38bdf8; }
+
+/* Chat 侧栏（本就深色，暗色下再压暗） */
+html.dark .sidebar { background: #020617; }
+html.dark .search-box { background: #0f172a; color: var(--text); border-color: var(--border); }
+html.dark .rename-input { background: #0f172a; color: var(--text); }
+
+/* Dashboard */
+html.dark .stat-card { box-shadow: 0 2px 12px rgba(0,0,0,.4); }
+html.dark .chart-card { background: var(--surface); }
+html.dark .chart-card h3 { color: #93c5fd; }
+
+/* Documents */
+html.dark .dropzone { background: var(--surface-2); border-color: var(--border); }
+html.dark .dropzone.over { background: #1e3a8a; border-color: var(--primary); }
+html.dark .file-list { color: var(--text-muted); }
+html.dark .progress { background: var(--surface-2); }
+
+html.dark input, html.dark select, html.dark textarea { color-scheme: dark; }
+
+/* 主题切换浮动按钮 */
+.theme-toggle {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  z-index: 9999;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(255, 255, 255, .2);
+  color: #fff;
+  cursor: pointer;
+  font-size: 16px;
+  backdrop-filter: blur(4px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, .2);
+}
+html.dark .theme-toggle { background: rgba(0, 0, 0, .3); }
