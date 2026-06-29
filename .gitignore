@@ -17,11 +17,11 @@ ENV/
 .env.local
 .env.*.local
 
-# ===== 运行时数据 =====
-data/
-backend/data/
-uploads/
-chroma/
+# ===== 运行时数据（仅根目录，不影响 backend/app/data 代码资产）=====
+/data/
+/backend/data/
+/uploads/
+/chroma/
 *.db
 *.sqlite3
 

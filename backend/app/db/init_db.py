@@ -5,6 +5,7 @@ from app.config import settings
 from app.core.security import hash_password
 from app.db.base import Base
 from app.db.session import AsyncSessionLocal, engine
+from app.models.chunk import Chunk  # noqa: F401  确保表被注册
 from app.models.document import Document  # noqa: F401  确保表被注册
 from app.models.operation_log import OperationLog  # noqa: F401  确保表被注册
 from app.models.user import User  # noqa: F401

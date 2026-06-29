@@ -69,7 +69,7 @@ curl http://localhost:8001/health
 - [x] **S1** 地基 + 骨架 + `/health`
 - [x] **S2** 认证（登录/注册/JWT/操作日志）
 - [x] **S3** 文档上传（MinIO + 元数据入库）
-- [ ] S4 解析 + 分块（PaddleOCR）
+- [x] **S4** 解析 + 分块（OCR + 术语归一化）
 - [ ] S5 Embedding + Milvus
 - [ ] S6 混合检索（向量 + BM25 + RRF）
 - [ ] S7 RAG 问答

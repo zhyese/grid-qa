@@ -17,3 +17,13 @@ class DocItem(BaseModel):
     chunkCount: int
     uploadUser: str
     createdAt: Optional[str] = None
+
+
+class ParseRequest(BaseModel):
+    docIds: List[str]
+
+
+class ParseItem(BaseModel):
+    docId: str
+    chunkCount: int
+    chunkList: List[str] = []

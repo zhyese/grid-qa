@@ -16,7 +16,14 @@ email-validator>=2.0
 minio>=7.2,<8
 python-multipart>=0.0.9
 
+# ===== S4 文档解析与分块 =====
+pdfplumber>=0.11
+pypdf>=4
+python-docx>=1.1
+PyMuPDF>=1.24
+rapidocr-onnxruntime>=1.2   # PaddleOCR PP-OCR 模型 + onnxruntime 后端（规避 paddle3.3 Win onednn bug）
+# 原生 paddleocr/paddlepaddle 在 Linux 生产环境可启用，见 services/parse_service.py 注释
+
 # ===== 后续切片按需追加（暂不安装）=====
-# S4 解析:       pdfplumber pypdf python-docx pymupdf paddlepaddle paddleocr
 # S5 向量化:     pymilvus openai
 # S6 检索:       rank-bm25 jieba

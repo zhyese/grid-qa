@@ -1,4 +1,4 @@
-"""文档接口：上传 / 列表 / 详情。（解析、向量化、删除在 S4/S5 补全）"""
+"""文档接口：上传 / 列表 / 解析 / 删除。（向量化在 S5）"""
 from typing import List
 
 from fastapi import APIRouter, Depends, File, Form, Query, UploadFile
@@ -8,7 +8,13 @@ from app.core.response import success
 from app.db.session import get_db
 from app.dependencies import get_current_user
 from app.models.user import User
-from app.services.document_service import list_documents, upload_documents
+from app.schemas.document import ParseRequest
+from app.services.document_service import (
+    delete_document,
+    list_documents,
+    parse_documents,
+    upload_documents,
+)
 from app.services.log_service import write_log
 
 router = APIRouter(prefix="/document", tags=["文档处理"])
@@ -37,3 +43,25 @@ async def document_list(
 ):
     data = await list_documents(db, keyword)
     return success(data, "查询成功")
+
+
+@router.post("/parse")
+async def parse(
+    body: ParseRequest,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    results = await parse_documents(db, body.docIds)
+    await write_log(db, user.username, "文档解析", f"解析 {len(results)} 份文档")
+    return success(results, "解析成功")
+
+
+@router.delete("/delete")
+async def delete_doc(
+    docId: str = Query(...),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    await delete_document(db, docId)
+    await write_log(db, user.username, "文档删除", f"删除文档 {docId}")
+    return success(None, "删除成功")
