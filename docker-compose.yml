@@ -129,6 +129,12 @@ services:
       DATABASE_URL: mysql+aiomysql://grid:grid123456@mysql:3306/grid_qa?charset=utf8mb4
       MINIO_ENDPOINT: minio:9000
       MILVUS_HOST: milvus
+      # 容器访问外网(云API + bge模型下载)走宿主机代理; 内部服务不走代理
+      HTTPS_PROXY: http://host.docker.internal:7897
+      HTTP_PROXY: http://host.docker.internal:7897
+      NO_PROXY: localhost,127.0.0.1,mysql,minio,milvus,redis,prometheus,grafana
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       - "8001:8001"
 
@@ -143,6 +149,7 @@ services:
       - "5173:80"
 
   # ---------- Prometheus 指标采集 ----------
+  # 注：采集本地 uvicorn(host.docker.internal:8001)，不依赖 backend 容器
   prometheus:
     image: prom/prometheus:latest
     container_name: grid-prometheus
@@ -151,8 +158,6 @@ services:
       - "9090:9090"
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
-    depends_on:
-      - backend
 
   # ---------- Grafana 可视化仪表盘（好看的开箱监控界面）----------
   grafana:
