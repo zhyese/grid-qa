@@ -71,7 +71,7 @@ curl http://localhost:8001/health
 - [x] **S3** 文档上传（MinIO + 元数据入库）
 - [x] **S4** 解析 + 分块（OCR + 术语归一化）
 - [x] **S5** Embedding + Milvus（向量化存储）
-- [ ] S6 混合检索（向量 + BM25 + RRF）
+- [x] **S6** 混合检索（向量 + BM25 + RRF）
 - [ ] S7 RAG 问答
 - [ ] S8 配置 + 日志
 - [ ] S9 前端联调
