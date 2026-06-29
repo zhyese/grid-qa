@@ -116,3 +116,26 @@ async def biz_error_handler(request: Request, exc: BizError):
         status_code=200,
         content=error(exc.message, exc.code, exc.data).model_dump(),
     )
+
+
+# ---- Prometheus 指标 + 中间件 ----
+import time  # noqa: E402
+
+from prometheus_client import make_asgi_app  # noqa: E402
+
+from app.core import metrics  # noqa: E402
+
+
+@app.middleware("http")
+async def metrics_middleware(request: Request, call_next):
+    start = time.time()
+    response = await call_next(request)
+    try:
+        metrics.REQUESTS.labels(request.method, request.url.path, str(response.status_code)).inc()
+        metrics.LATENCY.labels(request.url.path).observe(time.time() - start)
+    except Exception:
+        pass
+    return response
+
+
+app.mount("/metrics", make_asgi_app())
