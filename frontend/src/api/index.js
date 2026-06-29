@@ -54,6 +54,8 @@ export const sendFeedback = (query, answer, feedback, conversationId) =>
   request.post('/qa/feedback', { query, answer, feedback, conversationId })
 
 // 对话历史
-export const getConversations = () => request.get('/qa/conversations')
+export const getConversations = (keyword = '') => request.get('/qa/conversations', { params: { keyword } })
+export const deleteConversation = (id) => request.delete(`/qa/conversations/${id}`)
+export const renameConversation = (id, title) => request.put(`/qa/conversations/${id}`, { title })
 export const getHistory = (conversationId) =>
   request.get('/qa/history', { params: { conversationId } })

@@ -12,7 +12,7 @@ class QaAnswerRequest(BaseModel):
 
 class QaAnswerData(BaseModel):
     answer: str
-    retrievalSource: List[str] = []
+    retrievalSource: List[dict] = []
     responseTime: float = 0.0
     hallucinationRate: float = 0.0
     cached: bool = False
@@ -28,3 +28,7 @@ class FeedbackRequest(BaseModel):
     answer: str
     feedback: str            # like | dislike
     conversationId: Optional[str] = None
+
+
+class RenameRequest(BaseModel):
+    title: str

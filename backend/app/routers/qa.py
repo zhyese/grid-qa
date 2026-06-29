@@ -10,7 +10,7 @@ from app.core.response import success
 from app.db.session import get_db
 from app.dependencies import get_current_user
 from app.models.user import User
-from app.schemas.qa import FeedbackRequest, QaAnswerRequest, TermRequest
+from app.schemas.qa import FeedbackRequest, QaAnswerRequest, RenameRequest, TermRequest
 from app.services import conversation_service, feedback_service, qa_service, term_service
 from app.services.log_service import write_log
 
@@ -53,11 +53,33 @@ async def answer_stream(
 
 @router.get("/conversations")
 async def conversations(
+    keyword: str = "",
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    data = await conversation_service.list_conversations(db, user.username)
+    data = await conversation_service.list_conversations(db, user.username, keyword=keyword)
     return success(data, "查询成功")
+
+
+@router.put("/conversations/{conv_id}")
+async def rename_conv(
+    conv_id: str,
+    body: RenameRequest,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    ok = await conversation_service.rename_conversation(db, user.username, conv_id, body.title)
+    return success({"renamed": ok}, "重命名成功" if ok else "对话不存在或无权限")
+
+
+@router.delete("/conversations/{conv_id}")
+async def delete_conv(
+    conv_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    ok = await conversation_service.delete_conversation(db, user.username, conv_id)
+    return success({"deleted": ok}, "删除成功" if ok else "对话不存在或无权限")
 
 
 @router.get("/history")

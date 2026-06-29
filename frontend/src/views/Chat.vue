@@ -3,16 +3,25 @@
     <!-- 左侧栏：对话历史 -->
     <aside class="sidebar">
       <button class="new-btn" @click="newChat">+ 新建对话</button>
+      <input class="search-box" v-model="searchKw" placeholder="🔍 搜索对话..." @input="onSearch" />
       <div class="conv-list">
         <div
           v-for="c in conversations" :key="c.id"
           class="conv-item" :class="{ active: c.id === currentConvId }"
           @click="selectConv(c.id)"
         >
-          <div class="conv-title">{{ c.title || '(无标题对话)' }}</div>
-          <div class="conv-time">{{ c.createdAt }}</div>
+          <input v-if="editingId === c.id" class="rename-input" v-model="editingTitle"
+                 @click.stop @keyup.enter="saveRename(c)" @keyup.esc="cancelRename" />
+          <template v-else>
+            <div class="conv-title">{{ c.title || '(无标题对话)' }}</div>
+            <div class="conv-time">{{ c.createdAt }}</div>
+            <div class="conv-ops" @click.stop>
+              <a class="op" @click="startRename(c)" title="重命名">✏️</a>
+              <a class="op danger" @click="removeConv(c)" title="删除">🗑️</a>
+            </div>
+          </template>
         </div>
-        <div v-if="!conversations.length" class="empty-side">暂无历史对话</div>
+        <div v-if="!conversations.length" class="empty-side">{{ searchKw ? '无匹配对话' : '暂无历史对话' }}</div>
       </div>
       <div class="side-nav">
         <router-link to="/documents">文档</router-link> ·
@@ -98,7 +107,7 @@ hljs.registerLanguage('xml', xml)
 hljs.registerLanguage('html', xml)
 hljs.registerLanguage('markdown', markdown)
 hljs.registerLanguage('md', markdown)
-import { streamAnswer, sendFeedback, getConversations, getHistory } from '../api'
+import { streamAnswer, sendFeedback, getConversations, getHistory, deleteConversation, renameConversation } from '../api'
 
 // F1: Markdown 渲染 + 代码高亮
 const md = new MarkdownIt({
@@ -130,9 +139,17 @@ const loading = ref(false)
 const messages = ref([])
 const conversations = ref([])
 const currentConvId = ref('')
+const searchKw = ref('')
+const editingId = ref('')
+const editingTitle = ref('')
 
 async function loadConversations() {
-  try { conversations.value = (await getConversations()).data || [] } catch (e) {}
+  try { conversations.value = (await getConversations(searchKw.value)).data || [] } catch (e) {}
+}
+let searchTimer = null
+function onSearch() {
+  clearTimeout(searchTimer)
+  searchTimer = setTimeout(loadConversations, 300)   // 防抖 300ms
 }
 
 async function selectConv(id) {
@@ -220,6 +237,23 @@ function toast(msg) {
   toastTimer = setTimeout(() => (toastMsg.value = ''), 1500)
 }
 
+// F4: 对话管理（删除/重命名/搜索）
+async function removeConv(c) {
+  if (!confirm(`删除对话「${c.title || '无标题'}」？`)) return
+  try {
+    await deleteConversation(c.id); await loadConversations()
+    if (currentConvId.value === c.id) newChat()
+    toast('已删除')
+  } catch (e) { toast('删除失败') }
+}
+function startRename(c) { editingId.value = c.id; editingTitle.value = c.title || '' }
+function cancelRename() { editingId.value = ''; editingTitle.value = '' }
+async function saveRename(c) {
+  const t = editingTitle.value.trim()
+  if (!t) { cancelRename(); return }
+  try { await renameConversation(c.id, t); c.title = t; cancelRename(); toast('已重命名') } catch (e) { toast('重命名失败') }
+}
+
 function logout() { auth.logout(); router.push('/login') }
 onMounted(loadConversations)
 </script>
@@ -238,6 +272,15 @@ onMounted(loadConversations)
 .conv-title { font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .conv-time { font-size: 11px; opacity: .6; margin-top: 2px; }
 .empty-side { color: #64748b; font-size: 12px; padding: 12px; }
+.search-box { width: 100%; padding: 7px 10px; margin-bottom: 10px; border: 1px solid #334155; background: #0f172a; color: #e2e8f0; border-radius: 6px; box-sizing: border-box; }
+.search-box:focus { outline: none; border-color: #2563eb; }
+.conv-item { position: relative; }
+.conv-ops { position: absolute; right: 6px; top: 8px; display: none; gap: 4px; }
+.conv-item:hover .conv-ops { display: flex; }
+.op { cursor: pointer; font-size: 13px; opacity: .7; }
+.op:hover { opacity: 1; }
+.op.danger:hover { color: #ef4444; }
+.rename-input { width: 100%; background: #0f172a; color: #e2e8f0; border: 1px solid #2563eb; border-radius: 4px; padding: 3px 6px; box-sizing: border-box; }
 .side-nav { font-size: 12px; padding-top: 8px; border-top: 1px solid #334155; }
 .side-nav a { color: #94a3b8; text-decoration: none; }
 .chat-main { flex: 1; display: flex; flex-direction: column; }
