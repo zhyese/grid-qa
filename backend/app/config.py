@@ -85,7 +85,10 @@ class Settings(BaseSettings):
     RERANK_ENABLE: bool = True
     RERANK_MODEL: str = "gte-rerank-v2"
 
-    # ---------- 本地 embedding（bge，文档小走本地；大文档走云）----------
+    # ---------- 检索质量 ----------
+    MMR_ENABLE: bool = True          # MMR 多样性重排
+    MMR_LAMBDA: float = 0.6          # 相关性 vs 多样性 权衡
+    QUERY_REWRITE_ENABLE: bool = False  # LLM 改写 query（增延迟，默认关）
     BGE_MODEL: str = "BAAI/bge-small-zh-v1.5"   # 可换 bge-large-zh-v1.5(1024维,效果更好)
     BGE_DIM: int = 512
     DOC_SIZE_THRESHOLD: int = 5000   # 文档总字数超此值 → 走云 embedding；否则本地 bge

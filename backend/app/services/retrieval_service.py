@@ -1,10 +1,14 @@
-"""混合检索编排：双 collection(云+bge) 稠密 + BM25 稀疏 + RRF 融合 + 重排。"""
+"""混合检索编排：(可选query改写) 双collection并行 + BM25 + RRF + rerank + MMR + (可选docType过滤)。"""
+import asyncio
+
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.clients import milvus_client
 from app.config import settings
-from app.rag import rrf
-from app.services import bm25_service, embedding_service, rerank_service
+from app.models.document import Document
+from app.rag import mmr, rrf
+from app.services import bm25_service, embedding_service, query_rewrite, rerank_service
 
 
 def _to_item(h: dict) -> dict:
@@ -16,15 +20,19 @@ def _to_item(h: dict) -> dict:
     }
 
 
-async def mixed_search(db: AsyncSession, query: str, topk: int = 10) -> list[dict]:
+async def mixed_search(
+    db: AsyncSession, query: str, topk: int = 10,
+    doc_type: str | None = None, model_type: str | None = None,
+) -> list[dict]:
     cand = max(topk * 4, 20)
 
-    # 1) 双 collection 稠密检索（云 + 本地 bge，并行 embedding + 并行查询）
-    import asyncio
+    # 0) 可选 query 改写
+    q = await query_rewrite.rewrite_query(query, model_type)
 
+    # 1) 双 collection 并行 embedding + 并行查询
     qvec_cloud, qvec_bge = await asyncio.gather(
-        embedding_service.embed_query(query, settings.EMB_PROVIDER),
-        embedding_service.embed_query(query, "bge"),
+        embedding_service.embed_query(q, settings.EMB_PROVIDER),
+        embedding_service.embed_query(q, "bge"),
     )
     dense_cloud, dense_bge = await asyncio.gather(
         asyncio.to_thread(milvus_client.search, settings.MILVUS_COLLECTION, qvec_cloud, cand),
@@ -33,10 +41,10 @@ async def mixed_search(db: AsyncSession, query: str, topk: int = 10) -> list[dic
     dense = dense_cloud + dense_bge
     dense_hits = [{**d, "key": (d.get("doc_id"), d.get("chunk_idx"))} for d in dense]
 
-    # 2) BM25 稀疏检索（内存语料，覆盖两路 chunk 文本）
+    # 2) BM25 稀疏检索
     await bm25_service.ensure_built(db)
     sparse_hits = []
-    for s in bm25_service.search(query, topk=cand):
+    for s in bm25_service.search(q, topk=cand):
         c = bm25_service.get_chunk(s["idx"])
         if not c:
             continue
@@ -49,17 +57,30 @@ async def mixed_search(db: AsyncSession, query: str, topk: int = 10) -> list[dic
     # 3) RRF 融合
     fused = rrf.rrf_fuse([dense_hits, sparse_hits], key_fn=lambda h: h["key"])
 
-    # 4) 重排（百炼 gte-rerank），失败兜底 RRF
+    # 4) 重排（取 2*topk 候选供 MMR 选）
     if settings.RERANK_ENABLE and len(fused) > 1:
         try:
             docs = [h.get("text", "") for h in fused]
-            ranked = await rerank_service.get_reranker().rerank(query, docs, top_n=topk)
-            out = []
-            for idx, score in ranked:
-                out.append({**_to_item(fused[idx]), "score": round(float(score), 4)})
-            if out:
-                return out
+            ranked = await rerank_service.get_reranker().rerank(q, docs, top_n=min(topk * 2, len(fused)))
+            pool = [{**fused[idx], "score": float(score)} for idx, score in ranked]
         except Exception:
-            pass
+            pool = fused[: topk * 2]
+    else:
+        pool = fused[: topk * 2]
 
-    return [_to_item(h) for h in fused[:topk]]
+    # 5) docType 元数据过滤
+    if doc_type:
+        doc_ids = {h.get("doc_id") for h in pool if h.get("doc_id")}
+        rows = (await db.execute(
+            select(Document.id, Document.doc_type).where(Document.id.in_(doc_ids))
+        )).all()
+        dt_map = {r[0]: r[1] for r in rows}
+        pool = [h for h in pool if dt_map.get(h.get("doc_id")) == doc_type]
+
+    # 6) MMR 多样性选 topk
+    if settings.MMR_ENABLE and len(pool) > topk:
+        pool = mmr.mmr(pool, topk, settings.MMR_LAMBDA)
+    else:
+        pool = pool[:topk]
+
+    return [_to_item(h) for h in pool]
