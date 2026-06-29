@@ -154,9 +154,26 @@ services:
     depends_on:
       - backend
 
+  # ---------- Grafana 可视化仪表盘（好看的开箱监控界面）----------
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grid-grafana
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+    depends_on:
+      - prometheus
+
 volumes:
   mysql-data:
   minio-data:
   etcd-data:
   milvus-minio-data:
   redis-data:
+  grafana-data:

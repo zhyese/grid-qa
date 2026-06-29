@@ -138,4 +138,11 @@ async def metrics_middleware(request: Request, call_next):
     return response
 
 
-app.mount("/metrics", make_asgi_app())
+from prometheus_client import CONTENT_TYPE_LATEST, generate_latest  # noqa: E402
+from fastapi import Response  # noqa: E402
+
+
+@app.get("/metrics")
+async def metrics_endpoint():
+    # 直接响应（避免 mount 的 trailing-slash 307，prometheus 采集 /metrics 不跟随重定向）
+    return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)

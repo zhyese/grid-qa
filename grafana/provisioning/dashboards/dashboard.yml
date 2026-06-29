@@ -1,0 +1,10 @@
+apiVersion: 1
+providers:
+  - name: 'grid-qa'
+    orgId: 1
+    folder: '电网运维 RAG'
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 10
+    options:
+      path: /etc/grafana/provisioning/dashboards
