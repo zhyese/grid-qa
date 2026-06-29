@@ -1,4 +1,4 @@
-"""文档服务：上传、列表、解析分块、删除。"""
+"""文档服务：上传、列表、解析分块、向量化、删除。"""
 import asyncio
 import uuid
 from typing import List
@@ -7,11 +7,12 @@ from fastapi import UploadFile
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.clients import minio_client
+from app.clients import minio_client, milvus_client
+from app.config import settings
 from app.core.response import BizError
 from app.models.chunk import Chunk
 from app.models.document import Document
-from app.services import chunk_service, parse_service
+from app.services import chunk_service, embedding_service, parse_service
 
 # 允许的扩展名（接口主推 PDF，MVP 放开常见格式含扫描件/图片）
 ALLOWED_EXT = {".pdf", ".doc", ".docx", ".txt", ".md", ".png", ".jpg", ".jpeg"}
@@ -87,11 +88,9 @@ async def parse_documents(db: AsyncSession, doc_ids: List[str]) -> list[dict]:
         content = await asyncio.to_thread(minio_client.get_object_bytes, doc.minio_object)
         text, is_scanned = parse_service.parse_file(doc.doc_name, content)
         if is_scanned or not text.strip():
-            # 扫描件/图片走 PaddleOCR（CPU 密集，放线程池）
             text = await asyncio.to_thread(parse_service.ocr_by_name, doc.doc_name, content)
         chunks = chunk_service.split_text(text)
-        # 重新解析时先清旧分块
-        await db.execute(delete(Chunk).where(Chunk.doc_id == doc_id))
+        await db.execute(delete(Chunk).where(Chunk.doc_id == doc_id))  # 重新解析先清旧分块
         for i, c in enumerate(chunks):
             db.add(Chunk(doc_id=doc_id, chunk_idx=i, content=c, char_count=len(c)))
         doc.status = "parsed"
@@ -101,14 +100,40 @@ async def parse_documents(db: AsyncSession, doc_ids: List[str]) -> list[dict]:
     return results
 
 
+async def vectorize_document(db: AsyncSession, doc_id: str) -> dict:
+    """chunks → 向量(EmbeddingProvider) → Milvus 存储。"""
+    doc = await get_document(db, doc_id)
+    rows = (
+        await db.execute(select(Chunk).where(Chunk.doc_id == doc_id).order_by(Chunk.chunk_idx))
+    ).scalars().all()
+    if not rows:
+        raise BizError("文档尚未解析，请先调用解析接口", 400)
+    texts = [r.content for r in rows]
+    vectors = await embedding_service.embed_texts(texts)
+    await asyncio.to_thread(
+        milvus_client.insert_chunks,
+        vectors, texts,
+        [doc_id] * len(texts), [doc.doc_name] * len(texts), [r.chunk_idx for r in rows],
+    )
+    doc.status = "vectorized"
+    await db.commit()
+    return {
+        "docId": doc_id, "vectorCount": len(vectors),
+        "milvusCollection": settings.MILVUS_COLLECTION,
+    }
+
+
 async def delete_document(db: AsyncSession, doc_id: str) -> None:
-    """删除 MinIO 文件 + MySQL(chunks+document)。S5 补 Milvus 向量删除。"""
+    """联动删除 MinIO 文件 + Milvus 向量 + MySQL(chunks+document)。"""
     doc = await get_document(db, doc_id)
     try:
         await asyncio.to_thread(minio_client.remove_object, doc.minio_object)
     except Exception:
-        pass  # 对象已不存在则忽略
+        pass
+    try:
+        milvus_client.delete_by_doc(doc_id)
+    except Exception:
+        pass
     await db.execute(delete(Chunk).where(Chunk.doc_id == doc_id))
     await db.execute(delete(Document).where(Document.id == doc_id))
     await db.commit()
-    # S5: from app.clients.milvus_client import delete_by_doc; delete_by_doc(doc_id)

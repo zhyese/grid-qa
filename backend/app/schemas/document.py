@@ -27,3 +27,13 @@ class ParseItem(BaseModel):
     docId: str
     chunkCount: int
     chunkList: List[str] = []
+
+
+class VectorRequest(BaseModel):
+    docId: str
+
+
+class VectorOut(BaseModel):
+    docId: str
+    vectorCount: int
+    milvusCollection: str

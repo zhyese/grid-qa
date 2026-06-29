@@ -1,8 +1,8 @@
 # 电网运维 RAG 智能问答系统 - 基础设施编排
-# 分阶段启用：S1 仅 mysql + minio；S5 增加 etcd + milvus-minio + milvus；S11 增加 backend。
+# S1: mysql + minio | S5: + etcd + milvus-minio + milvus | S11: + backend
 
 services:
-  # ---------- MySQL：结构化元数据（用户/文档/chunks/日志）----------
+  # ---------- MySQL：结构化元数据 ----------
   mysql:
     image: mysql:8.0
     container_name: grid-mysql
@@ -44,6 +44,61 @@ services:
       - minio-data:/data
     command: server /data --console-address ":9001"
 
+  # ---------- etcd：Milvus 元数据依赖 ----------
+  etcd:
+    image: quay.io/coreos/etcd:v3.5.5
+    container_name: grid-etcd
+    restart: unless-stopped
+    environment:
+      ETCD_AUTO_COMPACTION_MODE: revision
+      ETCD_AUTO_COMPACTION_RETENTION: "1000"
+      ETCD_QUOTA_BACKEND_BYTES: "4294967296"
+      ETCD_SNAPSHOT_COUNT: "50000"
+    volumes:
+      - etcd-data:/etcd
+    command: etcd -advertise-client-urls=http://etcd:2379 -listen-client-urls http://0.0.0.0:2379 --data-dir /etcd
+    healthcheck:
+      test: ["CMD", "etcdctl", "endpoint", "health"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+
+  # ---------- Milvus 专用对象存储（独立于业务 minio）----------
+  milvus-minio:
+    image: minio/minio:latest
+    container_name: grid-milvus-minio
+    restart: unless-stopped
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    volumes:
+      - milvus-minio-data:/minio_data
+    command: minio server /minio_data
+
+  # ---------- Milvus 2.4 向量库（2.4 的 pymilvus 支持 py3.13）----------
+  milvus:
+    image: milvusdb/milvus:v2.4.10
+    container_name: grid-milvus
+    command: ["milvus", "run", "standalone"]
+    restart: unless-stopped
+    depends_on:
+      - etcd
+      - milvus-minio
+    environment:
+      ETCD_ENDPOINTS: etcd:2379
+      MINIO_ADDRESS: milvus-minio:9000
+    ports:
+      - "19530:19530"   # gRPC（pymilvus 连接）
+      - "9091:9091"     # 健康检查 / metrics
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9091/healthz"]
+      interval: 30s
+      start_period: 90s
+      timeout: 20s
+      retries: 3
+
 volumes:
   mysql-data:
   minio-data:
+  etcd-data:
+  milvus-minio-data:

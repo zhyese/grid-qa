@@ -23,7 +23,10 @@ async def lifespan(app: FastAPI):
     from app.clients.minio_client import init_bucket
 
     await init_bucket()  # S3: 确保 MinIO bucket 存在
-    # S5: from app.clients.milvus_client import ensure_collection; ensure_collection()
+
+    from app.clients.milvus_client import ensure_collection
+
+    ensure_collection()  # S5: 确保 Milvus collection 存在并加载
     # ---- 关闭 ----
     yield
 
