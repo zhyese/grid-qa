@@ -73,7 +73,7 @@ curl http://localhost:8001/health
 - [x] **S5** Embedding + Milvus（向量化存储）
 - [x] **S6** 混合检索（向量 + BM25 + RRF）
 - [x] **S7** RAG 问答（DeepSeek/百炼/火山 + 引用标注）
-- [ ] S8 配置 + 日志
+- [x] **S8** 配置接口 + 日志（角色/时间过滤）
 - [ ] S9 前端联调
 - [ ] S10 评测 + 性能
 - [ ] S11 镜像化 + 全栈部署

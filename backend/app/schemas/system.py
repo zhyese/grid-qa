@@ -18,3 +18,13 @@ class LogQuery(BaseModel):
     size: int = 10
     startTime: Optional[str] = None
     endTime: Optional[str] = None
+
+
+class MilvusConfigRequest(BaseModel):
+    indexType: str
+    param: dict = {}
+
+
+class ModelConfigRequest(BaseModel):
+    modelType: str
+    param: dict = {}
