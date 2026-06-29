@@ -17,6 +17,15 @@ def get_embedding_provider() -> EmbeddingProvider:
     raise ValueError(f"未知 EMB_PROVIDER: {p}（支持: qwen | doubao）")
 
 
-def get_llm_provider() -> LLMProvider:  # S7 实现
-    from app.providers.base import LLMProvider  # noqa
-    raise NotImplementedError("LLM provider 在 S7 实现")
+def get_llm_provider(provider: str | None = None) -> LLMProvider:
+    p = provider or settings.LLM_PROVIDER
+    if p == "deepseek":
+        from app.providers.llm.deepseek_llm import DeepSeekLLM
+        return DeepSeekLLM()
+    if p == "qwen":
+        from app.providers.llm.qwen_llm import QwenLLM
+        return QwenLLM()
+    if p == "doubao":
+        from app.providers.llm.doubao_llm import DoubaoLLM
+        return DoubaoLLM()
+    raise ValueError(f"未知 LLM_PROVIDER: {p}（支持: deepseek | qwen | doubao）")
