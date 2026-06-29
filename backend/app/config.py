@@ -77,6 +77,10 @@ class Settings(BaseSettings):
     MILVUS_PORT: int = 19530
     MILVUS_COLLECTION: str = "grid_chunks"
 
+    # ---------- Redis（热点问答缓存）----------
+    REDIS_URL: str = "redis://localhost:6379/0"
+    QA_CACHE_TTL: int = 3600
+
     # ---------- 分块 ----------
     CHUNK_SIZE: int = 500
     CHUNK_OVERLAP: int = 80

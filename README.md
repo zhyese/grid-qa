@@ -14,6 +14,7 @@
 | 向量库 | Milvus 2.3（IVF_FLAT + COSINE） |
 | 对象存储 | MinIO（源文档） |
 | 元数据 | MySQL 8（用户/文档/chunks/日志） |
+| 缓存 | Redis 7（热点问答缓存） |
 | 编排 | Docker Compose |
 
 三家云模型均兼容 OpenAI 协议，统一用 `openai` SDK 对接，配置驱动切换。

@@ -33,4 +33,10 @@ setuptools<81         # pymilvus 用 pkg_resources，setuptools>=81 已移除该
 rank-bm25>=0.2
 jieba>=0.42
 
+# ===== 优化阶段：缓存/日志/测试 =====
+redis>=5.0          # 异步热点问答缓存
+loguru>=0.7         # 结构化日志
+pytest>=8.0         # 测试
+httpx>=0.27         # 测试 / 压测
+
 # ===== 后续切片按需追加（暂不安装）=====

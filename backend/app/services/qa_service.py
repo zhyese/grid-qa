@@ -1,19 +1,37 @@
-"""RAG 问答编排：检索 → 拼 prompt → LLM → 后处理（引用/安全提示/计时/幻觉率）。"""
+"""RAG 问答编排：热点缓存 → 检索 → prompt → LLM → 后处理。"""
 import time
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.clients import redis_client
+from app.config import settings
 from app.providers.factory import get_llm_provider
 from app.rag import citation, prompt_templates
 from app.services import retrieval_service, term_service
+
+
+def _cache_key(model_type: str | None, query: str) -> str:
+    return f"qa:{model_type or 'default'}:{query}"
 
 
 async def answer(
     db: AsyncSession, query: str, model_type: str | None = None, topk: int = 5
 ) -> dict:
     t0 = time.time()
-    nq = term_service.normalize(query)  # 术语归一化提升检索召回
+    nq = term_service.normalize(query)
 
+    # 1) 热点缓存命中 → 直接返回（省检索+LLM）
+    key = _cache_key(model_type, nq)
+    try:
+        cached = await redis_client.cache_get_json(key)
+    except Exception:
+        cached = None
+    if cached:
+        cached["cached"] = True
+        cached["responseTime"] = round(time.time() - t0, 3)
+        return cached
+
+    # 2) 混合检索
     contexts = await retrieval_service.mixed_search(db, nq, topk)
     if not contexts:
         return {
@@ -21,17 +39,26 @@ async def answer(
             "retrievalSource": [],
             "responseTime": round(time.time() - t0, 3),
             "hallucinationRate": 0.0,
+            "cached": False,
         }
 
+    # 3) 拼 prompt → LLM
     messages = prompt_templates.build_messages(
         nq, [{"docName": c["docName"], "chunk": c["chunk"]} for c in contexts]
     )
-    llm = get_llm_provider(model_type)
-    ans = await llm.chat(messages, temperature=0.2)
+    ans = await get_llm_provider(model_type).chat(messages, temperature=0.2)
 
-    return {
+    result = {
         "answer": ans,
         "retrievalSource": [c["chunk"][:200] for c in contexts],
         "responseTime": round(time.time() - t0, 3),
         "hallucinationRate": citation.estimate_hallucination(ans, len(contexts)),
+        "cached": False,
     }
+
+    # 4) 写入热点缓存（高频问题下次秒回）
+    try:
+        await redis_client.cache_set_json(key, result, settings.QA_CACHE_TTL)
+    except Exception:
+        pass
+    return result

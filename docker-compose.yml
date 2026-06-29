@@ -97,6 +97,22 @@ services:
       timeout: 20s
       retries: 3
 
+  # ---------- Redis：热点问答缓存 ----------
+  redis:
+    image: redis:7-alpine
+    container_name: grid-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
   # ---------- 后端 ----------
   backend:
     build: ./backend
@@ -106,6 +122,7 @@ services:
       - mysql
       - minio
       - milvus
+      - redis
     env_file: .env
     environment:
       # 容器内用 service name + 内部端口连接（覆盖 .env 的 localhost）
@@ -130,3 +147,4 @@ volumes:
   minio-data:
   etcd-data:
   milvus-minio-data:
+  redis-data:
