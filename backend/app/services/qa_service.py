@@ -71,7 +71,7 @@ async def answer(
 
     result = {
         "answer": ans,
-        "retrievalSource": [c["chunk"][:200] for c in contexts],
+        "retrievalSource": [{"docName": c.get("docName", ""), "text": c["chunk"][:200]} for c in contexts],
         "responseTime": round(time.time() - t0, 3),
         "hallucinationRate": citation.estimate_hallucination(ans, len(contexts)),
         "cached": False,
@@ -120,7 +120,7 @@ async def stream_answer(
     # 1) meta：引用来源 + 会话 ID（前端据此显示溯源、刷新侧栏）
     yield {
         "type": "meta",
-        "sources": [c["chunk"][:200] for c in contexts],
+        "sources": [{"docName": c.get("docName", ""), "text": c["chunk"][:200]} for c in contexts],
         "conversationId": conversation_id,
     }
 

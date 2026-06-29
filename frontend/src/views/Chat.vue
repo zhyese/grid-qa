@@ -29,11 +29,19 @@
           <div v-for="(m, i) in messages" :key="i" class="msg" :class="m.role">
             <div v-if="m.role === 'user'" class="bubble"><b>提问：</b>{{ m.content }}</div>
             <div v-else class="bubble">
+              <div v-if="!m.streaming" class="ans-actions">
+                <a class="cp-btn" @click="copyAnswer(m)">📋 复制答案</a>
+              </div>
               <pre v-if="m.streaming" class="ans">{{ m.content }}<span class="cursor">▍</span></pre>
-              <div v-else class="ans md" v-html="renderMd(m.content)"></div>
+              <div v-else class="ans md" @click="onAnsClick($event, m)" v-html="renderMd(m.content)"></div>
               <div class="src" v-if="m.sources && m.sources.length">
-                <b>📎 引用来源：</b>
-                <div v-for="(s, j) in m.sources" :key="j" class="src-item">[{{ j + 1 }}] {{ s }}</div>
+                <b>📎 引用来源：</b> <span class="src-hint">点数字标注定位 · 点卡片复制</span>
+                <div v-for="(s, j) in m.sources" :key="j" :id="'src-' + (j + 1)"
+                     class="src-item" :class="{ hi: m.hiIdx === j + 1 }" @click="copySource(s)">
+                  <b class="src-no">[{{ j + 1 }}]</b>
+                  <span class="src-doc" v-if="srcName(s)">📄 {{ srcName(s) }}</span>
+                  <span class="src-text">{{ srcText(s) }}</span>
+                </div>
               </div>
               <div class="meta" v-if="m.time">
                 耗时 {{ m.time }}s · 幻觉率 {{ m.halluc }}
@@ -59,6 +67,7 @@
         </div>
       </div>
     </main>
+    <div class="toast" v-if="toastMsg">{{ toastMsg }}</div>
   </div>
 </template>
 
@@ -107,7 +116,10 @@ const md = new MarkdownIt({
 })
 function renderMd(text) {
   if (!text) return ''
-  return md.render(String(text))
+  let html = md.render(String(text))
+  // 引用标注 [n] → 可点击上标，点击定位到来源卡片
+  html = html.replace(/\[(\d+)\]/g, '<sup class="cite-ref" data-idx="$1">[$1]</sup>')
+  return html
 }
 
 const auth = useAuthStore()
@@ -182,6 +194,32 @@ async function dislike(m) {
   try { await sendFeedback(m.query, m.content, 'dislike', m.conversationId); m.fb = 'dislike' } catch (e) {}
 }
 
+// F3: 引用溯源 + 复制（来源对象兼容字符串/对象，历史消息可能为空）
+function srcName(s) { return typeof s === 'string' ? '' : (s.docName || '') }
+function srcText(s) { return typeof s === 'string' ? s : (s.text || '') }
+async function copyAnswer(m) {
+  try { await navigator.clipboard.writeText(m.content); toast('答案已复制') } catch (e) { toast('复制失败') }
+}
+async function copySource(s) {
+  try { await navigator.clipboard.writeText(srcText(s)); toast('来源已复制') } catch (e) {}
+}
+// 事件委托：点击答案里的 [n] → 高亮并滚动到对应来源卡片
+function onAnsClick(e, m) {
+  const el = e.target.closest('.cite-ref')
+  if (!el) return
+  const idx = Number(el.dataset.idx)
+  m.hiIdx = idx
+  const target = document.getElementById('src-' + idx)
+  if (target) target.scrollIntoView({ behavior: 'smooth', block: 'center' })
+}
+const toastMsg = ref('')
+let toastTimer = null
+function toast(msg) {
+  toastMsg.value = msg
+  clearTimeout(toastTimer)
+  toastTimer = setTimeout(() => (toastMsg.value = ''), 1500)
+}
+
 function logout() { auth.logout(); router.push('/login') }
 onMounted(loadConversations)
 </script>
@@ -229,6 +267,17 @@ onMounted(loadConversations)
 .fb-btn:hover, .fb-btn.on { opacity: 1; }
 .cursor { color: #2563eb; font-weight: bold; animation: blink 1s step-end infinite; }
 @keyframes blink { 50% { opacity: 0; } }
+.cite-ref { color: #2563eb; cursor: pointer; font-weight: bold; }
+.cite-ref:hover { text-decoration: underline; }
+.ans-actions { text-align: right; margin-bottom: 4px; }
+.cp-btn { font-size: 12px; color: #2563eb; cursor: pointer; }
+.src-hint { color: #94a3b8; font-size: 11px; font-weight: normal; }
+.src-item { color: #475569; margin: 4px 0; padding: 6px 8px; border-radius: 4px; cursor: pointer; transition: background .2s; line-height: 1.5; }
+.src-item:hover { background: #f1f5f9; }
+.src-item.hi { background: #fef3c7; }
+.src-no { color: #2563eb; margin-right: 4px; }
+.src-doc { color: #0369a1; font-size: 12px; }
+.toast { position: fixed; bottom: 28px; left: 50%; transform: translateX(-50%); background: #1e293b; color: #fff; padding: 8px 18px; border-radius: 6px; z-index: 999; font-size: 13px; box-shadow: 0 4px 12px rgba(0,0,0,.15); }
 .fb-done { color: #16a34a; margin-left: 4px; }
 .empty { color: #94a3b8; text-align: center; margin-top: 80px; }
 .input-bar { display: flex; gap: 8px; margin-top: 16px; }
