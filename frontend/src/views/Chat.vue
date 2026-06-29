@@ -29,7 +29,7 @@
           <div v-for="(m, i) in messages" :key="i" class="msg" :class="m.role">
             <div v-if="m.role === 'user'" class="bubble"><b>提问：</b>{{ m.content }}</div>
             <div v-else class="bubble">
-              <pre class="ans">{{ m.content }}</pre>
+              <div class="ans md" v-html="renderMd(m.content)"></div>
               <div class="src" v-if="m.sources && m.sources.length">
                 <b>📎 引用来源：</b>
                 <div v-for="(s, j) in m.sources" :key="j" class="src-item">[{{ j + 1 }}] {{ s }}</div>
@@ -64,8 +64,50 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
+import MarkdownIt from 'markdown-it'
+import hljs from 'highlight.js/lib/core'   // 仅按需注册语言，避免打包全部 190+ 语言
+import python from 'highlight.js/lib/languages/python'
+import javascript from 'highlight.js/lib/languages/javascript'
+import json from 'highlight.js/lib/languages/json'
+import bash from 'highlight.js/lib/languages/bash'
+import sql from 'highlight.js/lib/languages/sql'
+import xml from 'highlight.js/lib/languages/xml'
+import markdown from 'highlight.js/lib/languages/markdown'
 import { useAuthStore } from '../stores/auth'
+
+// 注册电网运维/代码场景常用语言（其余语言回退为纯文本转义）
+hljs.registerLanguage('python', python)
+hljs.registerLanguage('javascript', javascript)
+hljs.registerLanguage('js', javascript)
+hljs.registerLanguage('json', json)
+hljs.registerLanguage('bash', bash)
+hljs.registerLanguage('sh', bash)
+hljs.registerLanguage('shell', bash)
+hljs.registerLanguage('sql', sql)
+hljs.registerLanguage('xml', xml)
+hljs.registerLanguage('html', xml)
+hljs.registerLanguage('markdown', markdown)
+hljs.registerLanguage('md', markdown)
 import { answer, sendFeedback, getConversations, getHistory } from '../api'
+
+// F1: Markdown 渲染 + 代码高亮
+const md = new MarkdownIt({
+  html: false,        // 禁止内嵌 HTML，防注入
+  linkify: true,      // 自动识别链接
+  breaks: true,       // 换行转 <br>
+  highlight(str, lang) {
+    if (lang && hljs.getLanguage(lang)) {
+      try {
+        return `<pre class="hljs"><code>${hljs.highlight(str, { language: lang }).value}</code></pre>`
+      } catch (e) { /* fallthrough */ }
+    }
+    return `<pre class="hljs"><code>${md.utils.escapeHtml(str)}</code></pre>`
+  },
+})
+function renderMd(text) {
+  if (!text) return ''
+  return md.render(String(text))
+}
 
 const auth = useAuthStore()
 const router = useRouter()
@@ -149,7 +191,19 @@ onMounted(loadConversations)
 .msg { margin-bottom: 16px; }
 .msg.user .bubble { background: #e0edff; display: inline-block; padding: 10px 14px; border-radius: 8px; }
 .msg.assistant .bubble { background: #fff; padding: 14px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,.06); }
-.ans { white-space: pre-wrap; word-wrap: break-word; margin: 0; font-family: inherit; }
+.ans { margin: 0; font-family: inherit; line-height: 1.7; word-wrap: break-word; }
+.ans :first-child { margin-top: 0; }
+.ans :last-child { margin-bottom: 0; }
+.ans p { margin: 8px 0; }
+.ans h1, .ans h2, .ans h3, .ans h4 { margin: 12px 0 6px; color: #0f172a; }
+.ans ul, .ans ol { margin: 8px 0; padding-left: 22px; }
+.ans li { margin: 3px 0; }
+.ans code { background: #f1f5f9; padding: 2px 5px; border-radius: 4px; font-size: .9em; color: #be123c; }
+.ans pre.hljs { background: #0f172a; color: #e2e8f0; padding: 12px; border-radius: 6px; overflow-x: auto; margin: 8px 0; }
+.ans pre.hljs code { background: transparent; padding: 0; color: inherit; }
+.ans table { border-collapse: collapse; margin: 8px 0; }
+.ans th, .ans td { border: 1px solid #e2e8f0; padding: 6px 10px; }
+.ans blockquote { border-left: 3px solid #cbd5e1; margin: 8px 0; padding-left: 12px; color: #64748b; }
 .src { margin-top: 10px; padding-top: 8px; border-top: 1px dashed #e2e8f0; font-size: 13px; }
 .src-item { color: #475569; margin: 2px 0; }
 .meta { color: #94a3b8; font-size: 12px; margin-top: 6px; }
