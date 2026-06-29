@@ -16,17 +16,21 @@ from app.core.response import BizError, error, success
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # ---- 启动 ----
+    from app.core.logging import setup_logging
+
+    setup_logging()
+
     from app.db.init_db import init_db
 
-    await init_db()  # S2: 建表 + 初始管理员
+    await init_db()  # 建表 + 初始管理员
 
     from app.clients.minio_client import init_bucket
 
-    await init_bucket()  # S3: 确保 MinIO bucket 存在
+    await init_bucket()  # 确保 MinIO bucket
 
     from app.clients.milvus_client import ensure_collection
 
-    ensure_collection()  # S5: 确保 Milvus collection 存在并加载
+    ensure_collection()  # 确保 Milvus collection
     # ---- 关闭 ----
     yield
 
@@ -44,7 +48,47 @@ app.add_middleware(
 
 @app.get("/health", tags=["系统"])
 async def health():
-    return success(data={"status": "healthy", "version": settings.APP_VERSION})
+    """健康检查：探活 DB / MinIO / Milvus / Redis。"""
+    checks: dict[str, str] = {}
+
+    try:
+        from sqlalchemy import text
+
+        from app.db.session import engine
+
+        async with engine.connect() as conn:
+            await conn.execute(text("SELECT 1"))
+        checks["mysql"] = "ok"
+    except Exception:
+        checks["mysql"] = "down"
+
+    try:
+        from app.clients import minio_client
+
+        minio_client.get_minio().bucket_exists(settings.MINIO_BUCKET)
+        checks["minio"] = "ok"
+    except Exception:
+        checks["minio"] = "down"
+
+    try:
+        from app.clients import milvus_client
+
+        milvus_client.num_entities()
+        checks["milvus"] = "ok"
+    except Exception:
+        checks["milvus"] = "down"
+
+    try:
+        from app.clients import redis_client
+
+        checks["redis"] = "ok" if await redis_client.ping() else "down"
+    except Exception:
+        checks["redis"] = "down"
+
+    all_ok = all(v == "ok" for v in checks.values())
+    return success(
+        data={"status": "healthy" if all_ok else "degraded", "checks": checks, "version": settings.APP_VERSION}
+    )
 
 
 # ---- 路由挂载 ----
