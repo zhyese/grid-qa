@@ -62,6 +62,11 @@ curl http://localhost:8001/health
 
 # 接口文档：http://localhost:8001/docs
 # MinIO 控制台：http://localhost:9001  (minioadmin/minioadmin)
+
+# 5. 前端
+npm --prefix frontend install --registry https://registry.npmmirror.com
+npm --prefix frontend run dev
+# 浏览器访问 http://localhost:5173  (admin / admin123)
 ```
 
 ## 开发切片进度
@@ -74,7 +79,7 @@ curl http://localhost:8001/health
 - [x] **S6** 混合检索（向量 + BM25 + RRF）
 - [x] **S7** RAG 问答（DeepSeek/百炼/火山 + 引用标注）
 - [x] **S8** 配置接口 + 日志（角色/时间过滤）
-- [ ] S9 前端联调
+- [x] **S9** 前端联调（Vue3 + Vite + Pinia）
 - [ ] S10 评测 + 性能
 - [ ] S11 镜像化 + 全栈部署
 
