@@ -1,42 +1,18 @@
 {
   "title": "电网运维 RAG 监控",
   "schemaVersion": 38,
-  "version": 1,
+  "version": 2,
   "refresh": "10s",
   "time": {"from": "now-15m", "to": "now"},
   "panels": [
-    {
-      "id": 1, "title": "HTTP 请求速率 (req/s)", "type": "timeseries",
-      "datasource": {"type": "prometheus"},
-      "targets": [{"expr": "sum(rate(grid_http_requests_total[1m])) by (path)", "legendFormat": "{{path}}", "refId": "A"}],
-      "gridPos": {"x": 0, "y": 0, "w": 12, "h": 8}
-    },
-    {
-      "id": 2, "title": "请求延迟 P95 (s)", "type": "timeseries",
-      "datasource": {"type": "prometheus"},
-      "targets": [{"expr": "histogram_quantile(0.95, sum(rate(grid_http_latency_seconds_bucket[5m])) by (le, path))", "legendFormat": "{{path}}", "refId": "A"}],
-      "gridPos": {"x": 12, "y": 0, "w": 12, "h": 8}
-    },
-    {
-      "id": 3, "title": "问答总数 (按模型)", "type": "stat",
-      "datasource": {"type": "prometheus"},
-      "targets": [{"expr": "sum(grid_qa_total) by (model)", "refId": "A"}],
-      "gridPos": {"x": 0, "y": 8, "w": 8, "h": 7},
-      "fieldConfig": {"defaults": {"color": {"mode": "thresholds"}, "thresholds": {"steps": [{"color": "green", "value": null}]}}}
-    },
-    {
-      "id": 4, "title": "缓存命中问答数", "type": "stat",
-      "datasource": {"type": "prometheus"},
-      "targets": [{"expr": "sum(grid_qa_total{cached=\"true\"})", "refId": "A"}],
-      "gridPos": {"x": 8, "y": 8, "w": 8, "h": 7},
-      "fieldConfig": {"defaults": {"color": {"mode": "thresholds"}, "thresholds": {"steps": [{"color": "blue", "value": null}]}}}
-    },
-    {
-      "id": 5, "title": "检索平均延迟 (s)", "type": "stat",
-      "datasource": {"type": "prometheus"},
-      "targets": [{"expr": "rate(grid_retrieval_latency_seconds_sum[1m]) / rate(grid_retrieval_latency_seconds_count[1m])", "refId": "A"}],
-      "gridPos": {"x": 16, "y": 8, "w": 8, "h": 7},
-      "fieldConfig": {"defaults": {"color": {"mode": "thresholds"}, "thresholds": {"steps": [{"color": "orange", "value": null}]}, "decimals": 2}}
-    }
+    {"id":1,"title":"HTTP 请求速率 (req/s)","type":"timeseries","datasource":{"type":"prometheus"},"targets":[{"expr":"sum(rate(grid_http_requests_total[1m])) by (path)","legendFormat":"{{path}}","refId":"A"}],"gridPos":{"x":0,"y":0,"w":12,"h":8}},
+    {"id":2,"title":"请求延迟 P95 (s)","type":"timeseries","datasource":{"type":"prometheus"},"targets":[{"expr":"histogram_quantile(0.95, sum(rate(grid_http_latency_seconds_bucket[5m])) by (le, path))","legendFormat":"{{path}}","refId":"A"}],"gridPos":{"x":12,"y":0,"w":12,"h":8}},
+    {"id":3,"title":"问答总数(按模型)","type":"stat","datasource":{"type":"prometheus"},"targets":[{"expr":"sum(grid_qa_total) by (model)","refId":"A"}],"gridPos":{"x":0,"y":8,"w":8,"h":7},"fieldConfig":{"defaults":{"color":{"mode":"thresholds"},"thresholds":{"steps":[{"color":"green","value":null}]}}}},
+    {"id":4,"title":"缓存命中问答","type":"stat","datasource":{"type":"prometheus"},"targets":[{"expr":"sum(grid_qa_total{cached=\"true\"})","refId":"A"}],"gridPos":{"x":8,"y":8,"w":8,"h":7},"fieldConfig":{"defaults":{"color":{"mode":"thresholds"},"thresholds":{"steps":[{"color":"blue","value":null}]}}}},
+    {"id":5,"title":"检索延迟(s)","type":"stat","datasource":{"type":"prometheus"},"targets":[{"expr":"rate(grid_retrieval_latency_seconds_sum[1m])/rate(grid_retrieval_latency_seconds_count[1m])","refId":"A"}],"gridPos":{"x":16,"y":8,"w":8,"h":7},"fieldConfig":{"defaults":{"decimals":2,"color":{"mode":"thresholds"},"thresholds":{"steps":[{"color":"orange","value":null}]}}}},
+    {"id":6,"title":"LLM 调用次数(按模型)","type":"timeseries","datasource":{"type":"prometheus"},"targets":[{"expr":"sum(rate(grid_llm_calls_total[1m])) by (provider)","legendFormat":"{{provider}}","refId":"A"}],"gridPos":{"x":0,"y":15,"w":12,"h":8}},
+    {"id":7,"title":"LLM 调用延迟 P95(s)","type":"timeseries","datasource":{"type":"prometheus"},"targets":[{"expr":"histogram_quantile(0.95, sum(rate(grid_llm_latency_seconds_bucket[5m])) by (le, provider))","legendFormat":"{{provider}}","refId":"A"}],"gridPos":{"x":12,"y":15,"w":12,"h":8}},
+    {"id":8,"title":"Embedding 调用(按来源)","type":"timeseries","datasource":{"type":"prometheus"},"targets":[{"expr":"sum(rate(grid_embed_calls_total[1m])) by (provider)","legendFormat":"{{provider}}","refId":"A"}],"gridPos":{"x":0,"y":23,"w":12,"h":8}},
+    {"id":9,"title":"Rerank 调用速率","type":"stat","datasource":{"type":"prometheus"},"targets":[{"expr":"sum(rate(grid_rerank_calls_total[1m]))","refId":"A"}],"gridPos":{"x":12,"y":23,"w":12,"h":8},"fieldConfig":{"defaults":{"decimals":2,"unit":"req/s","color":{"mode":"thresholds"},"thresholds":{"steps":[{"color":"purple","value":null}]}}}}
   ]
 }

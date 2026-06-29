@@ -3,11 +3,17 @@ import json
 
 from app.clients import redis_client
 from app.config import settings
+from app.core import metrics
 from app.providers.factory import get_embedding_provider
 
 
 async def embed_texts(texts: list[str]) -> list[list[float]]:
-    return await get_embedding_provider().embed(texts)
+    vecs = await get_embedding_provider().embed(texts)
+    try:
+        metrics.EMBED_CALLS.labels(settings.EMB_PROVIDER).inc(len(vecs))
+    except Exception:
+        pass
+    return vecs
 
 
 async def embed_query(text: str, provider: str | None = None) -> list[float]:
@@ -22,6 +28,10 @@ async def embed_query(text: str, provider: str | None = None) -> list[float]:
     except Exception:
         pass
     vec = (await get_embedding_provider(p).embed([text]))[0]
+    try:
+        metrics.EMBED_CALLS.labels(p).inc()
+    except Exception:
+        pass
     try:
         await r.set(key, json.dumps(vec), ex=3600)
     except Exception:

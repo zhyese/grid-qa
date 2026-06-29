@@ -47,7 +47,15 @@ async def answer(
     if conversation_id:
         history = await conversation_service.get_messages(db, conversation_id, _HISTORY_LIMIT)
     messages = prompt_templates.build_messages_with_history(nq, contexts, history)
+    _llm0 = time.time()
     ans = await get_llm_provider(model_type).chat(messages, temperature=0.2)
+    try:
+        from app.core import metrics
+        _p = model_type or settings.LLM_PROVIDER
+        metrics.LLM_CALLS.labels(_p).inc()
+        metrics.LLM_LATENCY.labels(_p).observe(time.time() - _llm0)
+    except Exception:
+        pass
 
     # 持久化对话
     if not conversation_id:

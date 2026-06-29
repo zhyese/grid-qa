@@ -35,6 +35,11 @@ class Reranker:
             )
             resp.raise_for_status()
             results = resp.json().get("output", {}).get("results", [])
+        try:
+            from app.core import metrics
+            metrics.RERANK_CALLS.inc()
+        except Exception:
+            pass
         return [(item["index"], float(item["relevance_score"])) for item in results]
 
 
