@@ -93,17 +93,58 @@ async def answer(
 
 async def stream_answer(
     db: AsyncSession, query: str, model_type: str | None = None,
-    topk: int = 5, conversation_id: str | None = None,
+    topk: int = 5, conversation_id: str | None = None, username: str = "",
 ):
-    """流式问答：检索 → LLM 逐 token yield。"""
+    """流式问答：meta(引用+会话) → 逐 token → done(耗时+幻觉率)。
+
+    若只流 token 会丢失引用溯源/耗时/反馈所需元数据，故分三段事件下发。
+    """
+    t0 = time.time()
     nq = term_service.normalize(query)
     contexts = await retrieval_service.mixed_search(db, nq, topk)
     if not contexts:
-        yield "根据现有资料无法确认该问题，请先上传并解析相关运维文档后重试。"
+        yield {"type": "done", "content": "根据现有资料无法确认该问题，请先上传并解析相关运维文档后重试。"}
         return
+
+    # 多轮历史
     history = []
     if conversation_id:
         history = await conversation_service.get_messages(db, conversation_id, _HISTORY_LIMIT)
     messages = prompt_templates.build_messages_with_history(nq, contexts, history)
+
+    # 流式前先建会话，确保 conversationId 可随 meta 下发
+    if not conversation_id:
+        conv = await conversation_service.create_conversation(db, username, query)
+        conversation_id = conv.id
+
+    # 1) meta：引用来源 + 会话 ID（前端据此显示溯源、刷新侧栏）
+    yield {
+        "type": "meta",
+        "sources": [c["chunk"][:200] for c in contexts],
+        "conversationId": conversation_id,
+    }
+
+    # 2) 逐 token 流式（打字机效果）
+    parts: list[str] = []
     async for token in get_llm_provider(model_type).stream(messages, temperature=0.2):
-        yield token
+        parts.append(token)
+        yield {"type": "token", "content": token}
+
+    # 3) 持久化完整答案 + done（耗时/幻觉率）
+    full = "".join(parts)
+    try:
+        await conversation_service.save_message(db, conversation_id, "user", query)
+        await conversation_service.save_message(db, conversation_id, "assistant", full)
+    except Exception:
+        pass
+    try:
+        from app.core import metrics
+        metrics.QA_TOTAL.labels(model_type or settings.LLM_PROVIDER, "false").inc()
+    except Exception:
+        pass
+    yield {
+        "type": "done",
+        "responseTime": round(time.time() - t0, 3),
+        "hallucinationRate": citation.estimate_hallucination(full, len(contexts)),
+        "conversationId": conversation_id,
+    }

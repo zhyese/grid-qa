@@ -29,7 +29,8 @@
           <div v-for="(m, i) in messages" :key="i" class="msg" :class="m.role">
             <div v-if="m.role === 'user'" class="bubble"><b>提问：</b>{{ m.content }}</div>
             <div v-else class="bubble">
-              <div class="ans md" v-html="renderMd(m.content)"></div>
+              <pre v-if="m.streaming" class="ans">{{ m.content }}<span class="cursor">▍</span></pre>
+              <div v-else class="ans md" v-html="renderMd(m.content)"></div>
               <div class="src" v-if="m.sources && m.sources.length">
                 <b>📎 引用来源：</b>
                 <div v-for="(s, j) in m.sources" :key="j" class="src-item">[{{ j + 1 }}] {{ s }}</div>
@@ -62,7 +63,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, reactive, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import MarkdownIt from 'markdown-it'
 import hljs from 'highlight.js/lib/core'   // 仅按需注册语言，避免打包全部 190+ 语言
@@ -88,7 +89,7 @@ hljs.registerLanguage('xml', xml)
 hljs.registerLanguage('html', xml)
 hljs.registerLanguage('markdown', markdown)
 hljs.registerLanguage('md', markdown)
-import { answer, sendFeedback, getConversations, getHistory } from '../api'
+import { streamAnswer, sendFeedback, getConversations, getHistory } from '../api'
 
 // F1: Markdown 渲染 + 代码高亮
 const md = new MarkdownIt({
@@ -142,17 +143,33 @@ async function ask() {
   messages.value.push({ role: 'user', content: q })
   query.value = ''
   loading.value = true
+  // 预置空 assistant 消息（reactive），逐 token 追加 → 打字机效果
+  const msg = reactive({
+    role: 'assistant', content: '', sources: [], time: 0, halluc: 0,
+    conversationId: currentConvId.value || '', query: q, fb: '', streaming: true,
+  })
+  messages.value.push(msg)
   try {
-    const r = await answer(q, modelType.value || undefined)
-    messages.value.push({
-      role: 'assistant', content: r.data.answer,
-      sources: r.data.retrievalSource,
-      time: r.data.responseTime, halluc: r.data.hallucinationRate,
-      conversationId: r.data.conversationId, query: q, fb: '',
+    await streamAnswer(q, modelType.value || undefined, currentConvId.value || undefined, (ev) => {
+      if (ev.type === 'meta') {
+        msg.sources = ev.sources || []
+        if (ev.conversationId) msg.conversationId = ev.conversationId
+      } else if (ev.type === 'token') {
+        msg.content += ev.content || ''        // 打字机：逐字追加
+      } else if (ev.type === 'done') {
+        if (ev.content) msg.content = ev.content               // 无来源时的兜底文案
+        if (typeof ev.responseTime === 'number') msg.time = ev.responseTime
+        if (typeof ev.hallucinationRate === 'number') msg.halluc = ev.hallucinationRate
+        if (ev.conversationId) msg.conversationId = ev.conversationId
+        msg.streaming = false
+        currentConvId.value = msg.conversationId
+        loadConversations()      // 刷新侧栏（新对话进列表）
+      }
     })
-    currentConvId.value = r.data.conversationId
-    await loadConversations()  // 刷新侧栏（新对话进列表）
-  } catch (e) { messages.value.push({ role: 'assistant', content: '请求失败：' + (e.message || '') }) }
+  } catch (e) {
+    msg.content += (msg.content ? '\n' : '') + '（流式中断：' + (e.message || '') + '）'
+    msg.streaming = false
+  }
   loading.value = false
 }
 
@@ -210,6 +227,8 @@ onMounted(loadConversations)
 .fb { margin-left: 12px; }
 .fb-btn { cursor: pointer; margin: 0 4px; opacity: .6; }
 .fb-btn:hover, .fb-btn.on { opacity: 1; }
+.cursor { color: #2563eb; font-weight: bold; animation: blink 1s step-end infinite; }
+@keyframes blink { 50% { opacity: 0; } }
 .fb-done { color: #16a34a; margin-left: 4px; }
 .empty { color: #94a3b8; text-align: center; margin-top: 80px; }
 .input-bar { display: flex; gap: 8px; margin-top: 16px; }
