@@ -80,8 +80,20 @@ npm --prefix frontend run dev
 - [x] **S7** RAG 问答（DeepSeek/百炼/火山 + 引用标注）
 - [x] **S8** 配置接口 + 日志（角色/时间过滤）
 - [x] **S9** 前端联调（Vue3 + Vite + Pinia）
-- [ ] S10 评测 + 性能
+- [x] **S10** 评测 + 性能（召回100% / 单请求0.95s）
 - [ ] S11 镜像化 + 全栈部署
+
+## 评测结果（S10，6 文档 demo 库）
+
+| 指标 | 结果 | 目标 |
+|---|---|---|
+| 检索召回率 recall@5 | **100%** (8/8) | ≥92% |
+| 单请求检索延迟 | **0.95s** | ≤1.5s |
+| 50 并发检索成功率 | **100%** (50/50) | 不崩 |
+
+> 高并发下 P50 ~20s，瓶颈在百炼 embedding 云 API 限流（非 Milvus/系统瓶颈）。生产优化方向：本地 embedding 模型 / query 向量缓存 / 提升 API 配额。
+
+评测脚本：`python scripts/seed_demo.py`（建库）→ `python scripts/eval_retrieval.py`（召回）→ `python scripts/benchmark.py 50`（压测）。
 
 ## 配置说明
 
