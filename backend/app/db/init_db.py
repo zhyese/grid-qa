@@ -8,6 +8,7 @@ from app.db.session import AsyncSessionLocal, engine
 from app.models.chunk import Chunk  # noqa: F401  确保表被注册
 from app.models.conversation import Conversation, Message  # noqa: F401  确保表被注册
 from app.models.document import Document  # noqa: F401  确保表被注册
+from app.models.feedback import Feedback  # noqa: F401  确保表被注册
 from app.models.operation_log import OperationLog  # noqa: F401  确保表被注册
 from app.models.user import User  # noqa: F401
 

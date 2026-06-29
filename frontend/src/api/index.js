@@ -17,3 +17,5 @@ export const deleteDoc = (docId) => request.delete('/document/delete', { params:
 // 检索与问答
 export const answer = (query, modelType) => request.post('/qa/answer', { query, modelType })
 export const mixedRetrieval = (query, topK) => request.post('/retrieval/mixed', { query, topK })
+export const sendFeedback = (query, answer, feedback, conversationId) =>
+  request.post('/qa/feedback', { query, answer, feedback, conversationId })

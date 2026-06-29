@@ -10,8 +10,8 @@ from app.core.response import success
 from app.db.session import get_db
 from app.dependencies import get_current_user
 from app.models.user import User
-from app.schemas.qa import QaAnswerRequest, TermRequest
-from app.services import conversation_service, qa_service, term_service
+from app.schemas.qa import FeedbackRequest, QaAnswerRequest, TermRequest
+from app.services import conversation_service, feedback_service, qa_service, term_service
 from app.services.log_service import write_log
 
 router = APIRouter(prefix="/qa", tags=["检索与问答"])
@@ -80,3 +80,17 @@ async def term_normalize(
         "explanation": "",
     }
     return success(data, "归一化成功")
+
+
+@router.post("/feedback")
+async def feedback(
+    body: FeedbackRequest,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """问答反馈（👍/👎），沉淀坏 case。"""
+    await feedback_service.record_feedback(
+        db, conversation_id=body.conversationId or "", query=body.query,
+        answer=body.answer, feedback=body.feedback, username=user.username,
+    )
+    return success(None, "感谢反馈")

@@ -21,3 +21,10 @@ class QaAnswerData(BaseModel):
 
 class TermRequest(BaseModel):
     term: str
+
+
+class FeedbackRequest(BaseModel):
+    query: str
+    answer: str
+    feedback: str            # like | dislike
+    conversationId: Optional[str] = None

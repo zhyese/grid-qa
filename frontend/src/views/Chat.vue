@@ -19,7 +19,14 @@
               <b>📎 引用来源：</b>
               <div v-for="(s, j) in m.sources" :key="j" class="src-item">[{{ j + 1 }}] {{ s }}</div>
             </div>
-            <div class="meta">耗时 {{ m.time }}s · 幻觉率 {{ m.halluc }}</div>
+            <div class="meta">
+              耗时 {{ m.time }}s · 幻觉率 {{ m.halluc }}
+              <span class="fb">
+                <a class="fb-btn" @click="like(m)" :class="{ on: m.fb === 'like' }">👍</a>
+                <a class="fb-btn" @click="dislike(m)" :class="{ on: m.fb === 'dislike' }">👎</a>
+                <span v-if="m.fb" class="fb-done">已记录</span>
+              </span>
+            </div>
           </div>
         </div>
         <div v-if="!messages.length" class="empty">输入运维问题开始问答，例如：主变压器温度异常如何处置？</div>
@@ -42,7 +49,7 @@
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
-import { answer } from '../api'
+import { answer, sendFeedback } from '../api'
 
 const auth = useAuthStore()
 const router = useRouter()
@@ -63,10 +70,21 @@ async function ask() {
       role: 'assistant', content: r.data.answer,
       sources: r.data.retrievalSource,
       time: r.data.responseTime, halluc: r.data.hallucinationRate,
+      conversationId: r.data.conversationId, query: q, fb: '',
     })
   } catch (e) { messages.value.push({ role: 'assistant', content: '请求失败：' + (e.message || '') }) }
   loading.value = false
 }
+
+async function like(m) {
+  if (m.fb) return
+  try { await sendFeedback(m.query, m.content, 'like', m.conversationId); m.fb = 'like' } catch (e) {}
+}
+async function dislike(m) {
+  if (m.fb) return
+  try { await sendFeedback(m.query, m.content, 'dislike', m.conversationId); m.fb = 'dislike' } catch (e) {}
+}
+
 function logout() { auth.logout(); router.push('/login') }
 </script>
 
@@ -80,6 +98,10 @@ function logout() { auth.logout(); router.push('/login') }
 .src { margin-top: 10px; padding-top: 8px; border-top: 1px dashed #e2e8f0; font-size: 13px; }
 .src-item { color: #475569; margin: 2px 0; }
 .meta { color: #94a3b8; font-size: 12px; margin-top: 6px; }
+.fb { margin-left: 12px; }
+.fb-btn { cursor: pointer; margin: 0 4px; opacity: .6; }
+.fb-btn:hover, .fb-btn.on { opacity: 1; }
+.fb-done { color: #16a34a; margin-left: 4px; }
 .empty { color: #94a3b8; text-align: center; margin-top: 80px; }
 .input-bar { display: flex; gap: 8px; margin-top: 16px; }
 .input-bar input { flex: 1; }
