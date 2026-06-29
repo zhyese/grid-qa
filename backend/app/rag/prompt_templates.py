@@ -22,3 +22,19 @@ def build_messages(query: str, contexts: list[dict]) -> list[dict]:
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": user},
     ]
+
+
+def build_messages_with_history(query: str, contexts: list[dict], history: list[dict]) -> list[dict]:
+    """多轮：system(规则) + 历史对话 + 当前(资料+问题)。history: [{role, content}]。"""
+    refs = "\n\n".join(
+        f"[{i + 1}] {c.get('docName', '')}：{c.get('chunk', '')}"
+        for i, c in enumerate(contexts)
+    )
+    msgs = [{"role": "system", "content": SYSTEM_PROMPT}]
+    for h in history:
+        msgs.append({"role": h["role"], "content": h["content"]})
+    msgs.append(
+        {"role": "user", "content": f"【参考资料】\n{refs}\n\n【问题】{query}\n\n请严格依据参考资料并结合上文按规则作答。"}
+    )
+    return msgs
+

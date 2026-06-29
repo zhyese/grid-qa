@@ -1,7 +1,7 @@
-"""问答接口：智能问答(普通/流式) / 术语归一化。"""
+"""问答接口：智能问答(普通/流式/多轮) / 对话历史 / 术语归一化。"""
 import json
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -10,7 +10,7 @@ from app.db.session import get_db
 from app.dependencies import get_current_user
 from app.models.user import User
 from app.schemas.qa import QaAnswerRequest, TermRequest
-from app.services import qa_service, term_service
+from app.services import conversation_service, qa_service, term_service
 from app.services.log_service import write_log
 
 router = APIRouter(prefix="/qa", tags=["检索与问答"])
@@ -22,7 +22,9 @@ async def answer(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    data = await qa_service.answer(db, body.query, body.modelType)
+    data = await qa_service.answer(
+        db, body.query, body.modelType, conversation_id=body.conversationId, username=user.username
+    )
     await write_log(db, user.username, "智能问答", f"提问：{body.query[:50]}")
     return success(data, "问答成功")
 
@@ -33,14 +35,33 @@ async def answer_stream(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """SSE 流式问答：逐 token 推送，首字延迟 <1s。"""
-
     async def gen():
-        async for token in qa_service.stream_answer(db, body.query, body.modelType):
+        async for token in qa_service.stream_answer(
+            db, body.query, body.modelType, conversation_id=body.conversationId
+        ):
             yield f"data: {json.dumps({'content': token}, ensure_ascii=False)}\n\n"
         yield "data: [DONE]\n\n"
 
     return StreamingResponse(gen(), media_type="text/event-stream")
+
+
+@router.get("/conversations")
+async def conversations(
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    data = await conversation_service.list_conversations(db, user.username)
+    return success(data, "查询成功")
+
+
+@router.get("/history")
+async def history(
+    conversationId: str = Query(...),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    data = await conversation_service.get_messages(db, conversationId, limit=100)
+    return success(data, "查询成功")
 
 
 @router.post("/term/normalize")

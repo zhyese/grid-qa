@@ -6,7 +6,8 @@ from pydantic import BaseModel
 
 class QaAnswerRequest(BaseModel):
     query: str
-    modelType: Optional[str] = None  # deepseek | qwen | doubao；空则用 LLM_PROVIDER
+    modelType: Optional[str] = None       # deepseek | qwen | doubao
+    conversationId: Optional[str] = None  # 多轮对话 id（首次不传则新建）
 
 
 class QaAnswerData(BaseModel):
@@ -14,6 +15,8 @@ class QaAnswerData(BaseModel):
     retrievalSource: List[str] = []
     responseTime: float = 0.0
     hallucinationRate: float = 0.0
+    cached: bool = False
+    conversationId: str = ""
 
 
 class TermRequest(BaseModel):
