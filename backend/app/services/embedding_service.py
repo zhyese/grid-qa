@@ -8,9 +8,12 @@ from app.providers.factory import get_embedding_provider
 
 
 async def embed_texts(texts: list[str]) -> list[list[float]]:
+    import time
+    _t0 = time.time()
     vecs = await get_embedding_provider().embed(texts)
     try:
         metrics.EMBED_CALLS.labels(settings.EMB_PROVIDER).inc(len(vecs))
+        metrics.EMBED_LATENCY.labels(settings.EMB_PROVIDER).observe(time.time() - _t0)
     except Exception:
         pass
     return vecs
@@ -27,9 +30,12 @@ async def embed_query(text: str, provider: str | None = None) -> list[float]:
             return json.loads(cached)
     except Exception:
         pass
+    import time
+    _t0 = time.time()
     vec = (await get_embedding_provider(p).embed([text]))[0]
     try:
         metrics.EMBED_CALLS.labels(p).inc()
+        metrics.EMBED_LATENCY.labels(p).observe(time.time() - _t0)
     except Exception:
         pass
     try:

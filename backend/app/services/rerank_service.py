@@ -20,6 +20,8 @@ class Reranker:
         """返回 [(原始索引, 相关性分数), ...]，按相关性降序，长度 top_n。"""
         if not documents or not settings.DASHSCOPE_API_KEY:
             return [(i, 0.0) for i in range(min(top_n, len(documents)))]
+        import time
+        _t0 = time.time()
         async with httpx.AsyncClient(timeout=30) as c:
             resp = await c.post(
                 _URL,
@@ -38,6 +40,7 @@ class Reranker:
         try:
             from app.core import metrics
             metrics.RERANK_CALLS.inc()
+            metrics.RERANK_LATENCY.observe(time.time() - _t0)
         except Exception:
             pass
         return [(item["index"], float(item["relevance_score"])) for item in results]

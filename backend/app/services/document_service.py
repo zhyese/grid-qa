@@ -138,6 +138,11 @@ async def vectorize_document(db: AsyncSession, doc_id: str) -> dict:
     )
     doc.status = "vectorized"
     await db.commit()
+    try:
+        from app.core import metrics
+        metrics.VECTOR_ROUTE.labels(route).inc()
+    except Exception:
+        pass
     return {
         "docId": doc_id, "vectorCount": len(vectors),
         "milvusCollection": collection, "embeddingRoute": route, "docChars": total_chars,
@@ -174,6 +179,13 @@ async def get_stats(db: AsyncSession) -> dict:
                        milvus_client.num_entities(settings.MILVUS_COLLECTION_BGE)
     except Exception:
         vector_total = 0
+    try:
+        from app.core import metrics
+        metrics.KB_DOCS.set(sum(by_status.values()))
+        metrics.KB_CHUNKS.set(chunk_total)
+        metrics.KB_VECTORS.set(vector_total)
+    except Exception:
+        pass
     return {
         "docTotal": sum(by_status.values()),
         "chunkTotal": chunk_total,

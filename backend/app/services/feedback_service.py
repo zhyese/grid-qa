@@ -13,3 +13,8 @@ async def record_feedback(
         answer=answer, feedback=feedback, username=username,
     ))
     await db.commit()
+    try:
+        from app.core import metrics
+        metrics.FEEDBACK.labels(feedback).inc()
+    except Exception:
+        pass

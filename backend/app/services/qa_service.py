@@ -69,11 +69,17 @@ async def answer(
     await conversation_service.save_message(db, conversation_id, "user", query)
     await conversation_service.save_message(db, conversation_id, "assistant", ans)
 
+    _halluc = citation.estimate_hallucination(ans, len(contexts))
+    try:
+        from app.core import metrics
+        metrics.HALLUC.observe(_halluc)
+    except Exception:
+        pass
     result = {
         "answer": ans,
         "retrievalSource": [{"docName": c.get("docName", ""), "text": c["chunk"][:200]} for c in contexts],
         "responseTime": round(time.time() - t0, 3),
-        "hallucinationRate": citation.estimate_hallucination(ans, len(contexts)),
+        "hallucinationRate": _halluc,
         "cached": False,
         "conversationId": conversation_id,
     }
@@ -178,6 +184,11 @@ async def stream_answer(
 
     # 4) 单轮写热点缓存
     halluc = citation.estimate_hallucination(full, len(contexts))
+    try:
+        from app.core import metrics
+        metrics.HALLUC.observe(halluc)
+    except Exception:
+        pass
     if is_single:
         try:
             await redis_client.cache_set_json(

@@ -112,6 +112,10 @@ app.include_router(qa.router, prefix=settings.API_PREFIX)
 # ---- 全局异常：BizError -> 统一 {code, message, data}（HTTP 恒 200，业务码放 body）----
 @app.exception_handler(BizError)
 async def biz_error_handler(request: Request, exc: BizError):
+    try:
+        metrics.ERRORS.labels("biz", str(exc.code)).inc()
+    except Exception:
+        pass
     return JSONResponse(
         status_code=200,
         content=error(exc.message, exc.code, exc.data).model_dump(),
@@ -133,6 +137,8 @@ async def metrics_middleware(request: Request, call_next):
     try:
         metrics.REQUESTS.labels(request.method, request.url.path, str(response.status_code)).inc()
         metrics.LATENCY.labels(request.url.path).observe(time.time() - start)
+        if response.status_code >= 500:
+            metrics.ERRORS.labels("http5xx", str(response.status_code)).inc()
     except Exception:
         pass
     return response
