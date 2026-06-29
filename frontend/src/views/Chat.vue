@@ -24,6 +24,7 @@
         <div v-if="!conversations.length" class="empty-side">{{ searchKw ? '无匹配对话' : '暂无历史对话' }}</div>
       </div>
       <div class="side-nav">
+        <router-link to="/dashboard">统计</router-link> ·
         <router-link to="/documents">文档</router-link> ·
         <router-link to="/admin" v-if="auth.role === 'admin'">管理</router-link> ·
         <a href="#" @click.prevent="logout">退出({{ auth.username }})</a>

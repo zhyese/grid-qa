@@ -158,3 +158,26 @@ async def delete_document(db: AsyncSession, doc_id: str) -> None:
     await db.execute(delete(Chunk).where(Chunk.doc_id == doc_id))
     await db.execute(delete(Document).where(Document.id == doc_id))
     await db.commit()
+
+
+async def get_stats(db: AsyncSession) -> dict:
+    """知识库统计：文档/分块/向量总数 + 状态/类型分布（双 collection 向量合计）。"""
+    from sqlalchemy import func
+    rows = (await db.execute(select(Document.status, func.count()).group_by(Document.status))).all()
+    by_status = {r[0]: r[1] for r in rows}
+    rows = (await db.execute(select(Document.doc_type, func.count()).group_by(Document.doc_type))).all()
+    by_type = {r[0]: r[1] for r in rows}
+    chunk_total = (await db.execute(select(func.count()).select_from(Chunk))).scalar() or 0
+    vector_total = 0
+    try:
+        vector_total = milvus_client.num_entities(settings.MILVUS_COLLECTION) + \
+                       milvus_client.num_entities(settings.MILVUS_COLLECTION_BGE)
+    except Exception:
+        vector_total = 0
+    return {
+        "docTotal": sum(by_status.values()),
+        "chunkTotal": chunk_total,
+        "vectorTotal": vector_total,
+        "byStatus": by_status,
+        "byType": by_type,
+    }

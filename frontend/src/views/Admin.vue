@@ -5,6 +5,7 @@
       <nav>
         <router-link to="/chat">问答</router-link> |
         <router-link to="/documents">文档</router-link> |
+        <router-link to="/dashboard">统计</router-link> |
         <router-link to="/admin">管理</router-link> |
         <a href="#" @click.prevent="logout">退出({{ auth.username }})</a>
       </nav>

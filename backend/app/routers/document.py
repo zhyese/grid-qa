@@ -12,6 +12,7 @@ from app.models.user import User
 from app.schemas.document import ParseRequest, VectorRequest
 from app.services.document_service import (
     delete_document,
+    get_stats,
     list_documents,
     parse_documents,
     upload_documents,
@@ -48,6 +49,15 @@ async def document_list(
     user: User = Depends(get_current_user),
 ):
     data = await list_documents(db, keyword, page, size)
+    return success(data, "查询成功")
+
+
+@router.get("/stats")
+async def document_stats(
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    data = await get_stats(db)
     return success(data, "查询成功")
 
 

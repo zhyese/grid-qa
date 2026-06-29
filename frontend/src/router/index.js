@@ -6,6 +6,7 @@ const routes = [
   { path: '/', redirect: '/chat' },
   { path: '/chat', component: () => import('../views/Chat.vue'), meta: { auth: true } },
   { path: '/documents', component: () => import('../views/Documents.vue'), meta: { auth: true } },
+  { path: '/dashboard', component: () => import('../views/Dashboard.vue'), meta: { auth: true } },
   { path: '/admin', component: () => import('../views/Admin.vue'), meta: { auth: true, admin: true } },
 ]
 

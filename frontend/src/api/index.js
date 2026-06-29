@@ -16,6 +16,7 @@ export const listDocs = (keyword = '') => request.get('/document/list', { params
 export const parseDocs = (docIds) => request.post('/document/parse', { docIds })
 export const vectorize = (docId) => request.post('/document/vector/generate', { docId })
 export const deleteDoc = (docId) => request.delete('/document/delete', { params: { docId } })
+export const getStats = () => request.get('/document/stats')
 
 // 检索与问答
 export const answer = (query, modelType) => request.post('/qa/answer', { query, modelType })
