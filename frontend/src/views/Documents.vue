@@ -64,7 +64,10 @@
             <th class="cb"><input type="checkbox" :checked="allChecked" @change="toggleAll($event.target.checked)" /></th>
             <th>文件名</th><th>类型</th><th>状态</th><th>分块</th><th>操作</th>
           </tr></thead>
-          <tbody>
+          <tbody v-if="loading">
+            <tr v-for="i in 5" :key="i"><td colspan="6"><div class="skeleton"></div></td></tr>
+          </tbody>
+          <tbody v-else>
             <tr v-for="d in filtered" :key="d.docId">
               <td class="cb"><input type="checkbox" :value="d.docId" v-model="selected" /></td>
               <td>{{ d.docName }}</td><td>{{ d.docType }}</td>
@@ -120,9 +123,10 @@ const filtered = computed(() =>
 )
 const allChecked = computed(() => filtered.value.length > 0 && selected.value.length === filtered.value.length)
 
+const loading = ref(false)
 async function load() {
-  const r = await listDocs()
-  docs.value = r.data.list || []
+  loading.value = true
+  try { const r = await listDocs(); docs.value = r.data.list || [] } finally { loading.value = false }
 }
 function fmtSize(b) {
   if (!b) return '0B'
@@ -188,6 +192,8 @@ th.cb, td.cb { width: 36px; }
 .st-parsed { color: #0891b2; }
 .st-vectorized { color: #16a34a; }
 .empty-row { text-align: center; color: #94a3b8; padding: 24px; }
+.skeleton { height: 18px; background: linear-gradient(90deg, #e2e8f0 25%, #f1f5f9 50%, #e2e8f0 75%); background-size: 200% 100%; animation: shimmer 1.4s infinite; border-radius: 4px; }
+@keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
 button { cursor: pointer; border: none; padding: 5px 12px; border-radius: 4px; background: #2563eb; color: #fff; }
 button.secondary { background: #64748b; }
 button.danger { background: #ef4444; }

@@ -1,7 +1,7 @@
 <template>
   <div class="chat-page">
     <!-- 左侧栏：对话历史 -->
-    <aside class="sidebar">
+    <aside class="sidebar" :class="{ open: sidebarOpen }">
       <button class="new-btn" @click="newChat">+ 新建对话</button>
       <input class="search-box" v-model="searchKw" placeholder="🔍 搜索对话..." @input="onSearch" />
       <div class="conv-list">
@@ -33,7 +33,10 @@
 
     <!-- 右侧：聊天区 -->
     <main class="chat-main">
-      <header class="topbar"><span>电网运维 RAG 智能问答</span></header>
+      <header class="topbar">
+        <span class="menu-btn" @click="sidebarOpen = !sidebarOpen">☰</span>
+        <span>电网运维 RAG 智能问答</span>
+      </header>
       <div class="chat-wrap">
         <div class="chat-list">
           <div v-for="(m, i) in messages" :key="i" class="msg" :class="m.role">
@@ -63,7 +66,13 @@
               </div>
             </div>
           </div>
-          <div v-if="!messages.length" class="empty">输入运维问题开始问答，例如：主变压器温度异常如何处置？</div>
+          <div v-if="!messages.length" class="empty">
+            <div class="welcome">👋 欢迎使用电网运维智能问答</div>
+            <div class="quick-hint">试试这些问题：</div>
+            <div class="qq-list">
+              <button class="qq" v-for="q in quickQuestions" :key="q" @click="quickAsk(q)">{{ q }}</button>
+            </div>
+          </div>
         </div>
         <div class="input-bar">
           <select v-model="modelType">
@@ -143,6 +152,14 @@ const currentConvId = ref('')
 const searchKw = ref('')
 const editingId = ref('')
 const editingTitle = ref('')
+const sidebarOpen = ref(false)
+const quickQuestions = [
+  '主变压器温度异常如何处置？',
+  '配电线路单相接地故障如何排查？',
+  'SF6断路器漏气该如何处理？',
+  '变压器日常巡视检查哪些项目？',
+]
+function quickAsk(q) { query.value = q; ask() }
 
 async function loadConversations() {
   try { conversations.value = (await getConversations(searchKw.value)).data || [] } catch (e) {}
@@ -323,7 +340,22 @@ onMounted(loadConversations)
 .src-doc { color: #0369a1; font-size: 12px; }
 .toast { position: fixed; bottom: 28px; left: 50%; transform: translateX(-50%); background: #1e293b; color: #fff; padding: 8px 18px; border-radius: 6px; z-index: 999; font-size: 13px; box-shadow: 0 4px 12px rgba(0,0,0,.15); }
 .fb-done { color: #16a34a; margin-left: 4px; }
-.empty { color: #94a3b8; text-align: center; margin-top: 80px; }
+.empty { text-align: center; margin-top: 60px; }
+.welcome { font-size: 20px; font-weight: bold; color: #1e3a8a; margin-bottom: 8px; }
+.quick-hint { color: #64748b; font-size: 13px; margin-bottom: 14px; }
+.qq-list { display: flex; flex-direction: column; gap: 10px; max-width: 420px; margin: 0 auto; }
+.qq { background: var(--surface); border: 1px solid var(--border); color: var(--primary); padding: 11px 16px; border-radius: 8px; cursor: pointer; text-align: left; transition: all .15s; font-size: 14px; }
+.qq:hover { background: var(--primary); color: #fff; transform: translateX(4px); }
+.menu-btn { display: none; cursor: pointer; margin-right: 12px; font-size: 20px; color: #fff; }
+@media (max-width: 768px) {
+  .menu-btn { display: block; }
+  .sidebar { position: fixed; left: 0; top: 0; bottom: 0; z-index: 100; transform: translateX(-100%); transition: transform .25s; box-shadow: 2px 0 12px rgba(0,0,0,.2); }
+  .sidebar.open { transform: translateX(0); }
+  .chat-wrap { margin: 12px auto; padding: 0 8px; }
+  .input-bar { flex-wrap: wrap; }
+  .input-bar select { width: 100%; }
+  .input-bar input { min-width: 100%; }
+}
 .input-bar { display: flex; gap: 8px; margin-top: 16px; }
 .input-bar input { flex: 1; }
 </style>
