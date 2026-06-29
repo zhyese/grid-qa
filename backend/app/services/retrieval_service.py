@@ -24,6 +24,8 @@ async def mixed_search(
     db: AsyncSession, query: str, topk: int = 10,
     doc_type: str | None = None, model_type: str | None = None,
 ) -> list[dict]:
+    import time
+    _t0 = time.time()
     cand = max(topk * 4, 20)
 
     # 0) 可选 query 改写
@@ -83,4 +85,9 @@ async def mixed_search(
     else:
         pool = pool[:topk]
 
+    try:
+        from app.core import metrics
+        metrics.RETRIEVAL_LATENCY.observe(time.time() - _t0)
+    except Exception:
+        pass
     return [_to_item(h) for h in pool]

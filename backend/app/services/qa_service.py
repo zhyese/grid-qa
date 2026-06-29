@@ -32,6 +32,11 @@ async def answer(
         if cached:
             cached["cached"] = True
             cached["responseTime"] = round(time.time() - t0, 3)
+            try:
+                from app.core import metrics
+                metrics.QA_TOTAL.labels(model_type or settings.LLM_PROVIDER, "true").inc()
+            except Exception:
+                pass
             return cached
 
     contexts = await retrieval_service.mixed_search(db, nq, topk)
@@ -76,6 +81,11 @@ async def answer(
     # 仅单轮结果写缓存
     try:
         await redis_client.cache_set_json(_cache_key(model_type, nq), result, settings.QA_CACHE_TTL)
+    except Exception:
+        pass
+    try:
+        from app.core import metrics
+        metrics.QA_TOTAL.labels(model_type or settings.LLM_PROVIDER, "false").inc()
     except Exception:
         pass
     return result
