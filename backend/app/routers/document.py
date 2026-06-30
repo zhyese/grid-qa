@@ -62,7 +62,9 @@ async def document_stats(
 
 
 @router.post("/parse")
+@limiter.limit("10/minute")
 async def parse(
+    request: Request,
     body: ParseRequest,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
@@ -73,7 +75,9 @@ async def parse(
 
 
 @router.post("/vector/generate")
+@limiter.limit("10/minute")
 async def vector_generate(
+    request: Request,
     body: VectorRequest,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),

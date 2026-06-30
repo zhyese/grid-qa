@@ -112,7 +112,9 @@ async def term_normalize(
 
 
 @router.post("/feedback")
+@limiter.limit("60/minute")
 async def feedback(
+    request: Request,
     body: FeedbackRequest,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
