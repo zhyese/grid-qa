@@ -45,55 +45,85 @@
 
 ```mermaid
 graph TB
-    FE["Vue3 前端 :5173<br/>Chat · Documents · Dashboard · KgGraph · 🩺Diagnose · Admin"]
-    BE["FastAPI 后端 :8001 🛡️安全护栏<br/>system · document · retrieval · qa · kg · domain"]
+    classDef client fill:#e1f5fe,stroke:#03a9f4,stroke-width:2px
+    classDef process fill:#ffffff,stroke:#ff9800,stroke-width:2px
+    classDef storage fill:#ffffff,stroke:#4caf50,stroke-width:2px
+    classDef llm fill:#ffffff,stroke:#9c27b0,stroke-width:2px
+    classDef new fill:#fce4ec,stroke:#e91e63,stroke-width:2px,stroke-dasharray:5 3
 
-    FE -->|"① 提问 / 上传 / 诊断任务 · JWT"| BE
-    BE -.->|"⑦ SSE token + confidence + ⚠highRisk · 真faithfulness异步"| FE
+    FE["🖥️ 前端 :5173<br/>Chat · 🩺Diagnose · Documents · Admin"]:::client
 
-    %% ===== 写入流：原文 → 结构感知分块(表格/父子) → 向量 + 图谱(消歧) =====
-    FE -->|"上传 PDF/Word/Excel/图片"| MinIO
-    BE -->|"② 表格/Excel/OCR → 结构感知分块(父子)"| MySQL
-    BE -->|"设备自动打标 equipment_tags"| MySQL
-    BE -->|"③ 大走云 / 小走 bge"| EMB
-    EMB -->|"云向量 1024 维"| MilvusC
-    EMB -.->|"bge 512 维"| MilvusB
-    BE -.->|"④ 后台抽三元组(消歧+schema约束)"| Neo4j
-
-    %% ===== 读取流：缓存 → 多策略检索 → CRAG → 父子召回 → 图谱 → 生成 =====
-    BE -->|"⑤ 命中热点?"| Redis
-    BE -->|"standalone消解 / HyDE / 多查询分解"| LLM
-    BE -->|"双路稠密 + BM25 → RRF"| RR
-    RR -->|"rerank → CRAG v1(top1) / v2(per-doc LLM)"| CRAG["★ CRAG 自纠错<br/>incorrect→改写重检索→refused"]
-    CRAG -->|"parent 召回大块上下文"| MySQL
-    BE -.->|"⑥ 图谱因果上下文"| Neo4j
-    BE -->|"⑦ prompt + 置信度 → 脱敏/高风险标记"| LLM
-
-    %% ===== 领域增强（/domain）复用检索 + 图谱 =====
-    BE -.->|"诊断/两票/案例：多查询→检索→因果链→结构化输出"| LLM
-
-    subgraph STORE["存储层（各存其职）"]
-        MySQL[("MySQL 8<br/>chunks(父子/类型/章节)·三元组·设备标签·对话·反馈·日志")]
-        MinIO[("MinIO<br/>源文档原文")]
-        MilvusC[("Milvus grid_chunks<br/>云向量 HNSW")]
-        MilvusB[("Milvus grid_chunks_bge<br/>bge 向量 HNSW")]
-        Redis[("Redis<br/>热点缓存·query向量缓存·配置")]
-        Neo4j[("Neo4j<br/>Entity·REL 多跳图(消歧收敛)")]
+    subgraph WRITE["① 写入流 · 离线知识构建"]
+        direction LR
+        Upload["上传 PDF/Word/Excel"]:::process
+        Parse["结构感知分块<br/>表格·父子"]:::new
+        EqTag["设备打标"]:::new
+        EmbR{"双 Embedding 路由"}:::process
+        ExtKG["后台抽三元组<br/>消歧+schema"]:::new
     end
+
+    subgraph READ["② 读取流 · 在线 RAG 自纠错"]
+        direction LR
+        Guard["🛡️ 护栏"]:::new
+        Cache{"热点缓存?"}:::process
+        Stand["standalone<br/>HyDE/多查询"]:::new
+        Ret["双路+BM25→RRF"]:::process
+        Parent["parent 召回"]:::new
+        CRAG{"CRAG v1/v2<br/>纠错"}:::new
+        Gen["生成·脱敏<br/>⚠高风险"]:::process
+    end
+
+    subgraph DOMAIN["③ 领域 /domain"]
+        Diag["🩺诊断 · 📚案例 · 📝两票"]:::new
+    end
+
+    subgraph STORE["存储层 · 各存其职"]
+        MySQL[("MySQL<br/>chunks·三元组·设备·对话")]:::storage
+        Milvus[("Milvus 双路向量")]:::storage
+        Neo4j[("Neo4j 图谱")]:::storage
+        Redis[("Redis 缓存")]:::storage
+        MinIO[("MinIO 原文")]:::storage
+    end
+
     subgraph CLOUD["云模型 · openai SDK"]
-        LLM["LLM<br/>DeepSeek / Qwen / Doubao"]
-        EMB["Embedding<br/>百炼 v3 / 本地 bge"]
-        RR["Rerank<br/>gte-rerank-v2"]
+        LLM["LLM DS/Qwen/Doubao"]:::llm
+        EMB["Embedding"]:::llm
+        RR["Rerank"]:::llm
     end
+
+    FE -->|"提问/上传/诊断"| Upload
+    FE --> Guard
+    FE -.-> Diag
+    Upload --> MinIO
+    Upload --> Parse --> MySQL & EqTag & EmbR & ExtKG
+    EmbR -->|"大"| EMB --> Milvus
+    EmbR -.->|"小"| Milvus
+    ExtKG --> Neo4j
+    Guard --> Cache
+    Cache -.->|"命中秒回"| FE
+    Cache -->|"未命中"| Stand
+    Stand --> LLM
+    Stand --> Ret --> RR --> Parent --> CRAG
+    Ret -.-> Milvus
+    CRAG -->|"correct"| Gen --> LLM
+    CRAG -.->|"incorrect→refused"| FE
+    Gen -.->|"SSE+置信度+⚠highRisk · 真faithfulness异步"| FE
+    Diag -.-> Ret & Neo4j
+
+    style WRITE fill:#fff3e0,stroke:#ff9800
+    style READ fill:#fffde7,stroke:#f9a825
+    style DOMAIN fill:#fce4ec,stroke:#e91e63
+    style STORE fill:#e8f5e9,stroke:#4caf50
+    style CLOUD fill:#ede7f6,stroke:#7e57c2
 ```
 ## 系统架构 竖版
 ```mermaid
 flowchart TD
     %% 定义样式（new=粉色虚线，标注 v2 新增节点，一眼看增量）
     classDef client fill:#e1f5fe,stroke:#03a9f4,stroke-width:2px;
-    classDef process fill:#fff3e0,stroke:#ff9800,stroke-width:2px;
-    classDef storage fill:#e8f5e9,stroke:#4caf50,stroke-width:2px;
-    classDef llm fill:#f3e5f5,stroke:#9c27b0,stroke-width:2px;
+    classDef process fill:#ffffff,stroke:#ff9800,stroke-width:2px;
+    classDef storage fill:#ffffff,stroke:#4caf50,stroke-width:2px;
+    classDef llm fill:#ffffff,stroke:#9c27b0,stroke-width:2px;
     classDef new fill:#fce4ec,stroke:#e91e63,stroke-width:2px,stroke-dasharray:5 3;
 
     User(["用户/前端 Vue3<br/>Chat · 🩺Diagnose · Documents · Admin"]):::client
@@ -195,6 +225,13 @@ flowchart TD
     Diagnose -.-> Neo4j
     Diagnose --> Similar
     Diagnose --> Ticket
+
+    %% 阶段色块
+    style WriteFlow fill:#fff3e0,stroke:#ff9800
+    style StorageLayer fill:#e8f5e9,stroke:#4caf50
+    style ReadFlow fill:#fffde7,stroke:#f9a825
+    style DomainFlow fill:#fce4ec,stroke:#e91e63
+    style CloudModels fill:#ede7f6,stroke:#7e57c2
 ```
 
 
@@ -202,38 +239,54 @@ flowchart TD
 
 ```mermaid
 flowchart LR
-    subgraph W["① 写入 · 结构感知分块 + 自动建图谱（不阻塞接口）"]
-        U[上传文件<br/>PDF/Word/Excel/图片] --> P[表格/Excel/OCR 解析]
-        P --> SK[结构感知分块<br/>表格整体·父子两层]
-        SK --> EQ[设备自动打标<br/>equipment_tags]
-        SK --> V[Embedding 路由<br/>大走云/小走bge]
-        V --> VMIL[("Milvus 向量<br/>grid_chunks / _bge")]
-        SK -.->|后台异步| K[LLM 抽三元组<br/>+ 实体消歧/schema约束]
-        K --> KG[("MySQL 三元组<br/>+ Neo4j 图")]
+    classDef io fill:#e1f5fe,stroke:#03a9f4,stroke-width:2px
+    classDef process fill:#ffffff,stroke:#ff9800,stroke-width:2px
+    classDef storage fill:#ffffff,stroke:#4caf50,stroke-width:2px
+    classDef llm fill:#ffffff,stroke:#9c27b0,stroke-width:2px
+    classDef new fill:#fce4ec,stroke:#e91e63,stroke-width:2px,stroke-dasharray:5 3
+
+    subgraph W["① 写入 · 结构感知分块 + 自动建图谱"]
+        direction TB
+        U[上传文件<br/>PDF/Word/Excel/图片]:::io --> P[表格/Excel/OCR 解析]:::process
+        P --> SK[结构感知分块<br/>表格整体·父子]:::new
+        SK --> EQ[设备自动打标]:::new
+        SK --> V[Embedding 路由<br/>大走云/小走bge]:::process
+        V --> VMIL[("Milvus 向量<br/>grid_chunks/_bge")]:::storage
+        SK -.->|后台异步| K[LLM 抽三元组<br/>+消歧/schema]:::new
+        K --> KG[("MySQL 三元组<br/>+ Neo4j 图")]:::storage
     end
+
     subgraph R["② 读取 · 多策略检索 + CRAG自纠错 + 真可信"]
-        Q[提问] --> GUARD[🛡️ injection 告警]
-        GUARD --> CC{"热点缓存<br/>命中?"}
-        CC -->|命中| A1[秒回 cached]
-        CC -->|未命中| ST[standalone 指代消解<br/>+ HyDE / 多查询分解]
-        ST --> RT[检索<br/>双路向量 + BM25 → RRF]
-        RT --> RRK[rerank 重排]
-        RRK --> PE[parent 召回大块上下文]
-        PE --> CG{"★CRAG分级<br/>v1 top1分 / v2 per-doc LLM"}
-        CG -->|correct| PF["prompt<br/>文档大块+图谱"]
-        CG -->|incorrect| RW[改写重检索]
-        RW -.->|仍低分| RF[refused保守拒答]
-        PF --> L[LLM 生成 + 脱敏/高风险标记]
-        L --> A2[带引用+图谱N+置信度+⚠高风险]
-        A2 -.->|异步| FJ[真faithfulness<br/>LLM-judge覆盖幻觉率]
+        direction TB
+        Q[提问]:::io --> GUARD[🛡️ injection 告警]:::new
+        GUARD --> CC{"热点缓存<br/>命中?"}:::process
+        CC -->|命中| A1[秒回 cached]:::io
+        CC -->|未命中| ST[standalone消解<br/>+HyDE/多查询]:::new
+        ST --> RT[检索<br/>双路向量+BM25→RRF]:::process
+        RT --> RRK[rerank 重排]:::llm
+        RRK --> PE[parent 召回大块]:::new
+        PE --> CG{"★CRAG分级<br/>v1 top1 / v2 per-doc"}:::new
+        CG -->|correct| PF["prompt<br/>大块+图谱"]:::process
+        CG -->|incorrect| RW[改写重检索]:::process
+        RW -.->|仍低分| RF[refused 拒答]:::process
+        PF --> L[LLM 生成<br/>+脱敏/⚠高风险]:::llm
+        L --> A2[引用+图谱N+置信度]:::io
+        A2 -.->|异步| FJ[真faithfulness<br/>LLM-judge]:::new
         A2 -.->|写缓存| CC
     end
+
     subgraph D["③ 删除 · 五库联动清理"]
-        DEL[删文档] --> CL["MinIO 原文 ·<br/>Milvus 双 collection ·<br/>MySQL chunks+三元组+设备标签 ·<br/>Neo4j 边"]
+        direction TB
+        DEL[删文档]:::io --> CL["MinIO·Milvus双collection<br/>MySQL chunks+三元组+设备标签<br/>Neo4j 边"]:::storage
     end
+
     %% 闭环：写入产物 → 读取消费（数据真正流转）
     VMIL -. 检索 .-> RT
     KG -. 结构化上下文 .-> PF
+
+    style W fill:#fff3e0,stroke:#ff9800
+    style R fill:#fffde7,stroke:#f9a825
+    style D fill:#eceff1,stroke:#607d8b
 ```
 
 ### 单次问答数据流时序（含 CRAG 自纠错）
