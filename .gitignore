@@ -19,7 +19,8 @@ ENV/
 
 # ===== 运行时数据（仅根目录，不影响 backend/app/data 代码资产）=====
 /data/
-/backend/data/
+/backend/data/*
+!/backend/data/golden_qa.json
 /uploads/
 /chroma/
 *.db
