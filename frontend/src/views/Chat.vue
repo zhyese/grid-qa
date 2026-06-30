@@ -46,6 +46,7 @@
             <div v-else class="bubble">
               <div v-if="!m.streaming" class="ans-actions">
                 <a class="cp-btn" @click="copyAnswer(m)">📋 复制答案</a>
+                <a class="cp-btn" @click="exportWord(m)">📄 导出 Word</a>
               </div>
               <pre v-if="m.streaming" class="ans">{{ m.content }}<span class="cursor">▍</span></pre>
               <div v-else class="ans md" @click="onAnsClick($event, m)" v-html="renderMd(m.content)"></div>
@@ -128,7 +129,7 @@ hljs.registerLanguage('xml', xml)
 hljs.registerLanguage('html', xml)
 hljs.registerLanguage('markdown', markdown)
 hljs.registerLanguage('md', markdown)
-import { streamAnswer, sendFeedback, getFaithfulness, getRelatedQuestions, getConversations, getHistory, deleteConversation, renameConversation } from '../api'
+import { streamAnswer, sendFeedback, getFaithfulness, getRelatedQuestions, getConversations, getHistory, deleteConversation, renameConversation, exportAnswer } from '../api'
 
 // F1: Markdown 渲染 + 代码高亮
 const md = new MarkdownIt({
@@ -275,6 +276,18 @@ function srcName(s) { return typeof s === 'string' ? '' : (s.docName || '') }
 function srcText(s) { return typeof s === 'string' ? s : (s.text || '') }
 async function copyAnswer(m) {
   try { await navigator.clipboard.writeText(m.content); toast('答案已复制') } catch (e) { toast('复制失败') }
+}
+async function exportWord(m) {
+  try {
+    const blob = await exportAnswer(m.query, m.content, m.sources, {
+      confidence: m.confidence, hallucinationRate: m.halluc, responseTime: m.time,
+    })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url; a.download = '运维问答报告.docx'; a.click()
+    URL.revokeObjectURL(url)
+    toast('已导出 Word')
+  } catch (e) { toast('导出失败') }
 }
 async function copySource(s) {
   try { await navigator.clipboard.writeText(srcText(s)); toast('来源已复制') } catch (e) {}

@@ -837,6 +837,14 @@ flowchart LR
     OUT -.同基建.-> TK[两票辅助生成<br/>/domain/ticket]
 ```
 
+### 🆕 v2.1 体验与多模态补强
+- **Self-RAG 检索必要性**：LLM 路由判断 query 是否属运维范畴，非运维问题跳过检索直接拒答（省成本 + 防污染）。`SELF_RAG_ENABLE`。
+- **📄 答案导出 Word**：`POST /qa/export` 把问答转为 `.docx` 运维报告（问题/答复/引用/可信度/安全提示），现场打印归档；Chat 加导出按钮。
+- **📄 文档在线预览**：`GET /document/preview/{docId}` 返回原文流（PDF/图片/文本），Documents 点文件名弹窗预览。
+- **🖼️ 多模态 RAG**：VLM(Qwen-VL) 理解图片（图纸/设备外观/故障现象/曲线图）生成语义描述，与 OCR 文字合并入知识库——补充 OCR 丢失的空间语义。`VLM_ENABLE`。
+- **🌙 暗色主题**：浮动按钮一键切换亮/暗（`useDark` + localStorage 持久化 + 全局 CSS 变量覆盖）。
+- **Grafana 20 → 22 面板**：新增「安全事件(prompt injection 命中)」「领域增强调用(诊断/两票/相似案例)」。
+
 ### 🧠 图谱质量保障
 - **实体消歧 + Schema 约束**：`#1主变 / 1号主变 / 主变` → 统一 `主变压器`；关系收敛到白名单(发生/表现为/处置方法/原因/影响/...)，无法归类归"相关"保留连通性。`services/kg_normalize.py`。
 
@@ -844,7 +852,7 @@ flowchart LR
 - `grid_safety_block_total{kind}`（安全事件）、`grid_domain_calls_total{feature}`（故障诊断/两票/相似案例调用），可接入 Grafana。
 
 ### 🧪 测试覆盖
-- 单元测试 29 → **64**（新增：结构分块/表格解析/CRAG v2 分级/安全合规/图谱消歧/golden 覆盖度）。
+- 单元测试 29 → **69**（新增：结构分块/表格解析/CRAG v2 分级/安全合规/图谱消歧/golden 覆盖度/SELF_RAG/多模态）。
 
 ---
 

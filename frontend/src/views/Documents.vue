@@ -70,7 +70,7 @@
           <tbody v-else>
             <tr v-for="d in filtered" :key="d.docId">
               <td class="cb"><input type="checkbox" :value="d.docId" v-model="selected" /></td>
-              <td>{{ d.docName }}</td><td>{{ d.docType }}</td>
+              <td class="doc-name" @click="previewDoc(d)" :title="'预览 ' + d.docName">{{ d.docName }}</td><td>{{ d.docType }}</td>
               <td><span :class="'st-' + d.status">{{ statusMap[d.status] || d.status }}</span></td>
               <td>{{ d.chunkCount }}</td>
               <td class="eq">{{ (d.equipmentTags || '').split(',').filter(Boolean).slice(0, 3).join('、') || '—' }}</td>
@@ -86,6 +86,14 @@
       </div>
     </div>
     <div class="toast" v-if="toastMsg">{{ toastMsg }}</div>
+    <div class="modal" v-if="preview.show" @click.self="closePreview">
+      <div class="modal-card">
+        <div class="modal-head"><span>📄 文档预览</span><button class="ghost" @click="closePreview">✕ 关闭</button></div>
+        <iframe v-if="preview.type === 'pdf'" :src="preview.url" class="preview-frame"></iframe>
+        <img v-else-if="preview.type === 'img'" :src="preview.url" class="preview-img" />
+        <pre v-else class="preview-text">{{ preview.text }}</pre>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -105,6 +113,7 @@ const progress = ref(0)
 const dragOver = ref(false)
 const busy = reactive({})
 const selected = ref([])
+const preview = reactive({ show: false, type: '', url: '', text: '' })
 const filterKw = ref('')
 const filterType = ref('')
 const filterStatus = ref('')
@@ -167,6 +176,22 @@ async function batchDelete() {
   catch (e) { toast('批量删除失败') }
 }
 function logout() { auth.logout(); router.push('/login') }
+async function previewDoc(d) {
+  const ext = (d.docName.split('.').pop() || '').toLowerCase()
+  try {
+    const resp = await fetch(`/api/document/preview/${d.docId}`, { headers: { Authorization: `Bearer ${auth.token}` } })
+    if (!resp.ok) { toast('该格式不支持预览或预览失败'); return }
+    const blob = await resp.blob()
+    if (ext === 'pdf') { preview.type = 'pdf'; preview.url = URL.createObjectURL(blob) }
+    else if (['png', 'jpg', 'jpeg'].includes(ext)) { preview.type = 'img'; preview.url = URL.createObjectURL(blob) }
+    else { preview.type = 'text'; preview.text = await blob.text() }
+    preview.show = true
+  } catch (e) { toast('预览失败') }
+}
+function closePreview() {
+  if (preview.url) URL.revokeObjectURL(preview.url)
+  preview.show = false; preview.url = ''; preview.text = ''
+}
 onMounted(load)
 </script>
 
@@ -202,4 +227,13 @@ button.danger { background: #ef4444; }
 button.ghost { background: transparent; color: #64748b; border: 1px solid #cbd5e1; }
 button:disabled { opacity: .5; cursor: not-allowed; }
 .toast { position: fixed; bottom: 28px; left: 50%; transform: translateX(-50%); background: #1e293b; color: #fff; padding: 8px 18px; border-radius: 6px; z-index: 999; font-size: 13px; box-shadow: 0 4px 12px rgba(0,0,0,.15); }
+.doc-name { color: #1d4ed8; cursor: pointer; }
+.doc-name:hover { text-decoration: underline; }
+.modal { position: fixed; inset: 0; background: rgba(0,0,0,.55); z-index: 1000; display: flex; align-items: center; justify-content: center; padding: 24px; }
+.modal-card { background: #fff; border-radius: 10px; width: 100%; max-width: 900px; height: 85vh; display: flex; flex-direction: column; overflow: hidden; }
+.modal-head { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; border-bottom: 1px solid #e2e8f0; font-weight: 600; color: #1e3a8a; }
+.modal-head .ghost { background: transparent; color: #64748b; border: 1px solid #cbd5e1; }
+.preview-frame { flex: 1; border: none; }
+.preview-img { flex: 1; object-fit: contain; max-height: 100%; }
+.preview-text { flex: 1; overflow: auto; margin: 0; padding: 16px; white-space: pre-wrap; word-break: break-word; font-size: 13px; line-height: 1.7; color: #334155; }
 </style>

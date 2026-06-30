@@ -110,6 +110,27 @@ async def get_document(db: AsyncSession, doc_id: str) -> Document:
     return doc
 
 
+# 在线预览支持的扩展名 → MIME（docx/xlsx 需转换，暂不支持直预览）
+_PREVIEW_MIME = {
+    ".pdf": "application/pdf",
+    ".txt": "text/plain; charset=utf-8",
+    ".md": "text/plain; charset=utf-8",
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+}
+
+
+async def get_preview(db: AsyncSession, doc_id: str) -> tuple[bytes, str]:
+    """取原文供在线预览，返回 (content_bytes, mime)。不支持格式抛 BizError。"""
+    doc = await get_document(db, doc_id)
+    mt = _PREVIEW_MIME.get(_ext(doc.doc_name))
+    if mt is None:
+        raise BizError("该格式不支持在线预览（支持 PDF/图片/文本）", 400)
+    content = await asyncio.to_thread(minio_client.get_object_bytes, doc.minio_object)
+    return content, mt
+
+
 async def parse_documents(db: AsyncSession, doc_ids: List[str]) -> list[dict]:
     """从 MinIO 取文件 → 结构化解析(表格/Excel/扫描OCR) → 结构感知分块入 chunks 表。"""
     results = []
@@ -118,7 +139,15 @@ async def parse_documents(db: AsyncSession, doc_ids: List[str]) -> list[dict]:
         content = await asyncio.to_thread(minio_client.get_object_bytes, doc.minio_object)
         sections, is_scanned = parse_service.parse_file_structured(doc.doc_name, content)
         if is_scanned or not sections:
-            sections = await asyncio.to_thread(parse_service.ocr_to_sections, doc.doc_name, content)
+            # OCR 文字 + 可选 VLM 图片语义（图纸结构/设备外观，OCR 抓不到的空间信息）
+            ocr_sections = await asyncio.to_thread(parse_service.ocr_to_sections, doc.doc_name, content)
+            if settings.VLM_ENABLE:
+                from app.services import multimodal_service
+                vlm_desc = await multimodal_service.describe_image(content)
+                if vlm_desc:
+                    ocr_text = ocr_sections[0]["content"] if ocr_sections else ""
+                    ocr_sections = [{"type": "text", "content": f"【图片语义】{vlm_desc}\n{ocr_text}".strip()}]
+            sections = ocr_sections
         structured = chunk_service.split_structured(sections)
         await db.execute(delete(Chunk).where(Chunk.doc_id == doc_id))  # 重新解析先清旧分块
         for i, c in enumerate(structured):

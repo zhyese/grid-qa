@@ -45,3 +45,10 @@ class RelatedRequest(BaseModel):
     query: str
     answer: str = ""
     modelType: Optional[str] = None       # deepseek | qwen | doubao
+
+
+class ExportRequest(BaseModel):
+    query: str
+    answer: str
+    sources: List[dict] = []
+    meta: Optional[dict] = None           # confidence/hallucinationRate/responseTime

@@ -103,6 +103,17 @@ async def answer(
     nq = term_service.normalize(query)
     safety.guard_query(query)  # 入站 prompt injection 告警（D4）
 
+    # Self-RAG：非运维问题跳过检索直接拒答（省成本+防污染，SELF_RAG_ENABLE 默认关）
+    if settings.SELF_RAG_ENABLE:
+        from app.services import self_rag as self_rag_svc
+        if not await self_rag_svc.need_retrieve(query, model_type):
+            return {
+                "answer": self_rag_svc.SKIP_ANSWER, "retrievalSource": [],
+                "responseTime": round(time.time() - t0, 3), "hallucinationRate": 0.0,
+                "cached": False, "conversationId": conversation_id or "",
+                "confidence": "refused", "cragAction": "self_rag_skip",
+            }
+
     # 多轮不走缓存（上下文变化）；单轮命中热点缓存
     if not conversation_id:
         try:
@@ -210,6 +221,17 @@ async def stream_answer(
     _p = model_type or settings.LLM_PROVIDER
     safety.guard_query(query)  # 入站 prompt injection 告警（D4）
     is_single = not conversation_id  # 仅单轮查/写缓存（多轮上下文变化不缓存）
+
+    # Self-RAG：非运维问题跳过检索直接拒答
+    if settings.SELF_RAG_ENABLE:
+        from app.services import self_rag as self_rag_svc
+        if not await self_rag_svc.need_retrieve(query, model_type):
+            yield {"type": "meta", "sources": [], "conversationId": conversation_id or ""}
+            yield {"type": "token", "content": self_rag_svc.SKIP_ANSWER}
+            yield {"type": "done", "responseTime": round(time.time() - t0, 3),
+                   "confidence": "refused", "cragAction": "self_rag_skip",
+                   "conversationId": conversation_id or "", "cached": False}
+            return
 
     # 0) 单轮查热点缓存 → 命中则不调 LLM，一次性下发完整答案（cached=true）
     if is_single:

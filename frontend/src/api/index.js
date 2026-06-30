@@ -68,6 +68,21 @@ export const streamAnswer = async (query, modelType, conversationId, onEvent) =>
 export const sendFeedback = (query, answer, feedback, conversationId, reason) =>
   request.post('/qa/feedback', { query, answer, feedback, conversationId, reason })
 
+// 答案导出 Word（blob 下载，绕过 JSON 响应拦截器）
+export const exportAnswer = async (query, answer, sources, meta) => {
+  const auth = useAuthStore()
+  const resp = await fetch('/api/qa/export', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(auth.token ? { Authorization: `Bearer ${auth.token}` } : {}),
+    },
+    body: JSON.stringify({ query, answer, sources, meta }),
+  })
+  if (!resp.ok) throw new Error('导出失败')
+  return await resp.blob()
+}
+
 // 真 faithfulness：流式 done 后异步拉取，覆盖粗糙"幻觉率"展示（不阻塞首字）
 export const getFaithfulness = (answer, sources, modelType) =>
   request.post('/qa/faithfulness', { answer, sources, modelType })

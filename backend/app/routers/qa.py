@@ -11,6 +11,7 @@ from app.db.session import get_db
 from app.dependencies import get_current_user, require_admin
 from app.models.user import User
 from app.schemas.qa import (
+    ExportRequest,
     FaithfulnessRequest,
     FeedbackRequest,
     QaAnswerRequest,
@@ -182,3 +183,25 @@ async def related(
     """智能推荐：基于当前问答生成 3 个相关追问问题（独立接口，不拖慢流式）。"""
     questions = await qa_service.generate_related(body.query, body.answer, body.modelType)
     return success({"questions": questions}, "生成成功")
+
+
+@router.post("/export")
+@limiter.limit("20/minute")
+async def export_doc(
+    request: Request,
+    body: ExportRequest,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """答案导出 Word：问答 → .docx 运维报告（现场打印归档）。"""
+    from fastapi.responses import Response
+
+    from app.services import export_service
+
+    data = export_service.build_docx(body.query, body.answer, body.sources, body.meta)
+    await write_log(db, user.username, "导出报告", f"问题：{(body.query or '')[:40]}")
+    return Response(
+        content=data,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={"Content-Disposition": 'attachment; filename="grid-qa-report.docx"'},
+    )

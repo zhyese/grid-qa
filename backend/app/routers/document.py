@@ -12,6 +12,7 @@ from app.models.user import User
 from app.schemas.document import ParseRequest, VectorRequest
 from app.services.document_service import (
     delete_document,
+    get_preview,
     get_stats,
     list_documents,
     parse_documents,
@@ -59,6 +60,19 @@ async def document_stats(
 ):
     data = await get_stats(db)
     return success(data, "查询成功")
+
+
+@router.get("/preview/{doc_id}")
+async def preview_doc(
+    doc_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """文档在线预览：返回原文流（PDF/图片/文本），前端按 MIME 渲染。"""
+    from fastapi.responses import Response
+
+    content, mt = await get_preview(db, doc_id)
+    return Response(content, media_type=mt)
 
 
 @router.post("/parse")

@@ -131,6 +131,10 @@ class Settings(BaseSettings):
     ONLINE_FAITHFULNESS_ENABLE: bool = True  # 线上答案异步 LLM-judge，前端拉取覆盖"幻觉率"展示
     FAITHFULNESS_GATE: float = 0.85          # 生成质量门禁：平均支撑率阈值（eval_generation 用）
 
+    # ---------- 多模态 RAG（VLM 图片理解）----------
+    VLM_ENABLE: bool = False       # VLM 理解图片(图纸/设备/故障现象)补充 OCR 丢失的空间语义
+    QWEN_VLM_MODEL: str = "qwen-vl-max"
+
 
 @lru_cache
 def get_settings() -> Settings:
