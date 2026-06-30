@@ -83,6 +83,93 @@ graph TB
         RR["Rerank<br/>gte-rerank-v2"]
     end
 ```
+## 系统架构 竖版
+```mermaid
+flowchart TD
+    %% 定义样式
+    classDef client fill:#e1f5fe,stroke:#03a9f4,stroke-width:2px;
+    classDef process fill:#fff3e0,stroke:#ff9800,stroke-width:2px;
+    classDef storage fill:#e8f5e9,stroke:#4caf50,stroke-width:2px;
+    classDef llm fill:#f3e5f5,stroke:#9c27b0,stroke-width:2px;
+
+    User(["用户/前端 Vue3"]):::client
+
+    subgraph WriteFlow ["① 文档写入流 (离线知识构建)"]
+        direction TB
+        Upload["上传文件"]:::process
+        Parse["解析与分块 chunks"]:::process
+        EmbedRoute{"双 Embedding 路由"}:::process
+        ExtractKG["后台异步：LLM抽取三元组"]:::process
+    end
+
+    subgraph StorageLayer ["各司其职的存储层"]
+        direction TB
+        MinIO[("MinIO 原文")]:::storage
+        MySQL[("MySQL 元数据/Chunks/三元组")]:::storage
+        MilvusC[("Milvus 云向量库 1024维")]:::storage
+        MilvusB[("Milvus bge向量库 512维")]:::storage
+        Neo4j[("Neo4j 知识图谱")]:::storage
+        Redis[("Redis 缓存")]:::storage
+    end
+
+    subgraph ReadFlow ["② 问答读取流 (在线 RAG 问答)"]
+        direction TB
+        Query["用户提问 query"]:::process
+        CheckCache{"命中 Redis 缓存?"}:::process
+        Retrieval["混合检索: BM25 + 双路向量"]:::process
+        Rerank["Rerank 重排"]:::process
+        CRAG{"CRAG 分级纠错"}:::process
+        Rewrite["改写 Query 重检"]:::process
+        Refuse["低置信度拒答"]:::process
+        GenPrompt["融合文档与图谱构建 Prompt"]:::process
+        StreamGen["LLM SSE 流式生成答案"]:::process
+    end
+
+    subgraph CloudModels ["模型服务 Provider"]
+        direction TB
+        LLM_Chat["大语言模型 LLM"]:::llm
+        LLM_Embed["云 Embedding"]:::llm
+        LLM_Rerank["Rerank 模型"]:::llm
+    end
+
+    %% 写入链路连接
+    User --"上传文档"--> Upload
+    Upload --> MinIO
+    Upload --> Parse
+    Parse --> MySQL
+    Parse --> EmbedRoute
+    Parse -.-> ExtractKG
+    EmbedRoute --"大文档(>5000字)"--> LLM_Embed
+    LLM_Embed --> MilvusC
+    EmbedRoute --"小文档"--> MilvusB
+    ExtractKG --> Neo4j
+    ExtractKG --> MySQL
+
+    %% 读取链路连接
+    User --"提问"--> Query
+    Query --> CheckCache
+    CheckCache --"命中(0.002s)"--> User
+    CheckCache --"未命中"--> Retrieval
+    
+    Retrieval -.-> MilvusC
+    Retrieval -.-> MilvusB
+    Retrieval --> LLM_Rerank
+    LLM_Rerank --> Rerank
+    Rerank --> CRAG
+    
+    CRAG --"Ambiguous/Incorrect"--> Rewrite
+    Rewrite -.-> Retrieval
+    Rewrite --"多次尝试仍低分"--> Refuse
+    
+    CRAG --"Correct (Top1 ≥ 0.6)"--> GenPrompt
+    GenPrompt -.-> Neo4j
+    GenPrompt --> LLM_Chat
+    LLM_Chat --> StreamGen
+    StreamGen --"写入缓存(TTL)"--> Redis
+    StreamGen --"返回答案+图谱引用"--> User
+    Refuse --"拒答(零幻觉)"--> User
+```
+
 
 ### GraphRAG 数据链路（Neo4j 与原系统打通，不再孤岛）
 
