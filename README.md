@@ -27,44 +27,38 @@
 
 ## 🏗️ 系统架构
 
-```
-┌──────────────┐     ┌──────────────────────────────────────────────────┐
-│  Vue3 前端    │────▶│            FastAPI 后端 (8001)                    │
-│  6 页面 5173 │◀────│  问答/文档/检索/图谱/管理                          │
-└──────────────┘     └──────┬───────────────────────────────────────────┘
-                            │
-        ┌───────────────────┼───────────────────┐
-        ▼                   ▼                   ▼
-┌────────────────┐  ┌────────────────┐  ┌────────────────────┐
-│ 问答增强 RAG   │  │  文档处理链路    │  │   存储层            │
-│                │  │                │  │                    │
-│ 术语归一化     │  │ 上传→解析→分块  │  │ MySQL 元数据+三元组│
-│ 混合检索       │  │  (PDF/OCR)     │  │ MinIO 源文档       │
-│ RRF+rerank+MMR │  │ Embedding 路由  │  │ Milvus 向量×2      │
-│ ★GraphRAG:    │  │ 大→云 小→bge   │  │ Redis 缓存/配置     │
-│  图谱上下文    │  │ ★向量化自动    │  │ ★Neo4j 知识图谱    │
-│ Prompt+LLM     │  │  抽三元组建图  │  │                    │
-│ 引用/安全提示   │  │                │  │                    │
-└──────┬─────────┘  └────────────────┘  └────────────────────┘
-       │
-       ▼
-┌──────────────────────────────────────┐
-│  云模型 (openai SDK 统一对接)         │
-│  LLM:  DeepSeek / Qwen / Doubao      │
-│  Embed: 百炼 text-embedding-v3       │
-│  Rerank: 百炼 gte-rerank-v2          │
-│  本地:  bge-small-zh (sentence-tf)   │
-└──────────────────────────────────────┘
+```mermaid
+graph TB
+    FE["Vue3 前端<br/>Chat / Documents / Dashboard / KgGraph / Admin<br/>:5173"]
+    BE["FastAPI 后端 :8001<br/>routers: system / document / retrieval / qa / kg"]
+    FE <-->|HTTP / SSE · JWT| BE
+    BE --> QA["问答增强 RAG<br/>术语归一化 · 混合检索<br/>RRF + rerank + MMR<br/>GraphRAG 图谱上下文<br/>Prompt + 引用/安全提示"]
+    BE --> DOC["文档处理链路<br/>上传 → 解析 → 分块<br/>PDF / OCR · Embedding 路由<br/>向量化自动建图谱"]
+    QA -->|prompt| LLM["云模型 openai SDK<br/>LLM: DeepSeek / Qwen / Doubao<br/>Embed: 百炼 text-embedding-v3<br/>Rerank: gte-rerank-v2<br/>本地: bge-small-zh"]
+    QA --> STORE
+    DOC --> STORE
+    subgraph STORE["存储层"]
+        MySQL[("MySQL<br/>元数据 + 三元组")]
+        MinIO[("MinIO<br/>源文档")]
+        Milvus[("Milvus x2<br/>向量 HNSW")]
+        Redis[("Redis<br/>缓存 / 配置")]
+        Neo4j[("Neo4j<br/>知识图谱多跳")]
+    end
 ```
 
 ### GraphRAG 数据链路（Neo4j 与原系统打通，不再孤岛）
 
-```
-【写入·自动建图谱】 上传 → 解析 → 分块 → 向量化(Milvus)
-                       └─后台自动─▶ LLM 抽三元组 ─▶ MySQL.kg_triples + Neo4j(:Entity-[:REL])
-【读取·问答融合图谱】 提问 → 检索(Milvus+BM25+rerank) 文档分块
-                       └─▶ graph_context(jieba 查 Neo4j 三元组) ─▶ prompt【文档+图谱】 ─▶ LLM ─▶ 答案(🔗图谱N)
-【删除·联动】 删文档 ─▶ MinIO + Milvus + MySQL(chunks/kg_triples) + Neo4j 边 一并清
+```mermaid
+flowchart LR
+    subgraph W["写入 · 自动建图谱"]
+        U[上传] --> P[解析分块] --> V[向量化 Milvus] --> K[后台 LLM 抽三元组] --> N1[("MySQL + Neo4j")]
+    end
+    subgraph R["读取 · GraphRAG 问答融合"]
+        Q[提问] --> RT[检索 Milvus+BM25+rerank] --> G[graph_context 查 Neo4j] --> PF["prompt 文档+图谱"] --> L[LLM] --> A["答案 图谱N"]
+    end
+    subgraph D["删除 · 联动清理"]
+        DEL[删文档] --> CL["MinIO + Milvus + MySQL + Neo4j 边"]
+    end
 ```
 
 ---
