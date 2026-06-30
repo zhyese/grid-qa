@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.clients import redis_client
 from app.config import settings
+from app.core.obs import degraded
 from app.providers.factory import get_llm_provider
 from app.rag import citation, prompt_templates
 from app.services import conversation_service, kg_service, retrieval_service, term_service
@@ -29,7 +30,8 @@ async def answer(
     if not conversation_id:
         try:
             cached = await redis_client.cache_get_json(_cache_key(model_type, nq))
-        except Exception:
+        except Exception as e:
+            degraded("qa_cache_get", e)
             cached = None
         if cached:
             cached["cached"] = True
@@ -58,7 +60,8 @@ async def answer(
     if settings.KG_RAG_ENABLE:
         try:
             graph = await kg_service.graph_context(nq)
-        except Exception:
+        except Exception as e:
+            degraded("kg_graph_context", e)
             graph = []
     messages = prompt_templates.build_messages_with_history(nq, contexts, history, graph)
     _llm0 = time.time()
@@ -97,8 +100,8 @@ async def answer(
     # 仅单轮结果写缓存
     try:
         await redis_client.cache_set_json(_cache_key(model_type, nq), result, settings.QA_CACHE_TTL)
-    except Exception:
-        pass
+    except Exception as e:
+        degraded("qa_cache_set", e)
     try:
         from app.core import metrics
         metrics.QA_TOTAL.labels(model_type or settings.LLM_PROVIDER, "false").inc()
@@ -124,7 +127,8 @@ async def stream_answer(
     if is_single:
         try:
             cached = await redis_client.cache_get_json(_cache_key(model_type, nq))
-        except Exception:
+        except Exception as e:
+            degraded("qa_cache_get", e)
             cached = None
         if cached:
             conv = await conversation_service.create_conversation(db, username, query)
@@ -132,8 +136,8 @@ async def stream_answer(
             try:
                 await conversation_service.save_message(db, cid, "user", query)
                 await conversation_service.save_message(db, cid, "assistant", cached.get("answer", ""))
-            except Exception:
-                pass
+            except Exception as e:
+                degraded("conv_save", e)
             yield {"type": "meta", "sources": cached.get("retrievalSource", []), "conversationId": cid}
             yield {"type": "token", "content": cached.get("answer", "")}
             try:
@@ -162,7 +166,8 @@ async def stream_answer(
     if settings.KG_RAG_ENABLE:
         try:
             graph = await kg_service.graph_context(nq)
-        except Exception:
+        except Exception as e:
+            degraded("kg_graph_context", e)
             graph = []
     messages = prompt_templates.build_messages_with_history(nq, contexts, history, graph)
 
@@ -196,8 +201,8 @@ async def stream_answer(
     try:
         await conversation_service.save_message(db, conversation_id, "user", query)
         await conversation_service.save_message(db, conversation_id, "assistant", full)
-    except Exception:
-        pass
+    except Exception as e:
+        degraded("conv_save", e)
 
     # 4) 单轮写热点缓存
     halluc = citation.estimate_hallucination(full, len(contexts))
@@ -220,8 +225,8 @@ async def stream_answer(
                 },
                 settings.QA_CACHE_TTL,
             )
-        except Exception:
-            pass
+        except Exception as e:
+            degraded("qa_cache_set", e)
     try:
         from app.core import metrics
         metrics.QA_TOTAL.labels(_p, "false").inc()
@@ -255,7 +260,8 @@ async def generate_related(
         ans = await provider.chat(
             [{"role": "user", "content": prompt}], temperature=0.5, max_tokens=400
         )
-    except Exception:
+    except Exception as e:
+        degraded("related_gen", e)
         return []
     m = re.search(r"\[.*\]", ans or "", re.S)
     if not m:

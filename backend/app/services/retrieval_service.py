@@ -8,6 +8,7 @@ from app.clients import milvus_client
 from app.config import settings
 from app.models.document import Document
 from app.rag import mmr, rrf
+from app.core.obs import degraded
 from app.services import bm25_service, embedding_service, query_rewrite, rerank_service
 
 
@@ -65,7 +66,8 @@ async def mixed_search(
             docs = [h.get("text", "") for h in fused]
             ranked = await rerank_service.get_reranker().rerank(q, docs, top_n=min(topk * 2, len(fused)))
             pool = [{**fused[idx], "score": float(score)} for idx, score in ranked]
-        except Exception:
+        except Exception as e:
+            degraded("rerank", e)
             pool = fused[: topk * 2]
     else:
         pool = fused[: topk * 2]

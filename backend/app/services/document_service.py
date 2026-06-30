@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.clients import minio_client, milvus_client
 from app.config import settings
+from app.core.obs import degraded
 from app.core.response import BizError
 from app.models.chunk import Chunk
 from app.models.document import Document
@@ -150,8 +151,8 @@ async def vectorize_document(db: AsyncSession, doc_id: str) -> dict:
         _t = asyncio.create_task(_kg_extract_bg(doc_id))
         _bg_tasks.add(_t)
         _t.add_done_callback(_bg_tasks.discard)
-    except Exception:
-        pass
+    except Exception as e:
+        degraded("kg_extract_dispatch", e)
     return {
         "docId": doc_id, "vectorCount": len(vectors),
         "milvusCollection": collection, "embeddingRoute": route, "docChars": total_chars,
@@ -163,19 +164,19 @@ async def delete_document(db: AsyncSession, doc_id: str) -> None:
     doc = await get_document(db, doc_id)
     try:
         await asyncio.to_thread(minio_client.remove_object, doc.minio_object)
-    except Exception:
-        pass
+    except Exception as e:
+        degraded("minio_delete", e)
     try:
         milvus_client.delete_by_doc(doc_id)
-    except Exception:
-        pass
+    except Exception as e:
+        degraded("milvus_delete", e)
     # 联动删知识图谱：MySQL 三元组 + Neo4j 边
     await db.execute(delete(KgTriple).where(KgTriple.doc_id == doc_id))
     try:
         from app.clients import neo4j_client
         await neo4j_client.delete_by_doc(doc_id)
-    except Exception:
-        pass
+    except Exception as e:
+        degraded("neo4j_delete", e)
     await db.execute(delete(Chunk).where(Chunk.doc_id == doc_id))
     await db.execute(delete(Document).where(Document.id == doc_id))
     await db.commit()
@@ -193,7 +194,8 @@ async def get_stats(db: AsyncSession) -> dict:
     try:
         vector_total = milvus_client.num_entities(settings.MILVUS_COLLECTION) + \
                        milvus_client.num_entities(settings.MILVUS_COLLECTION_BGE)
-    except Exception:
+    except Exception as e:
+        degraded("kb_vector_count", e)
         vector_total = 0
     try:
         from app.core import metrics

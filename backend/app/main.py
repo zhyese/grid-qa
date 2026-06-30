@@ -34,9 +34,10 @@ async def lifespan(app: FastAPI):
 
     try:
         from app.clients import neo4j_client
+        from app.core.obs import degraded
         await neo4j_client.ensure_constraint()  # Neo4j 知识图谱索引（未启用则跳过）
     except Exception as e:
-        print(f"[neo4j] 初始化跳过（未启动?）：{e}")
+        degraded("neo4j_init", e, "Neo4j 未启动?跳过")
     # ---- 关闭 ----
     yield
     try:

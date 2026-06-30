@@ -4,6 +4,7 @@ import json
 from app.clients import redis_client
 from app.config import settings
 from app.core import metrics
+from app.core.obs import degraded
 from app.providers.factory import get_embedding_provider
 
 
@@ -28,8 +29,8 @@ async def embed_query(text: str, provider: str | None = None) -> list[float]:
         cached = await r.get(key)
         if cached:
             return json.loads(cached)
-    except Exception:
-        pass
+    except Exception as e:
+        degraded("embed_cache_get", e)
     import time
     _t0 = time.time()
     vec = (await get_embedding_provider(p).embed([text]))[0]
@@ -40,6 +41,6 @@ async def embed_query(text: str, provider: str | None = None) -> list[float]:
         pass
     try:
         await r.set(key, json.dumps(vec), ex=3600)
-    except Exception:
-        pass
+    except Exception as e:
+        degraded("embed_cache_set", e)
     return vec

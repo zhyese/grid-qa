@@ -48,3 +48,5 @@ KB_VECTORS = Gauge("grid_kb_vectors", "知识库向量总数")
 # 知识图谱
 KG_EXTRACT = Counter("grid_kg_extract_total", "知识图谱抽取次数")
 KB_TRIPLES = Gauge("grid_kb_triples", "知识图谱三元组总数")
+# 降级：业务/IO 失败被兜底吞掉时的计数（Neo4j挂/rerank挂/缓存挂/删除失败…）—— 让盲降级可见
+DEGRADED = Counter("grid_degraded_total", "静默降级次数(失败被兜底)", ["tag"])

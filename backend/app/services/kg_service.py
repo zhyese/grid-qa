@@ -14,6 +14,7 @@ from app.core.response import BizError
 from app.models.chunk import Chunk
 from app.models.document import Document
 from app.models.kg_triple import KgTriple
+from app.core.obs import degraded
 from app.providers.factory import get_llm_provider
 
 _BATCH = 6  # 每批喂 LLM 的分块数（控制输入长度与抽取稳定性）
@@ -71,15 +72,16 @@ async def extract_triples(db: AsyncSession, doc_id: str, model_type: str | None 
                 temperature=0.1, max_tokens=3000,
             )
             triples.extend(_parse_triples(ans))
-        except Exception:
+        except Exception as e:
+            degraded("kg_extract_batch", e)
             continue  # 单批失败不中断整体抽取
 
     # 清旧：MySQL + Neo4j
     await db.execute(delete(KgTriple).where(KgTriple.doc_id == doc_id))
     try:
         await neo4j_client.delete_by_doc(doc_id)
-    except Exception:
-        pass
+    except Exception as e:
+        degraded("kg_neo4j_delete", e)
     # 写 MySQL（统计/审计来源）
     for tp in triples:
         db.add(KgTriple(subject=tp["s"], relation=tp["r"], object=tp["o"],
@@ -89,7 +91,7 @@ async def extract_triples(db: AsyncSession, doc_id: str, model_type: str | None 
     try:
         await neo4j_client.upsert_triples(triples, doc_id, doc.doc_name)
     except Exception as e:
-        print(f"[kg] Neo4j 写入跳过：{e}")
+        degraded("kg_neo4j_write", e)
 
     try:
         from app.core import metrics
@@ -128,7 +130,7 @@ async def get_graph(db: AsyncSession, entity: str = "", limit: int = 300) -> dic
     try:
         return await neo4j_client.get_neighbors(entity, limit)
     except Exception as e:
-        print(f"[kg] Neo4j 不可用，回退 MySQL：{e}")
+        degraded("kg_neo4j_fallback", e, "回退 MySQL")
         return await _get_graph_mysql(db, entity, limit)
 
 
@@ -137,7 +139,7 @@ async def get_paths(entity: str, depth: int = 3, limit: int = 20) -> list[dict]:
     try:
         return await neo4j_client.get_paths(entity, depth, limit)
     except Exception as e:
-        print(f"[kg] 多跳查询失败：{e}")
+        degraded("kg_paths", e)
         return []
 
 
@@ -145,7 +147,8 @@ async def get_hubs(limit: int = 15) -> list[dict]:
     """枢纽实体：出度最高（影响传播源头，核心设备/故障，仅 Neo4j）。"""
     try:
         return await neo4j_client.get_hubs(limit)
-    except Exception:
+    except Exception as e:
+        degraded("kg_hubs", e)
         return []
 
 
@@ -160,7 +163,8 @@ async def graph_context(query: str, topk: int = 8) -> list[str]:
         return []
     try:
         rows = await neo4j_client.query_triples_by_keywords(words, topk)
-    except Exception:
+    except Exception as e:
+        degraded("kg_graph_context", e)
         return []
     return [f"{r['s']} --{r['rel']}--> {r['o']}" for r in rows if r.get("s") and r.get("o")]
 

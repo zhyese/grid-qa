@@ -3,6 +3,7 @@
 默认关闭（QUERY_REWRITE_ENABLE），开启会增加一次 LLM 调用延迟。
 """
 from app.config import settings
+from app.core.obs import degraded
 from app.providers.factory import get_llm_provider
 
 
@@ -19,5 +20,6 @@ async def rewrite_query(query: str, model_type: str | None = None) -> str:
         return (await get_llm_provider(model_type).chat(
             [{"role": "user", "content": prompt}], temperature=0, max_tokens=120
         )).strip() or query
-    except Exception:
+    except Exception as e:
+        degraded("query_rewrite", e)
         return query
