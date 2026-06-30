@@ -32,3 +32,28 @@ def get_llm_provider(provider: str | None = None) -> LLMProvider:
         from app.providers.llm.doubao_llm import DoubaoLLM
         return DoubaoLLM()
     raise ValueError(f"未知 LLM_PROVIDER: {p}（支持: deepseek | qwen | doubao）")
+
+
+async def check_llm_health(provider: str | None = None) -> dict:
+    """主动探测当前 LLM provider 是否可用（轻量 ping，按需调用消耗少量 token）。
+
+    用于抓 key 失效 / 账户欠费(Arrearage) / 配额耗尽 / 网络问题等配置无法发现的运行态故障。
+    """
+    p = provider or settings.LLM_PROVIDER
+    try:
+        await get_llm_provider(p).chat(
+            [{"role": "user", "content": "ping"}], max_tokens=5, temperature=0
+        )
+        return {"provider": p, "status": "ok"}
+    except Exception as e:
+        return {"provider": p, "status": "error", "error": f"{type(e).__name__}: {e}"[:200]}
+
+
+async def check_embedding_health(provider: str | None = None) -> dict:
+    """主动探测当前 Embedding provider 是否可用（嵌入一条短文本）。"""
+    p = provider or settings.EMB_PROVIDER
+    try:
+        await get_embedding_provider(p).embed(["健康检查"])
+        return {"provider": p, "status": "ok"}
+    except Exception as e:
+        return {"provider": p, "status": "error", "error": f"{type(e).__name__}: {e}"[:200]}

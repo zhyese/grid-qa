@@ -106,9 +106,24 @@ async def health():
     except Exception:
         checks["redis"] = "down"
 
+    # provider 配置态快照（仅看 key 是否配置；运行态可用性见 /api/system/health/providers）
+    def _key_ok(role: str) -> bool:
+        p = settings.LLM_PROVIDER if role == "llm" else settings.EMB_PROVIDER
+        if role == "llm":
+            return {"deepseek": bool(settings.DEEPSEEK_API_KEY),
+                    "qwen": bool(settings.DASHSCOPE_API_KEY),
+                    "doubao": bool(settings.ARK_API_KEY)}.get(p, False)
+        return {"qwen": bool(settings.DASHSCOPE_API_KEY),
+                "doubao": bool(settings.ARK_API_KEY), "bge": True}.get(p, False)
+
+    providers = {
+        "llm": {"provider": settings.LLM_PROVIDER, "keyConfigured": _key_ok("llm")},
+        "embedding": {"provider": settings.EMB_PROVIDER, "keyConfigured": _key_ok("emb")},
+    }
     all_ok = all(v == "ok" for v in checks.values())
     return success(
-        data={"status": "healthy" if all_ok else "degraded", "checks": checks, "version": settings.APP_VERSION}
+        data={"status": "healthy" if all_ok else "degraded", "checks": checks,
+              "providers": providers, "version": settings.APP_VERSION}
     )
 
 

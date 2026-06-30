@@ -69,3 +69,24 @@ async def get_milvus_config_route(admin: User = Depends(require_admin)):
 @router.get("/config/model")
 async def get_model_config_route(admin: User = Depends(require_admin)):
     return success(await config_service.get_model_config(), "查询成功")
+
+
+@router.get("/health/providers")
+async def health_providers(admin: User = Depends(require_admin)):
+    """主动探测当前 LLM/Embedding provider 是否真实可用（抓欠费/配额/key失效/网络问题）。
+
+    会消耗少量 token（LLM ping + embed 一条短文本），按需调用；常规探活用 GET /health（只看配置态）。
+    """
+    from app.providers.factory import check_embedding_health, check_llm_health
+
+    llm = await check_llm_health()
+    emb = await check_embedding_health()
+    all_ok = llm["status"] == "ok" and emb["status"] == "ok"
+    return success(
+        {
+            "status": "healthy" if all_ok else "degraded",
+            "llm": llm,
+            "embedding": emb,
+        },
+        "provider 探测完成",
+    )
