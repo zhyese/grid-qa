@@ -117,7 +117,7 @@ html.dark .nav-item.active { background: var(--primary-soft-2); }
 .topbar-spacer { flex: 1; }
 .topbar-user { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-muted); }
 .avatar { width: 30px; height: 30px; border-radius: 50%; background: linear-gradient(135deg, var(--primary), var(--accent)); color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 600; font-size: 13px; }
-.page-body { flex: 1; padding: 24px 4px; width: 100%; }
+.page-body { flex: 1; padding: 4px; width: 100%; }
 
 /* ============ 通用组件 ============ */
 /* 卡片 */

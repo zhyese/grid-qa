@@ -260,7 +260,7 @@ onMounted(loadConversations)
 </script>
 
 <style scoped>
-.chat-wrap { display: flex; gap: 16px; height: calc(100vh - var(--topbar-h) - 48px); }
+.chat-wrap { display: flex; gap: 16px; height: calc(100vh - var(--topbar-h) - 8px); }
 .conv-bar { width: 248px; flex-shrink: 0; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 14px; display: flex; flex-direction: column; position: relative; transition: width .2s, padding .2s, opacity .2s; overflow: hidden; }
 .conv-bar.collapsed { width: 0; padding: 0; border: 0; opacity: 0; }
 .new-btn { width: 100%; margin-bottom: 10px; }
