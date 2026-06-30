@@ -96,6 +96,7 @@ async def health_providers(admin: User = Depends(require_admin)):
 async def nacos_config_route(admin: User = Depends(require_admin)):
     """拉取 Nacos 配置中心配置（测试连通 + 查看覆盖项）。"""
     from app.clients.nacos_client import fetch_config
+    from app.config import settings
 
     try:
         cfg = await fetch_config()

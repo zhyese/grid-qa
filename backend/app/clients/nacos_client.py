@@ -17,6 +17,8 @@ async def fetch_config() -> dict:
         params["tenant"] = settings.NACOS_NAMESPACE
     async with httpx.AsyncClient(timeout=5) as c:
         resp = await c.get(f"{settings.NACOS_SERVER}/nacos/v1/cs/configs", params=params)
+        if resp.status_code == 404:
+            return {}  # 配置未在 nacos 创建，返回空（非错误，启动时降级 .env）
         resp.raise_for_status()
         text = resp.text
     # 解析 properties（key=value，# 注释）
