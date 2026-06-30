@@ -19,4 +19,5 @@ class Document(Base):
     status: Mapped[str] = mapped_column(String(16), default="pending", index=True)  # pending|parsed|vectorized
     chunk_count: Mapped[int] = mapped_column(Integer, default=0)
     upload_user: Mapped[str] = mapped_column(String(64), default="")
+    equipment_tags: Mapped[str] = mapped_column(String(512), default="")  # 设备台账标签(逗号分隔，检索可按设备过滤)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())

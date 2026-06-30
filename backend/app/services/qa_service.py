@@ -1,4 +1,4 @@
-"""RAG 问答编排：热点缓存 / 多轮上下文 / 检索 / prompt / LLM / 后处理 / 相关问题推荐。"""
+"""RAG 问答编排：热点缓存 / 多轮指代消解 / 检索 / CRAG自纠错 / prompt / LLM / 后处理 / 相关问题推荐。"""
 import json
 import re
 import time
@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.clients import redis_client
 from app.config import settings
+from app.core import safety
 from app.core.obs import degraded
 from app.providers.factory import get_llm_provider
 from app.rag import citation, prompt_templates
@@ -19,12 +20,88 @@ def _cache_key(model_type: str | None, query: str) -> str:
     return f"qa:{model_type or 'default'}:{query}"
 
 
+async def _crag_correct(
+    db: AsyncSession, nq: str, contexts: list[dict],
+    model_type: str | None, topk: int,
+) -> tuple[list[dict], str, str, str]:
+    """CRAG 分级 + 纠错闭环。返回 (contexts, confidence, action, grade)。
+
+    分级：CRAG v2（LLM 逐条评估证据）优先，未启用/失败回退 v1（rerank top1 分数）。
+    incorrect → query 改写重检索 → 仍 incorrect → refused 保守拒答。
+    contexts 可能被纠错重检索替换。
+    """
+    confidence, action, grade = "high", "normal", ""
+    if not settings.CRAG_ENABLE:
+        return contexts, confidence, action, grade
+    from app.rag import crag
+
+    rerank_ok = settings.RERANK_ENABLE
+    # 分级：v2 优先，失败回退 v1
+    grade = ""
+    if settings.CRAG_PERDOC_ENABLE:
+        from app.rag import crag_v2
+        try:
+            grade, _ = await crag_v2.grade_with_llm(nq, contexts, model_type)
+        except Exception as e:
+            degraded("crag_v2", e)
+    if not grade:
+        top1 = float(contexts[0].get("score", 0.0)) if contexts else 0.0
+        grade, _ = crag.grade(top1, len(contexts), rerank_ok)
+
+    if grade == crag.GRADE_INCORRECT:
+        try:
+            from app.services.query_rewrite import rewrite_query
+            new_q = await rewrite_query(nq, model_type, force=True)
+            if new_q and new_q != nq:
+                new_ctx = await retrieval_service.mixed_search(db, new_q, topk)
+                if new_ctx:
+                    contexts = new_ctx
+                    top1 = float(contexts[0].get("score", 0.0))
+                    grade, _ = crag.grade(top1, len(contexts), rerank_ok)
+                    action = "rewritten"
+        except Exception as e:
+            degraded("crag_rewrite", e)
+
+    confidence = crag.confidence_of(grade, action == "rewritten")
+    if grade == crag.GRADE_INCORRECT and action == "rewritten":
+        action = "refused"
+    try:
+        from app.core import metrics
+        metrics.CRAG_GRADE.labels(grade).inc()
+        metrics.CRAG_ACTION.labels(action).inc()
+    except Exception:
+        pass
+    return contexts, confidence, action, grade
+
+
+async def _search_query_for_retrieve(
+    db: AsyncSession, query: str, nq: str, conversation_id: str | None,
+    history: list[dict], model_type: str | None,
+) -> str:
+    """多轮指代消解：把追问改写成带上下文的独立查询用于检索（S7）。
+
+    单轮/关闭/失败返回 nq（原归一化 query）。改写仅影响检索，不影响给 LLM 的原问题。
+    """
+    if not conversation_id or not history:
+        return nq
+    if not getattr(settings, "STANDALONE_REWRITE_ENABLE", False):
+        return nq
+    from app.services import standalone_query
+    try:
+        rewritten = await standalone_query.rewrite_standalone(query, history, model_type)
+        return term_service.normalize(rewritten) if rewritten else nq
+    except Exception as e:
+        degraded("standalone_dispatch", e)
+        return nq
+
+
 async def answer(
     db: AsyncSession, query: str, model_type: str | None = None,
     topk: int = 5, conversation_id: str | None = None, username: str = "",
 ) -> dict:
     t0 = time.time()
     nq = term_service.normalize(query)
+    safety.guard_query(query)  # 入站 prompt injection 告警（D4）
 
     # 多轮不走缓存（上下文变化）；单轮命中热点缓存
     if not conversation_id:
@@ -43,7 +120,14 @@ async def answer(
                 pass
             return cached
 
-    contexts = await retrieval_service.mixed_search(db, nq, topk)
+    # 多轮历史（提前获取：供指代消解 + 拼 LLM 上下文，避免重复查）
+    history: list[dict] = []
+    if conversation_id:
+        history = await conversation_service.get_messages(db, conversation_id, _HISTORY_LIMIT)
+    # 多轮指代消解：检索用改写后的独立查询
+    search_q = await _search_query_for_retrieve(db, query, nq, conversation_id, history, model_type)
+
+    contexts = await retrieval_service.mixed_search(db, search_q, topk)
     if not contexts:
         return {
             "answer": "根据现有资料无法确认该问题，请先上传并解析相关运维文档后重试。",
@@ -51,40 +135,11 @@ async def answer(
             "hallucinationRate": 0.0, "cached": False, "conversationId": conversation_id or "",
         }
 
-    # Corrective RAG：检索分级 + 纠错闭环（低相关触发 query 改写重检索，仍低分→refused 保守拒答）
-    confidence, crag_action, crag_grade = "high", "normal", ""
-    if settings.CRAG_ENABLE:
-        from app.rag import crag
-        from app.services.query_rewrite import rewrite_query
-        rerank_ok = settings.RERANK_ENABLE
-        top1 = float(contexts[0].get("score", 0.0)) if contexts else 0.0
-        crag_grade, _ = crag.grade(top1, len(contexts), rerank_ok)
-        if crag_grade == crag.GRADE_INCORRECT:
-            try:
-                new_q = await rewrite_query(nq, model_type, force=True)
-                if new_q and new_q != nq:
-                    new_ctx = await retrieval_service.mixed_search(db, new_q, topk)
-                    if new_ctx:
-                        contexts = new_ctx
-                        top1 = float(contexts[0].get("score", 0.0))
-                        crag_grade, _ = crag.grade(top1, len(contexts), rerank_ok)
-                        crag_action = "rewritten"
-            except Exception as e:
-                degraded("crag_rewrite", e)
-        confidence = crag.confidence_of(crag_grade, crag_action == "rewritten")
-        if crag_grade == crag.GRADE_INCORRECT and crag_action == "rewritten":
-            crag_action = "refused"
-        try:
-            from app.core import metrics
-            metrics.CRAG_GRADE.labels(crag_grade).inc()
-            metrics.CRAG_ACTION.labels(crag_action).inc()
-        except Exception:
-            pass
+    # Corrective RAG：分级 + 纠错闭环
+    contexts, confidence, crag_action, crag_grade = await _crag_correct(
+        db, nq, contexts, model_type, topk
+    )
 
-    # 多轮历史
-    history = []
-    if conversation_id:
-        history = await conversation_service.get_messages(db, conversation_id, _HISTORY_LIMIT)
     # GraphRAG：融合知识图谱结构化上下文（KG_RAG_ENABLE 默认开）
     graph: list[str] = []
     if settings.KG_RAG_ENABLE:
@@ -96,6 +151,7 @@ async def answer(
     messages = prompt_templates.build_messages_with_history(nq, contexts, history, graph, confidence)
     _llm0 = time.time()
     ans = await get_llm_provider(model_type).chat(messages, temperature=0.2)
+    ans = safety.safe_answer(ans)  # 答案脱敏（PII_MASK_ENABLE 开启时，D4）
     try:
         from app.core import metrics
         _p = model_type or settings.LLM_PROVIDER
@@ -121,6 +177,7 @@ async def answer(
         "answer": ans,
         "retrievalSource": [{"docName": c.get("docName", ""), "text": c["chunk"][:200]} for c in contexts],
         "graphCount": len(graph),
+        "highRisk": safety.extract_high_risk(ans),
         "confidence": confidence,
         "cragAction": crag_action,
         "cragGrade": crag_grade,
@@ -147,13 +204,11 @@ async def stream_answer(
     db: AsyncSession, query: str, model_type: str | None = None,
     topk: int = 5, conversation_id: str | None = None, username: str = "",
 ):
-    """流式问答：单轮查热点缓存(命中则快流不调LLM) → 否则 meta/token/done 三段。
-
-    补齐 LLM 调用埋点 + 缓存命中埋点（流式路径原本缺失，导致 Grafana LLM/缓存面板 No data）。
-    """
+    """流式问答：单轮查热点缓存(命中则快流不调LLM) → 否则 meta/token/done 三段。"""
     t0 = time.time()
     nq = term_service.normalize(query)
     _p = model_type or settings.LLM_PROVIDER
+    safety.guard_query(query)  # 入站 prompt injection 告警（D4）
     is_single = not conversation_id  # 仅单轮查/写缓存（多轮上下文变化不缓存）
 
     # 0) 单轮查热点缓存 → 命中则不调 LLM，一次性下发完整答案（cached=true）
@@ -185,46 +240,23 @@ async def stream_answer(
             }
             return
 
-    contexts = await retrieval_service.mixed_search(db, nq, topk)
+    # 多轮历史 + 指代消解
+    history: list[dict] = []
+    if conversation_id:
+        history = await conversation_service.get_messages(db, conversation_id, _HISTORY_LIMIT)
+    search_q = await _search_query_for_retrieve(db, query, nq, conversation_id, history, model_type)
+
+    contexts = await retrieval_service.mixed_search(db, search_q, topk)
     if not contexts:
         yield {"type": "done", "content": "根据现有资料无法确认该问题，请先上传并解析相关运维文档后重试。"}
         return
 
-    # Corrective RAG：检索分级 + 纠错闭环（低相关触发 query 改写重检索，仍低分→refused 保守拒答）
-    confidence, crag_action, crag_grade = "high", "normal", ""
-    if settings.CRAG_ENABLE:
-        from app.rag import crag
-        from app.services.query_rewrite import rewrite_query
-        rerank_ok = settings.RERANK_ENABLE
-        top1 = float(contexts[0].get("score", 0.0)) if contexts else 0.0
-        crag_grade, _ = crag.grade(top1, len(contexts), rerank_ok)
-        if crag_grade == crag.GRADE_INCORRECT:
-            try:
-                new_q = await rewrite_query(nq, model_type, force=True)
-                if new_q and new_q != nq:
-                    new_ctx = await retrieval_service.mixed_search(db, new_q, topk)
-                    if new_ctx:
-                        contexts = new_ctx
-                        top1 = float(contexts[0].get("score", 0.0))
-                        crag_grade, _ = crag.grade(top1, len(contexts), rerank_ok)
-                        crag_action = "rewritten"
-            except Exception as e:
-                degraded("crag_rewrite", e)
-        confidence = crag.confidence_of(crag_grade, crag_action == "rewritten")
-        if crag_grade == crag.GRADE_INCORRECT and crag_action == "rewritten":
-            crag_action = "refused"
-        try:
-            from app.core import metrics
-            metrics.CRAG_GRADE.labels(crag_grade).inc()
-            metrics.CRAG_ACTION.labels(crag_action).inc()
-        except Exception:
-            pass
+    # Corrective RAG：分级 + 纠错闭环
+    contexts, confidence, crag_action, crag_grade = await _crag_correct(
+        db, nq, contexts, model_type, topk
+    )
 
-    # 多轮历史
-    history = []
-    if conversation_id:
-        history = await conversation_service.get_messages(db, conversation_id, _HISTORY_LIMIT)
-    # GraphRAG：融合知识图谱结构化上下文（KG_RAG_ENABLE 默认开）
+    # GraphRAG
     graph: list[str] = []
     if settings.KG_RAG_ENABLE:
         try:
@@ -300,6 +332,7 @@ async def stream_answer(
         "responseTime": round(time.time() - t0, 3),
         "hallucinationRate": halluc,
         "graphCount": len(graph),
+        "highRisk": safety.extract_high_risk(full),
         "confidence": confidence,
         "cragAction": crag_action,
         "cragGrade": crag_grade,

@@ -24,6 +24,7 @@
         <div v-if="!conversations.length" class="empty-side">{{ searchKw ? '无匹配对话' : '暂无历史对话' }}</div>
       </div>
       <div class="side-nav">
+        <router-link to="/diagnose">🩺诊断</router-link> ·
         <router-link to="/dashboard">统计</router-link> ·
         <router-link to="/kg">图谱</router-link> ·
         <router-link to="/documents">文档</router-link> ·
@@ -60,6 +61,7 @@
               <div class="meta" v-if="m.time">
                 耗时 {{ m.time }}s · 幻觉率 {{ m.halluc }}
                 <span v-if="m.graphCount" class="kg-tag" title="本次问答融合的知识图谱结构化三元组数">🔗 图谱{{ m.graphCount }}</span>
+                <span v-if="m.highRisk && m.highRisk.length" class="risk-tag" :title="'答案含高风险操作：' + m.highRisk.join('、')">⚠ {{ m.highRisk.slice(0, 3).join('、') }}</span>
                 <span v-if="m.confidence" class="conf-tag" :class="'conf-' + m.confidence" :title="confTitle(m.confidence)">{{ confLabel(m.confidence) }}</span>
                 <span class="fb">
                   <a class="fb-btn" @click="like(m)" :class="{ on: m.fb === 'like' }">👍</a>
@@ -126,7 +128,7 @@ hljs.registerLanguage('xml', xml)
 hljs.registerLanguage('html', xml)
 hljs.registerLanguage('markdown', markdown)
 hljs.registerLanguage('md', markdown)
-import { streamAnswer, sendFeedback, getRelatedQuestions, getConversations, getHistory, deleteConversation, renameConversation } from '../api'
+import { streamAnswer, sendFeedback, getFaithfulness, getRelatedQuestions, getConversations, getHistory, deleteConversation, renameConversation } from '../api'
 
 // F1: Markdown 渲染 + 代码高亮
 const md = new MarkdownIt({
@@ -178,6 +180,16 @@ async function loadRelated(m) {
     m.related = (r.data && r.data.questions) || []
   } catch (e) { m.related = [] }
 }
+// 真 faithfulness：done 后异步 LLM-judge，覆盖粗糙"幻觉率"展示（不阻塞首字）
+async function loadFaithfulness(m) {
+  try {
+    const r = await getFaithfulness(m.content, m.sources, modelType.value || undefined)
+    if (r && r.data && typeof r.data.hallucination === 'number') {
+      m.halluc = r.data.hallucination
+      m.judgeReason = r.data.reason || ''
+    }
+  } catch (e) { /* judge 失败保留启发式值 */ }
+}
 
 async function loadConversations() {
   try { conversations.value = (await getConversations(searchKw.value)).data || [] } catch (e) {}
@@ -226,12 +238,14 @@ async function ask() {
         if (typeof ev.responseTime === 'number') msg.time = ev.responseTime
         if (typeof ev.hallucinationRate === 'number') msg.halluc = ev.hallucinationRate
         if (typeof ev.graphCount === 'number') msg.graphCount = ev.graphCount
+        if (ev.highRisk) msg.highRisk = ev.highRisk
         if (ev.confidence) msg.confidence = ev.confidence
         if (ev.conversationId) msg.conversationId = ev.conversationId
         msg.streaming = false
         currentConvId.value = msg.conversationId
         loadConversations()      // 刷新侧栏（新对话进列表）
         loadRelated(msg)          // 智能推荐：答案渲染后异步拉取 3 个相关问题（不阻塞流式）
+        loadFaithfulness(msg)     // 真 faithfulness：异步 LLM-judge 覆盖幻觉率展示
       }
     })
   } catch (e) {
@@ -247,7 +261,8 @@ async function like(m) {
 }
 async function dislike(m) {
   if (m.fb) return
-  try { await sendFeedback(m.query, m.content, 'dislike', m.conversationId); m.fb = 'dislike' } catch (e) {}
+  const reason = window.prompt('感谢反馈，请简述答案哪里有问题（可选，用于优化知识库）：') || ''
+  try { await sendFeedback(m.query, m.content, 'dislike', m.conversationId, reason); m.fb = 'dislike' } catch (e) {}
 }
 
 // CRAG 置信度标签文案（high证据充分 / medium证据有限 / refused无强相关已保守作答）
@@ -351,6 +366,7 @@ onMounted(loadConversations)
 .meta { color: #94a3b8; font-size: 12px; margin-top: 6px; }
 .kg-tag { display: inline-block; margin-left: 10px; padding: 1px 8px; background: #ddd6fe; color: #6d28d9; border-radius: 10px; font-size: 11px; }
 .conf-tag { display: inline-block; margin-left: 6px; padding: 1px 8px; border-radius: 10px; font-size: 11px; }
+.risk-tag { display: inline-block; margin-left: 6px; padding: 1px 8px; background: #fee2e2; color: #991b1b; border-radius: 10px; font-size: 11px; }
 .conf-high { background: #dcfce7; color: #166534; }
 .conf-medium { background: #fef9c3; color: #854d0e; }
 .conf-refused { background: #fee2e2; color: #991b1b; }

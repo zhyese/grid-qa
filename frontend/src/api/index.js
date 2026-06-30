@@ -29,6 +29,11 @@ export const getKgInfluence = (limit = 15) => request.get('/kg/influence', { par
 export const answer = (query, modelType) => request.post('/qa/answer', { query, modelType })
 export const mixedRetrieval = (query, topK) => request.post('/retrieval/mixed', { query, topK })
 
+// 领域增强：故障诊断(D1) / 相似案例(D2) / 两票生成(D3)
+export const diagnose = (symptom, modelType) => request.post('/domain/diagnose', { symptom, modelType })
+export const similarCase = (symptom, modelType) => request.post('/domain/similar-case', { symptom, modelType })
+export const generateTicket = (task, modelType) => request.post('/domain/ticket', { task, modelType })
+
 // 流式问答（SSE）：fetch + ReadableStream，支持 JWT header（EventSource 无法带 header）
 export const streamAnswer = async (query, modelType, conversationId, onEvent) => {
   const auth = useAuthStore()
@@ -60,8 +65,16 @@ export const streamAnswer = async (query, modelType, conversationId, onEvent) =>
   }
   onEvent({ type: 'done' })
 }
-export const sendFeedback = (query, answer, feedback, conversationId) =>
-  request.post('/qa/feedback', { query, answer, feedback, conversationId })
+export const sendFeedback = (query, answer, feedback, conversationId, reason) =>
+  request.post('/qa/feedback', { query, answer, feedback, conversationId, reason })
+
+// 真 faithfulness：流式 done 后异步拉取，覆盖粗糙"幻觉率"展示（不阻塞首字）
+export const getFaithfulness = (answer, sources, modelType) =>
+  request.post('/qa/faithfulness', { answer, sources, modelType })
+
+// 反馈管理（admin）：坏 case 看板 + 一键回流 golden
+export const getFeedbacks = (params) => request.get('/qa/feedbacks', { params })
+export const markFeedbackGolden = (id) => request.post(`/qa/feedbacks/${id}/golden`)
 
 // 智能推荐：生成 3 个相关问题（答案渲染后异步拉取，不阻塞流式）
 export const getRelatedQuestions = (query, answer, modelType) =>

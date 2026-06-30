@@ -25,7 +25,8 @@ async def mixed(
 ):
     t0 = time.time()
     result = await retrieval_service.mixed_search(
-        db, body.query, body.topK, doc_type=body.docType, model_type=body.modelType
+        db, body.query, body.topK, doc_type=body.docType,
+        model_type=body.modelType, equipment=body.equipment,
     )
     return success(
         {"retrievalList": result, "responseTime": round(time.time() - t0, 3)},

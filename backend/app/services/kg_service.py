@@ -76,6 +76,17 @@ async def extract_triples(db: AsyncSession, doc_id: str, model_type: str | None 
             degraded("kg_extract_batch", e)
             continue  # 单批失败不中断整体抽取
 
+    # 实体消歧 + 关系 schema 约束（A5）：同义实体归一、关系收敛白名单
+    from app.services.kg_normalize import canonical_entity, canonical_relation
+    normed: list[dict] = []
+    for tp in triples:
+        s = canonical_entity(tp["s"])
+        r = canonical_relation(tp["r"])
+        o = canonical_entity(tp["o"])
+        if s and r and o:
+            normed.append({"s": s[:256], "r": r[:128], "o": o[:256]})
+    triples = normed
+
     # 清旧：MySQL + Neo4j
     await db.execute(delete(KgTriple).where(KgTriple.doc_id == doc_id))
     try:

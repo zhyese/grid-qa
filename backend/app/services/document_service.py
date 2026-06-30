@@ -16,10 +16,26 @@ from app.models.document import Document
 from app.models.kg_triple import KgTriple
 from app.services import chunk_service, embedding_service, parse_service
 
-# 允许的扩展名（接口主推 PDF，MVP 放开常见格式含扫描件/图片）
-ALLOWED_EXT = {".pdf", ".doc", ".docx", ".txt", ".md", ".png", ".jpg", ".jpeg"}
+# 允许的扩展名（接口主推 PDF，MVP 放开常见格式含扫描件/图片/Excel台账）
+ALLOWED_EXT = {".pdf", ".doc", ".docx", ".txt", ".md", ".png", ".jpg", ".jpeg", ".xlsx"}
 MAX_FILES = 5
 MAX_SINGLE_SIZE = 100 * 1024 * 1024  # 100MB
+
+
+def _auto_equipment_tags(text: str) -> str:
+    """从全文匹配标准设备术语，作为文档设备标签（逗号分隔去重，限 20 个）。
+
+    复用 term_service 术语表的标准词，实现"文档→设备维度"自动关联（D5 设备台账）。
+    """
+    if not text:
+        return ""
+    from app.services.term_service import _load_terms
+    try:
+        std = set(_load_terms().values())
+    except Exception:
+        return ""
+    tags = sorted({w for w in std if w and w in text}, key=len, reverse=True)
+    return ",".join(tags[:20])
 
 
 def _ext(name: str) -> str:
@@ -79,6 +95,7 @@ async def list_documents(db: AsyncSession, keyword: str = "", page: int = 1, siz
             {
                 "docId": r.id, "docName": r.doc_name, "docType": r.doc_type,
                 "status": r.status, "chunkCount": r.chunk_count, "uploadUser": r.upload_user,
+                "equipmentTags": r.equipment_tags or "",
                 "createdAt": r.created_at.strftime("%Y-%m-%d %H:%M:%S") if r.created_at else "",
             }
             for r in rows
@@ -94,22 +111,31 @@ async def get_document(db: AsyncSession, doc_id: str) -> Document:
 
 
 async def parse_documents(db: AsyncSession, doc_ids: List[str]) -> list[dict]:
-    """从 MinIO 取文件 → 解析(数字/扫描OCR) → 分块入 chunks 表。"""
+    """从 MinIO 取文件 → 结构化解析(表格/Excel/扫描OCR) → 结构感知分块入 chunks 表。"""
     results = []
     for doc_id in doc_ids:
         doc = await get_document(db, doc_id)
         content = await asyncio.to_thread(minio_client.get_object_bytes, doc.minio_object)
-        text, is_scanned = parse_service.parse_file(doc.doc_name, content)
-        if is_scanned or not text.strip():
-            text = await asyncio.to_thread(parse_service.ocr_by_name, doc.doc_name, content)
-        chunks = chunk_service.split_text(text)
+        sections, is_scanned = parse_service.parse_file_structured(doc.doc_name, content)
+        if is_scanned or not sections:
+            sections = await asyncio.to_thread(parse_service.ocr_to_sections, doc.doc_name, content)
+        structured = chunk_service.split_structured(sections)
         await db.execute(delete(Chunk).where(Chunk.doc_id == doc_id))  # 重新解析先清旧分块
-        for i, c in enumerate(chunks):
-            db.add(Chunk(doc_id=doc_id, chunk_idx=i, content=c, char_count=len(c)))
+        for i, c in enumerate(structured):
+            db.add(Chunk(
+                doc_id=doc_id, chunk_idx=i, content=c["text"], char_count=len(c["text"]),
+                chunk_type=c["chunk_type"], parent_idx=c["parent_idx"], section=c["section"],
+            ))
         doc.status = "parsed"
-        doc.chunk_count = len(chunks)
+        doc.chunk_count = len(structured)
+        # 设备台账自动打标（D5）：全文匹配标准设备术语
+        doc.equipment_tags = _auto_equipment_tags("\n".join(s["text"] for s in structured))
         await db.commit()
-        results.append({"docId": doc_id, "chunkCount": len(chunks), "chunkList": chunks[:5]})
+        results.append({
+            "docId": doc_id, "chunkCount": len(structured),
+            "tableCount": sum(1 for c in structured if c["chunk_type"] == "table"),
+            "chunkList": [c["text"][:80] for c in structured[:5]],
+        })
     return results
 
 

@@ -8,6 +8,7 @@ const routes = [
   { path: '/documents', component: () => import('../views/Documents.vue'), meta: { auth: true } },
   { path: '/dashboard', component: () => import('../views/Dashboard.vue'), meta: { auth: true } },
   { path: '/kg', component: () => import('../views/KgGraph.vue'), meta: { auth: true } },
+  { path: '/diagnose', component: () => import('../views/Diagnose.vue'), meta: { auth: true } },
   { path: '/admin', component: () => import('../views/Admin.vue'), meta: { auth: true, admin: true } },
 ]
 

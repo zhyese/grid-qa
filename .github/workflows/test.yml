@@ -24,3 +24,6 @@ jobs:
         run: python -m pytest tests/ -q --ignore=tests/test_api.py
       # 注：真实检索召回评测(python scripts/eval_retrieval.py)需 Milvus+embedding 服务，
       # 依赖运行态，不在此 CI 跑；改为本地/定时跑，报告归档 reports/，recall<92% 退出码1。
+      # 注：生成质量评测(python scripts/eval_generation.py)需后端+LLM，消耗 token，
+      # 不在此 CI 跑；本地/夜间跑，平均支撑率<FAITHFULNESS_GATE(0.85) 退出码1。
+      # 注：golden 集 30 条，validate_golden 已覆盖格式门禁；eval_retrieval/eval_generation 按需手动跑。

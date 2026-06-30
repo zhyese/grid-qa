@@ -21,6 +21,7 @@ pdfplumber>=0.11
 pypdf>=4
 python-docx>=1.1
 PyMuPDF>=1.24
+openpyxl>=3.1            # Excel 台账/定值单解析（表格转 markdown，保留结构）
 rapidocr-onnxruntime>=1.2   # PaddleOCR PP-OCR 模型 + onnxruntime 后端（规避 paddle3.3 Win onednn bug）
 # 原生 paddleocr/paddlepaddle 在 Linux 生产环境可启用，见 services/parse_service.py 注释
 

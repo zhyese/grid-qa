@@ -108,6 +108,28 @@ class Settings(BaseSettings):
     CRAG_ENABLE: bool = True     # 检索后分级+纠错(低相关触发query改写重检索/拒答)
     CRAG_HIGH: float = 0.6       # top1 rerank分>=此值=correct(证据充分)
     CRAG_LOW: float = 0.3        # top1 rerank分<此值=incorrect(触发纠错)
+    CRAG_PERDOC_ENABLE: bool = False  # CRAG v2：LLM 逐条评估证据相关性（非仅 top1，增延迟，默认关）
+
+    # ---------- 结构感知分块 + Parent-Child（small-to-big）----------
+    # 检索用小块（精度），命中后召回同组大块给 LLM（完整上下文，解决长规程跨块/表格被切两半）
+    SMALL_TO_BIG_ENABLE: bool = True
+    PARENT_SIZE: int = 2000      # 父块（大块，生成上下文）目标字数
+    PARENT_OVERLAP: int = 200    # 子块尺寸复用 CHUNK_SIZE/CHUNK_OVERLAP
+
+    # ---------- 检索增强（2026 RAG 趋势，默认关，按需开）----------
+    HYDE_ENABLE: bool = False        # HyDE：LLM 生成假设答案再做向量检索（短/口语问题提升召回）
+    MULTI_QUERY_ENABLE: bool = False # 多查询分解：复杂问题拆子问题并行检索
+    SELF_RAG_ENABLE: bool = False    # Self-RAG：LLM 判断是否需检索/证据是否足够
+    STANDALONE_REWRITE_ENABLE: bool = True  # 多轮指代消解：把追问改写成带上下文的独立查询
+
+    # ---------- 安全合规（电网强监管）----------
+    SAFETY_FILTER_ENABLE: bool = True   # 入站 prompt injection 防护
+    PII_MASK_ENABLE: bool = False       # 出站答案敏感信息脱敏（默认关，按合规要求开）
+    HIGH_RISK_KEYWORDS: str = "停电,拉闸,合闸,接地,挂地线,带电,登高,攀登,放电,倒闸"
+
+    # ---------- 可信度评测（真 faithfulness，替代粗糙启发式）----------
+    ONLINE_FAITHFULNESS_ENABLE: bool = True  # 线上答案异步 LLM-judge，前端拉取覆盖"幻觉率"展示
+    FAITHFULNESS_GATE: float = 0.85          # 生成质量门禁：平均支撑率阈值（eval_generation 用）
 
 
 @lru_cache

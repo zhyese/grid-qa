@@ -1,4 +1,10 @@
-"""文本分块：段落累积 + 长段按句末边界切，保留语义完整性。"""
+"""文本分块：段落累积 + 长段按句末边界切，保留语义完整性。
+
+结构感知分块（S5/A4 升级）：
+- 表格段整体成块（chunk_type=table），不被字符切两半
+- 正文段先切父块（大窗口 PARENT_SIZE），父块内再切子块（CHUNK_SIZE）
+- 子块记录 parent_idx：检索子块（精度），召回同组父块全文给 LLM（完整上下文）
+"""
 from app.config import settings
 from app.services.term_service import normalize
 
@@ -61,4 +67,70 @@ def split_text(
             cur = p
     if cur:
         chunks.append(cur)
+    return chunks
+
+
+# ---------- 结构感知分块 + Parent-Child（small-to-big）----------
+
+# 标题启发式：编号开头或含规程关键词的短行视为章节标题
+_SECTION_PREFIXES = ("第", "一、", "二、", "三、", "1.", "2.", "1、", "2、")
+_SECTION_KEYWORDS = ("规程", "要求", "步骤", "措施", "注意", "巡视", "验收", "周期")
+
+
+def _detect_section(text: str) -> str:
+    """启发式取首行作为章节标题（短行、常见标题特征）。失败返回空串。"""
+    first = (text or "").lstrip().split("\n", 1)[0].strip()
+    if not first or len(first) > 40:
+        return ""
+    if any(first.startswith(p) for p in _SECTION_PREFIXES):
+        return first
+    if any(k in first for k in _SECTION_KEYWORDS):
+        return first
+    return ""
+
+
+def split_structured(
+    sections: list[dict],
+    parent_size: int | None = None,
+    child_size: int | None = None,
+    overlap: int | None = None,
+) -> list[dict]:
+    """结构感知分块：表格整体成块；正文父→子两层切，子块带 parent_idx。
+
+    输入 sections: [{type:"text"|"table", content}]
+    输出 chunks: [{text, chunk_type, section, parent_idx}]（顺序即 chunk_idx）
+      - 表格：自身即一个父组（parent_idx=自身组号），chunk_type=table
+      - 正文：先切父块(大窗口)，每父块内切子块(小窗口)，同父块子块共享 parent_idx
+    检索用子块（入向量库/BM25），命中后按 parent_idx 聚合同组拼父块全文给 LLM。
+    """
+    parent_size = parent_size or settings.PARENT_SIZE
+    child_size = child_size or settings.CHUNK_SIZE
+    overlap = overlap if overlap is not None else settings.CHUNK_OVERLAP
+
+    chunks: list[dict] = []
+    group_id = 0  # 父块组号
+    for sec in sections or []:
+        stype, content = sec.get("type", "text"), sec.get("content", "") or ""
+        if stype == "table":
+            md = content.strip()
+            if not md:
+                continue
+            chunks.append({"text": md, "chunk_type": "table",
+                           "section": "表格", "parent_idx": group_id})
+            group_id += 1
+            continue
+        # 正文：先父块（大窗口，按段落/句末），再子块（小窗口）
+        if not content.strip():
+            continue
+        big_blocks = split_text(content, chunk_size=parent_size, overlap=settings.PARENT_OVERLAP)
+        for big in big_blocks:
+            gid = group_id
+            group_id += 1
+            section_title = _detect_section(big)
+            smalls = split_text(big, chunk_size=child_size, overlap=overlap)
+            # 父块过短时 smalls 只有一块，仍是子块（parent_idx 指向自身组）
+            for s in smalls:
+                if s.strip():
+                    chunks.append({"text": s, "chunk_type": "child",
+                                   "section": section_title, "parent_idx": gid})
     return chunks

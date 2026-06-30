@@ -55,3 +55,7 @@ CRAG_GRADE = Counter("grid_crag_grade_total", "CRAG 检索分级", ["grade"])
 CRAG_ACTION = Counter("grid_crag_action_total", "CRAG 纠错动作", ["action"])
 # 基础组件健康（MySQL/Milvus/Redis/MinIO 探活结果，1=up/0=down）—— 让 /health 状态进 Grafana 可监控可告警
 COMPONENT_HEALTH = Gauge("grid_component_health", "基础组件健康状态(1=up/0=down)", ["component"])
+# 安全合规：prompt injection 命中 + 答案脱敏次数（D4，电网强监管可见性）
+SAFETY_BLOCK = Counter("grid_safety_block_total", "安全事件(prompt injection/敏感信息脱敏)", ["kind"])
+# 领域增强：故障诊断 / 两票生成 / 相似案例 调用次数（D1/D2/D3）
+DOMAIN_CALLS = Counter("grid_domain_calls_total", "领域增强调用", ["feature"])

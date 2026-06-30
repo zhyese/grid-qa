@@ -28,6 +28,13 @@ class FeedbackRequest(BaseModel):
     answer: str
     feedback: str            # like | dislike
     conversationId: Optional[str] = None
+    reason: Optional[str] = None          # 用户纠错理由/标注（沉淀坏 case）
+
+
+class FaithfulnessRequest(BaseModel):
+    answer: str
+    sources: List[dict] = []              # 引用来源（[{text,...}]），LLM-judge 判定支撑率
+    modelType: Optional[str] = None
 
 
 class RenameRequest(BaseModel):

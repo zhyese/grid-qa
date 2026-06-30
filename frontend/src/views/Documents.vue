@@ -62,10 +62,10 @@
         <table>
           <thead><tr>
             <th class="cb"><input type="checkbox" :checked="allChecked" @change="toggleAll($event.target.checked)" /></th>
-            <th>文件名</th><th>类型</th><th>状态</th><th>分块</th><th>操作</th>
+            <th>文件名</th><th>类型</th><th>状态</th><th>分块</th><th>关联设备</th><th>操作</th>
           </tr></thead>
           <tbody v-if="loading">
-            <tr v-for="i in 5" :key="i"><td colspan="6"><div class="skeleton"></div></td></tr>
+            <tr v-for="i in 5" :key="i"><td colspan="7"><div class="skeleton"></div></td></tr>
           </tbody>
           <tbody v-else>
             <tr v-for="d in filtered" :key="d.docId">
@@ -73,13 +73,14 @@
               <td>{{ d.docName }}</td><td>{{ d.docType }}</td>
               <td><span :class="'st-' + d.status">{{ statusMap[d.status] || d.status }}</span></td>
               <td>{{ d.chunkCount }}</td>
+              <td class="eq">{{ (d.equipmentTags || '').split(',').filter(Boolean).slice(0, 3).join('、') || '—' }}</td>
               <td>
                 <button class="secondary" @click="parseDoc(d.docId)" :disabled="busy[d.docId]">解析</button>
                 <button class="secondary" @click="vectorizeDoc(d.docId)" :disabled="busy[d.docId]">向量化</button>
                 <button class="danger" @click="removeDoc(d.docId)" :disabled="busy[d.docId]">删除</button>
               </td>
             </tr>
-            <tr v-if="!filtered.length"><td colspan="6" class="empty-row">无匹配文档</td></tr>
+            <tr v-if="!filtered.length"><td colspan="7" class="empty-row">无匹配文档</td></tr>
           </tbody>
         </table>
       </div>
@@ -188,6 +189,7 @@ table { width: 100%; border-collapse: collapse; }
 th, td { padding: 8px 10px; text-align: left; border-bottom: 1px solid #e2e8f0; font-size: 13px; }
 th { background: #f1f5f9; }
 th.cb, td.cb { width: 36px; }
+td.eq { font-size: 11px; color: #64748b; max-width: 150px; }
 .st-pending { color: #94a3b8; }
 .st-parsed { color: #0891b2; }
 .st-vectorized { color: #16a34a; }
