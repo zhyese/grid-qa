@@ -29,20 +29,41 @@
 
 ```mermaid
 graph TB
-    FE["Vue3 前端<br/>Chat / Documents / Dashboard / KgGraph / Admin<br/>:5173"]
-    BE["FastAPI 后端 :8001<br/>routers: system / document / retrieval / qa / kg"]
-    FE <-->|HTTP / SSE · JWT| BE
-    BE --> QA["问答增强 RAG<br/>术语归一化 · 混合检索<br/>RRF + rerank + MMR<br/>GraphRAG 图谱上下文<br/>Prompt + 引用/安全提示"]
-    BE --> DOC["文档处理链路<br/>上传 → 解析 → 分块<br/>PDF / OCR · Embedding 路由<br/>向量化自动建图谱"]
-    QA -->|prompt| LLM["云模型 openai SDK<br/>LLM: DeepSeek / Qwen / Doubao<br/>Embed: 百炼 text-embedding-v3<br/>Rerank: gte-rerank-v2<br/>本地: bge-small-zh"]
-    QA --> STORE
-    DOC --> STORE
-    subgraph STORE["存储层"]
-        MySQL[("MySQL<br/>元数据 + 三元组")]
-        MinIO[("MinIO<br/>源文档")]
-        Milvus[("Milvus x2<br/>向量 HNSW")]
-        Redis[("Redis<br/>缓存 / 配置")]
-        Neo4j[("Neo4j<br/>知识图谱多跳")]
+    FE["Vue3 前端 :5173<br/>Chat / Documents / Dashboard / KgGraph / Admin"]
+    BE["FastAPI 后端 :8001<br/>system / document / retrieval / qa / kg"]
+
+    FE -->|"① 提问/上传 · JWT"| BE
+    BE -.->|"⑦ SSE token 流"| FE
+
+    %% ===== 文档写入流：原文 → 分块 → 向量 + 图谱 =====
+    FE -->|"上传文件原文"| MinIO
+    BE -->|"② 解析分块 chunks"| MySQL
+    BE -->|"③ 文本 → 向量"| EMB
+    EMB -->|"云向量 1024 维"| MilvusC
+    EMB -.->|"小文档 bge 512 维"| MilvusB
+    BE -.->|"④ 后台抽三元组"| Neo4j
+
+    %% ===== 问答读取流：缓存 → 检索 → 图谱 → 重排 → 生成 =====
+    BE -->|"⑤ 命中热点?"| Redis
+    BE -->|"query → 向量"| EMB
+    BE -->|"稠密 TopK"| MilvusC
+    BE -->|"稠密 TopK"| MilvusB
+    BE -.->|"⑥ 图谱上下文"| Neo4j
+    BE -->|"候选 → 重排"| RR
+    BE -->|"⑦ prompt"| LLM
+
+    subgraph STORE["存储层（各存其职）"]
+        MySQL[("MySQL 8<br/>元数据·chunks·三元组·对话·日志")]
+        MinIO[("MinIO<br/>源文档原文")]
+        MilvusC[("Milvus grid_chunks<br/>云向量 HNSW")]
+        MilvusB[("Milvus grid_chunks_bge<br/>bge 向量 HNSW")]
+        Redis[("Redis<br/>热点问答缓存·配置")]
+        Neo4j[("Neo4j<br/>Entity·REL 多跳图")]
+    end
+    subgraph CLOUD["云模型 · openai SDK"]
+        LLM["LLM<br/>DeepSeek / Qwen / Doubao"]
+        EMB["Embedding<br/>百炼 v3 / 本地 bge"]
+        RR["Rerank<br/>gte-rerank-v2"]
     end
 ```
 
@@ -50,14 +71,69 @@ graph TB
 
 ```mermaid
 flowchart LR
-    subgraph W["写入 · 自动建图谱"]
-        U[上传] --> P[解析分块] --> V[向量化 Milvus] --> K[后台 LLM 抽三元组] --> N1[("MySQL + Neo4j")]
+    subgraph W["① 写入 · 向量化后自动建图谱（不阻塞接口）"]
+        U[上传文件] --> P[解析分块 chunks]
+        P --> V[Embedding 路由]
+        V --> VMIL[("Milvus 向量<br/>grid_chunks / _bge")]
+        P -.->|后台异步| K[LLM 抽三元组]
+        K --> KG[("MySQL 三元组<br/>+ Neo4j 图")]
     end
-    subgraph R["读取 · GraphRAG 问答融合"]
-        Q[提问] --> RT[检索 Milvus+BM25+rerank] --> G[graph_context 查 Neo4j] --> PF["prompt 文档+图谱"] --> L[LLM] --> A["答案 图谱N"]
+    subgraph R["② 读取 · GraphRAG 问答融合"]
+        Q[提问] --> CC{"热点缓存<br/>命中?"}
+        CC -->|命中| A1[秒回 cached]
+        CC -->|未命中| RT[检索<br/>BM25 + 双路向量]
+        RT --> RRK[rerank 重排]
+        RRK --> G[graph_context<br/>融合图谱三元组]
+        G --> PF["prompt<br/>文档 + 图谱"]
+        PF --> L[LLM 生成]
+        L --> A2[带引用 + 图谱N]
+        A2 -.->|写缓存| CC
     end
-    subgraph D["删除 · 联动清理"]
-        DEL[删文档] --> CL["MinIO + Milvus + MySQL + Neo4j 边"]
+    subgraph D["③ 删除 · 四库联动清理"]
+        DEL[删文档] --> CL["MinIO 原文 ·<br/>Milvus 双 collection ·<br/>MySQL chunks+三元组 ·<br/>Neo4j 边"]
+    end
+    %% 闭环：写入产物 → 读取消费（数据真正流转）
+    VMIL -. 检索 .-> RT
+    KG -. 结构化上下文 .-> G
+```
+
+### 单次问答数据流时序（一次提问的完整链路）
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant FE as 前端
+    participant BE as 后端 /qa/answer
+    participant Redis
+    participant Milvus as Milvus(云+bge 双路)
+    participant Neo4j
+    participant LLM
+    participant MySQL
+
+    FE->>BE: 提问 + JWT
+    BE->>BE: 术语归一化
+    BE->>Redis: 查热点缓存?
+    alt 命中
+        Redis-->>BE: 缓存答案
+        BE-->>FE: 秒回(cached=true)
+    else 未命中
+        par 双 Embedding 并行
+            BE->>Milvus: 云向量稠密 TopK
+        and
+            BE->>Milvus: bge 向量稠密 TopK
+        end
+        BE->>BE: + BM25 → RRF 融合
+        BE->>LLM: rerank 重排候选
+        LLM-->>BE: 重排结果
+        BE->>Neo4j: graph_context 三元组
+        BE->>LLM: prompt(文档+图谱) 流式
+        loop 逐 token
+            LLM-->>BE: token
+            BE-->>FE: SSE token
+        end
+        BE->>MySQL: 存对话消息
+        BE->>Redis: 写热点缓存(TTL)
+        BE-->>FE: done(图谱N·引用·耗时)
     end
 ```
 
