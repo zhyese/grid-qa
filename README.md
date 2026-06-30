@@ -242,51 +242,73 @@ flowchart LR
 sequenceDiagram
     autonumber
     participant FE as 前端
-    participant BE as 后端 /qa/answer
-    participant Redis
+    participant BE as 后端 /qa/answer<br/>(stream_answer)
+    participant Redis as Redis 热点缓存
     participant Milvus as Milvus(云+bge 双路)
-    participant Neo4j
-    participant LLM
-    participant MySQL
+    participant MySQL as MySQL chunks/对话
+    participant Neo4j as Neo4j 图谱
+    participant LLM as LLM(DS/Qwen/Doubao)
 
-    FE->>BE: 提问 + JWT
-    BE->>BE: 🛡️ injection 告警 + 术语归一化
-    BE->>Redis: 查热点缓存?
-    alt 命中
+    FE->>BE: ① 提问 + JWT
+
+    rect rgb(255, 235, 230)
+        Note right of BE: 🟠 入口护栏 + 缓存
+        BE->>BE: 🛡️ injection 告警 + 术语归一化
+        BE->>Redis: ② 查热点缓存(仅单轮)
+    end
+
+    alt 缓存命中
         Redis-->>BE: 缓存答案
         BE-->>FE: 秒回(cached=true)
-    else 未命中
-        opt 多轮
-            BE->>LLM: standalone 指代消解(消解"它/上面")
+    else 未命中 / 多轮
+
+        rect rgb(255, 248, 220)
+            Note right of BE: 🟡 检索增强
+            opt 多轮
+                BE->>LLM: ③ standalone 指代消解
+            end
+            opt 开启
+                BE->>LLM: HyDE 假设文档 / 多查询分解
+            end
+            par ④ 双路并行检索
+                BE->>Milvus: 云向量 TopK
+            and
+                BE->>Milvus: bge 向量 TopK
+            end
+            BE->>BE: + BM25 → RRF 融合
+            BE->>LLM: ⑤ rerank 重排
+            BE->>MySQL: ⑥ parent 召回大块上下文
         end
-        opt 开启
-            BE->>LLM: HyDE 假设文档 / 多查询分解
+
+        rect rgb(255, 228, 225)
+            Note right of BE: 🔴 CRAG 自纠错
+            BE->>BE: ⑦ ★ 分级(v1 top1分 / v2 per-doc LLM)
+            alt incorrect(低相关)
+                BE->>LLM: 改写 query 重检索
+                BE->>BE: 再分级 → 仍低 = refused
+            end
         end
-        par 双路 Embedding(可选 HyDE 文本)
-            BE->>Milvus: 云向量稠密 TopK
-        and
-            BE->>Milvus: bge 向量稠密 TopK
+
+        BE->>Neo4j: ⑧ graph_context 因果三元组
+
+        rect rgb(230, 245, 230)
+            Note right of BE: 🟢 SSE 流式生成
+            BE-->>FE: ⑨ meta(引用来源 + conversationId)
+            BE->>LLM: ⑩ prompt(大块+图谱+置信度)
+            loop 逐 token
+                LLM-->>BE: token
+                BE-->>FE: token(打字机)
+            end
         end
-        BE->>BE: + BM25 → RRF 融合
-        BE->>LLM: rerank 重排候选
-        BE->>MySQL: parent 召回同组大块上下文
-        BE->>BE: ★ CRAG 分级(v1 top1 / v2 per-doc LLM)
-        alt incorrect(低相关)
-            BE->>LLM: 改写 query 重检索
-            BE->>BE: 再分级→仍低=refused
+
+        rect rgb(243, 230, 255)
+            Note right of BE: 🟣 后处理 + done
+            BE->>MySQL: ⑪ 存对话消息
+            BE->>Redis: 写热点缓存(单轮·TTL)
+            BE-->>FE: ⑫ done(confidence · 图谱N · ⚠highRisk · 引用 · 耗时)
         end
-        BE->>Neo4j: graph_context 因果三元组
-        BE->>LLM: prompt(大块+图谱+置信度) 流式
-        loop 逐 token
-            LLM-->>BE: token
-            BE-->>FE: SSE token
-        end
-        BE->>BE: 脱敏(PII_MASK) + 高风险关键词标记
-        BE->>MySQL: 存对话消息
-        BE->>Redis: 写热点缓存(TTL)
-        BE-->>FE: done(图谱N·confidence·⚠highRisk·引用·耗时)
-        FE->>BE: 异步拉取真 faithfulness(LLM-judge)
-        BE-->>FE: 支撑率/幻觉率(覆盖展示)
+
+        Note over FE,BE: ⑬ 答案渲染后异步：FE 拉真 faithfulness(LLM-judge 覆盖幻觉率) + 相关追问
     end
 ```
 
