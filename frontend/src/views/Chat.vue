@@ -95,6 +95,7 @@
           </select>
           <input v-model="query" placeholder="输入运维问题..." @keyup.enter="ask" />
           <button @click="ask" :disabled="loading">{{ loading ? '生成中...' : '提问' }}</button>
+          <label class="ws-toggle" title="WebSocket 双向流式（默认 SSE 单向）"><input type="checkbox" v-model="useWS" /> WS</label>
         </div>
       </div>
     </main>
@@ -129,7 +130,7 @@ hljs.registerLanguage('xml', xml)
 hljs.registerLanguage('html', xml)
 hljs.registerLanguage('markdown', markdown)
 hljs.registerLanguage('md', markdown)
-import { streamAnswer, sendFeedback, getFaithfulness, getRelatedQuestions, getConversations, getHistory, deleteConversation, renameConversation, exportAnswer } from '../api'
+import { streamAnswer, streamAnswerWS, sendFeedback, getFaithfulness, getRelatedQuestions, getConversations, getHistory, deleteConversation, renameConversation, exportAnswer } from '../api'
 
 // F1: Markdown 渲染 + 代码高亮
 const md = new MarkdownIt({
@@ -215,6 +216,8 @@ function newChat() {
   messages.value = []
 }
 
+const useWS = ref(false)   // 流式协议：false=SSE(默认) true=WebSocket(双向)
+
 async function ask() {
   if (!query.value.trim() || loading.value) return
   const q = query.value
@@ -227,33 +230,40 @@ async function ask() {
     conversationId: currentConvId.value || '', query: q, fb: '', streaming: true,
   })
   messages.value.push(msg)
+  const onStreamEvent = (ev) => {
+    if (ev.type === 'meta') {
+      msg.sources = ev.sources || []
+      if (ev.conversationId) msg.conversationId = ev.conversationId
+    } else if (ev.type === 'token') {
+      msg.content += ev.content || ''        // 打字机：逐字追加
+    } else if (ev.type === 'done' || ev.type === 'error') {
+      if (ev.content) msg.content = ev.content               // 无来源时的兜底文案
+      if (typeof ev.responseTime === 'number') msg.time = ev.responseTime
+      if (typeof ev.hallucinationRate === 'number') msg.halluc = ev.hallucinationRate
+      if (typeof ev.graphCount === 'number') msg.graphCount = ev.graphCount
+      if (ev.highRisk) msg.highRisk = ev.highRisk
+      if (ev.confidence) msg.confidence = ev.confidence
+      if (ev.conversationId) msg.conversationId = ev.conversationId
+      msg.streaming = false
+      loading.value = false
+      currentConvId.value = msg.conversationId
+      loadConversations()      // 刷新侧栏（新对话进列表）
+      loadRelated(msg)          // 智能推荐：答案渲染后异步拉取 3 个相关问题（不阻塞流式）
+      loadFaithfulness(msg)     // 真 faithfulness：异步 LLM-judge 覆盖幻觉率展示
+    }
+  }
   try {
-    await streamAnswer(q, modelType.value || undefined, currentConvId.value || undefined, (ev) => {
-      if (ev.type === 'meta') {
-        msg.sources = ev.sources || []
-        if (ev.conversationId) msg.conversationId = ev.conversationId
-      } else if (ev.type === 'token') {
-        msg.content += ev.content || ''        // 打字机：逐字追加
-      } else if (ev.type === 'done') {
-        if (ev.content) msg.content = ev.content               // 无来源时的兜底文案
-        if (typeof ev.responseTime === 'number') msg.time = ev.responseTime
-        if (typeof ev.hallucinationRate === 'number') msg.halluc = ev.hallucinationRate
-        if (typeof ev.graphCount === 'number') msg.graphCount = ev.graphCount
-        if (ev.highRisk) msg.highRisk = ev.highRisk
-        if (ev.confidence) msg.confidence = ev.confidence
-        if (ev.conversationId) msg.conversationId = ev.conversationId
-        msg.streaming = false
-        currentConvId.value = msg.conversationId
-        loadConversations()      // 刷新侧栏（新对话进列表）
-        loadRelated(msg)          // 智能推荐：答案渲染后异步拉取 3 个相关问题（不阻塞流式）
-        loadFaithfulness(msg)     // 真 faithfulness：异步 LLM-judge 覆盖幻觉率展示
-      }
-    })
+    if (useWS.value) {
+      // WebSocket 双向流式（SSE 增强版，为服务端主动推送留能力）
+      streamAnswerWS(q, modelType.value || undefined, currentConvId.value || undefined, onStreamEvent)
+    } else {
+      await streamAnswer(q, modelType.value || undefined, currentConvId.value || undefined, onStreamEvent)
+    }
   } catch (e) {
     msg.content += (msg.content ? '\n' : '') + '（流式中断：' + (e.message || '') + '）'
     msg.streaming = false
+    loading.value = false
   }
-  loading.value = false
 }
 
 async function like(m) {
@@ -422,4 +432,6 @@ onMounted(loadConversations)
 }
 .input-bar { display: flex; gap: 8px; margin-top: 16px; }
 .input-bar input { flex: 1; }
+.ws-toggle { display: flex; align-items: center; gap: 3px; font-size: 12px; color: #64748b; cursor: pointer; white-space: nowrap; }
+.ws-toggle input { width: auto; }
 </style>

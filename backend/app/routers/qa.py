@@ -1,7 +1,7 @@
 """问答接口：智能问答(普通/流式/多轮) / 对话历史 / 反馈 / 术语归一化。"""
 import json
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -34,7 +34,8 @@ async def answer(
     user: User = Depends(get_current_user),
 ):
     data = await qa_service.answer(
-        db, body.query, body.modelType, conversation_id=body.conversationId, username=user.username
+        db, body.query, body.modelType, conversation_id=body.conversationId,
+        username=user.username, tenant=user.tenant_id,
     )
     await write_log(db, user.username, "智能问答", f"提问：{body.query[:50]}")
     return success(data, "问答成功")
@@ -51,7 +52,7 @@ async def answer_stream(
     async def gen():
         async for item in qa_service.stream_answer(
             db, body.query, body.modelType,
-            conversation_id=body.conversationId, username=user.username,
+            conversation_id=body.conversationId, username=user.username, tenant=user.tenant_id,
         ):
             yield f"data: {json.dumps(item, ensure_ascii=False)}\n\n"
         yield "data: [DONE]\n\n"
@@ -161,6 +162,16 @@ async def list_feedbacks(
     return success(data, "查询成功")
 
 
+@router.get("/feedback-stats")
+async def feedback_stats(
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+):
+    """故障趋势看板：反馈分布 + 坏 case 设备聚类 + 高频问题 + 平均幻觉率（反哺优化）。"""
+    data = await feedback_service.feedback_stats(db)
+    return success(data, "查询成功")
+
+
 @router.post("/feedbacks/{feedback_id}/golden")
 async def mark_golden(
     feedback_id: str,
@@ -171,6 +182,61 @@ async def mark_golden(
     data = await feedback_service.mark_golden(db, feedback_id)
     msg = "已加入 golden 集" if data.get("added") else (data.get("reason") or "未加入")
     return success(data, msg)
+
+
+@router.websocket("/answer/ws")
+async def answer_ws(ws: WebSocket):
+    """WebSocket 流式问答（双向，SSE 的增强版，为服务端主动推送留能力）。
+
+    鉴权：?token=JWT；客户端 send_json({query, modelType, conversationId})；
+    服务端逐条 send_json(stream_answer 的 meta/token/done 事件)。
+    """
+    from app.core.security import decode_token
+    from app.db.session import AsyncSessionLocal
+    from app.services.auth_service import get_user_by_id
+
+    token = ws.query_params.get("token", "")
+    try:
+        payload = decode_token(token)
+        user_id = payload.get("sub", "")
+    except Exception:
+        await ws.accept()
+        await ws.send_json({"type": "error", "message": "未认证或 token 无效"})
+        await ws.close()
+        return
+
+    await ws.accept()
+    try:
+        req = await ws.receive_json()
+        query = (req.get("query") or "").strip()
+        if not query:
+            await ws.send_json({"type": "error", "message": "query 为空"})
+            await ws.close()
+            return
+        async with AsyncSessionLocal() as db:
+            user = await get_user_by_id(db, user_id)
+            if not user:
+                await ws.send_json({"type": "error", "message": "用户不存在"})
+                await ws.close()
+                return
+            async for item in qa_service.stream_answer(
+                db, query, req.get("modelType"),
+                conversation_id=req.get("conversationId"),
+                username=user.username, tenant=user.tenant_id,
+            ):
+                await ws.send_json(item)
+    except WebSocketDisconnect:
+        return
+    except Exception as e:
+        try:
+            await ws.send_json({"type": "error", "message": f"{type(e).__name__}: {e}"[:200]})
+        except Exception:
+            pass
+    finally:
+        try:
+            await ws.close()
+        except Exception:
+            pass
 
 
 @router.post("/related")

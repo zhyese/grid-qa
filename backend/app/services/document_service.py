@@ -4,7 +4,7 @@ import uuid
 from typing import List
 
 from fastapi import UploadFile
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.clients import minio_client, milvus_client
@@ -13,6 +13,7 @@ from app.core.obs import degraded
 from app.core.response import BizError
 from app.models.chunk import Chunk
 from app.models.document import Document
+from app.models.document_version import DocumentVersion
 from app.models.kg_triple import KgTriple
 from app.services import chunk_service, embedding_service, parse_service
 
@@ -43,7 +44,7 @@ def _ext(name: str) -> str:
 
 
 async def upload_documents(
-    db: AsyncSession, files: List[UploadFile], doc_type: str, username: str
+    db: AsyncSession, files: List[UploadFile], doc_type: str, username: str, tenant_id: str = "default",
 ) -> dict:
     if len(files) > MAX_FILES:
         raise BizError(f"批量上传不超过 {MAX_FILES} 份", 400)
@@ -64,9 +65,30 @@ async def upload_documents(
                 minio_client.put_object, object_name, content, len(content),
                 f.content_type or "application/octet-stream",
             )
+            # 同名归档：同租户同名 → 旧版进 versions，新版覆盖（版本管理 + 回滚）
+            existing = (await db.execute(
+                select(Document).where(Document.doc_name == name, Document.tenant_id == tenant_id)
+            )).scalar_one_or_none()
+            if existing:
+                max_ver = (await db.execute(
+                    select(func.max(DocumentVersion.version)).where(DocumentVersion.doc_id == existing.id)
+                )).scalar() or 0
+                db.add(DocumentVersion(
+                    doc_id=existing.id, version=max_ver + 1,
+                    minio_object=existing.minio_object, file_size=existing.file_size,
+                    created_by=existing.upload_user,
+                ))
+                existing.minio_object = object_name
+                existing.file_size = len(content)
+                existing.status = "pending"
+                existing.upload_user = username
+                await db.commit()
+                success_list.append(f"{name}(已换版→需重新解析)")
+                continue
             doc = Document(
                 id=doc_id, doc_name=name, doc_type=doc_type,
                 minio_object=object_name, file_size=len(content), upload_user=username,
+                tenant_id=tenant_id,
             )
             db.add(doc)
             await db.commit()
@@ -76,10 +98,10 @@ async def upload_documents(
     return {"successList": success_list, "failList": fail_list}
 
 
-async def list_documents(db: AsyncSession, keyword: str = "", page: int = 1, size: int = 20) -> dict:
+async def list_documents(db: AsyncSession, keyword: str = "", page: int = 1, size: int = 20, tenant_id: str = "default") -> dict:
     from sqlalchemy import func
-    stmt = select(Document)
-    cnt = select(func.count()).select_from(Document)
+    stmt = select(Document).where(Document.tenant_id == tenant_id)
+    cnt = select(func.count()).select_from(Document).where(Document.tenant_id == tenant_id)
     if keyword:
         stmt = stmt.where(Document.doc_name.like(f"%{keyword}%"))
         cnt = cnt.where(Document.doc_name.like(f"%{keyword}%"))
@@ -129,6 +151,52 @@ async def get_preview(db: AsyncSession, doc_id: str) -> tuple[bytes, str]:
         raise BizError("该格式不支持在线预览（支持 PDF/图片/文本）", 400)
     content = await asyncio.to_thread(minio_client.get_object_bytes, doc.minio_object)
     return content, mt
+
+
+async def list_versions(db: AsyncSession, doc_id: str) -> dict:
+    """文档版本历史（换版归档，可回滚）。"""
+    doc = await get_document(db, doc_id)
+    rows = (await db.execute(
+        select(DocumentVersion).where(DocumentVersion.doc_id == doc_id)
+        .order_by(DocumentVersion.version.desc())
+    )).scalars().all()
+    return {
+        "docId": doc_id, "docName": doc.doc_name, "currentSize": doc.file_size,
+        "versions": [{
+            "version": r.version, "fileSize": r.file_size, "createdBy": r.created_by or "",
+            "createdAt": r.created_at.strftime("%Y-%m-%d %H:%M:%S") if r.created_at else "",
+        } for r in rows],
+    }
+
+
+async def rollback_version(db: AsyncSession, doc_id: str, version: int) -> dict:
+    """回滚到指定版本：当前 minio 归档防丢 → 恢复旧版 minio → 清 chunks/向量（待重新解析）。"""
+    doc = await get_document(db, doc_id)
+    ver = (await db.execute(
+        select(DocumentVersion).where(
+            DocumentVersion.doc_id == doc_id, DocumentVersion.version == version
+        )
+    )).scalar_one_or_none()
+    if not ver:
+        raise BizError("版本不存在", 404)
+    # 回滚前把当前状态归档（防丢，可再回滚回来）
+    max_ver = (await db.execute(
+        select(func.max(DocumentVersion.version)).where(DocumentVersion.doc_id == doc_id)
+    )).scalar() or 0
+    db.add(DocumentVersion(
+        doc_id=doc_id, version=max_ver + 1, minio_object=doc.minio_object,
+        file_size=doc.file_size, created_by="rollback",
+    ))
+    doc.minio_object = ver.minio_object
+    doc.file_size = ver.file_size
+    doc.status = "pending"
+    await db.execute(delete(Chunk).where(Chunk.doc_id == doc_id))  # 清旧，待重新解析向量化
+    try:
+        milvus_client.delete_by_doc(doc_id)
+    except Exception as e:
+        degraded("milvus_rollback_delete", e)
+    await db.commit()
+    return {"docId": doc_id, "rolledTo": version, "status": "pending(需重新解析向量化)"}
 
 
 async def parse_documents(db: AsyncSession, doc_ids: List[str]) -> list[dict]:

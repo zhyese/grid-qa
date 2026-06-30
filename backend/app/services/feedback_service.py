@@ -111,3 +111,46 @@ async def mark_golden(db: AsyncSession, feedback_id: str) -> dict:
     _GOLDEN_PATH.parent.mkdir(parents=True, exist_ok=True)
     _GOLDEN_PATH.write_text(json.dumps(items, ensure_ascii=False, indent=2), encoding="utf-8")
     return {"added": True, "total": len(items), "query": fb.query.strip()}
+
+
+async def feedback_stats(db: AsyncSession) -> dict:
+    """反馈趋势聚合：点赞/点踩分布 + 坏 case 设备聚类 + 高频问题 + 平均幻觉率（反哺知识库优化）。"""
+    by_fb = (await db.execute(
+        select(Feedback.feedback, func.count()).group_by(Feedback.feedback)
+    )).all()
+    fb_map = {r[0]: r[1] for r in by_fb}
+    total = sum(fb_map.values())
+
+    # 坏 case 按设备聚类（术语表标准词匹配 query）
+    dislike_rows = (await db.execute(
+        select(Feedback.query).where(Feedback.feedback == "dislike")
+        .order_by(Feedback.created_at.desc()).limit(100)
+    )).scalars().all()
+    try:
+        from app.services.term_service import _load_terms
+        std = {w for w in _load_terms().values() if w}
+    except Exception:
+        std = set()
+    device_counts: dict = {}
+    for q in dislike_rows:
+        for w in std:
+            if w in (q or ""):
+                device_counts[w] = device_counts.get(w, 0) + 1
+    top_devices = sorted(device_counts.items(), key=lambda x: -x[1])[:10]
+
+    # 高频坏 case
+    top_bad = (await db.execute(
+        select(Feedback.query, func.count()).where(Feedback.feedback == "dislike")
+        .group_by(Feedback.query).order_by(func.count().desc()).limit(10)
+    )).all()
+    # 平均幻觉率（dislike 的 judge 分）
+    avg_halluc = (await db.execute(
+        select(func.avg(Feedback.judge_halluc)).where(Feedback.feedback == "dislike")
+    )).scalar()
+    return {
+        "total": total, "like": fb_map.get("like", 0), "dislike": fb_map.get("dislike", 0),
+        "dislikeRate": round(fb_map.get("dislike", 0) / total, 3) if total else 0,
+        "topDevices": [{"device": d, "count": c} for d, c in top_devices],
+        "topBadCases": [{"query": (q or "")[:60], "count": c} for q, c in top_bad],
+        "avgHallucination": round(avg_halluc, 3) if avg_halluc is not None else None,
+    }

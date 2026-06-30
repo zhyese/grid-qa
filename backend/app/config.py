@@ -135,6 +135,13 @@ class Settings(BaseSettings):
     VLM_ENABLE: bool = False       # VLM 理解图片(图纸/设备/故障现象)补充 OCR 丢失的空间语义
     QWEN_VLM_MODEL: str = "qwen-vl-max"
 
+    # ---------- 配置中心（Nacos 可选覆盖，默认 .env）----------
+    CONFIG_SOURCE: str = "env"        # env | nacos（nacos 时启动拉取覆盖 .env，降级安全）
+    NACOS_SERVER: str = "http://localhost:8848"
+    NACOS_NAMESPACE: str = ""         # 命名空间 id（留空=public）
+    NACOS_GROUP: str = "DEFAULT_GROUP"
+    NACOS_DATA_ID: str = "grid-qa.properties"
+
 
 @lru_cache
 def get_settings() -> Settings:

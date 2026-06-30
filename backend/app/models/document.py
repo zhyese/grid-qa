@@ -20,4 +20,5 @@ class Document(Base):
     chunk_count: Mapped[int] = mapped_column(Integer, default=0)
     upload_user: Mapped[str] = mapped_column(String(64), default="")
     equipment_tags: Mapped[str] = mapped_column(String(512), default="")  # 设备台账标签(逗号分隔，检索可按设备过滤)
+    tenant_id: Mapped[str] = mapped_column(String(64), default="default", index=True)  # 多租户隔离
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())

@@ -8,6 +8,7 @@ from app.db.session import AsyncSessionLocal, engine
 from app.models.chunk import Chunk  # noqa: F401  确保表被注册
 from app.models.conversation import Conversation, Message  # noqa: F401  确保表被注册
 from app.models.document import Document  # noqa: F401  确保表被注册
+from app.models.document_version import DocumentVersion  # noqa: F401
 from app.models.feedback import Feedback  # noqa: F401  确保表被注册
 from app.models.kg_triple import KgTriple  # noqa: F401  确保表被注册
 from app.models.operation_log import OperationLog  # noqa: F401  确保表被注册
@@ -24,6 +25,8 @@ _COLUMN_MIGRATIONS = [
     ("feedbacks", "judge_supported", "FLOAT"),
     ("feedbacks", "judge_halluc", "FLOAT"),
     ("documents", "equipment_tags", "VARCHAR(512) NOT NULL DEFAULT ''"),
+    ("documents", "tenant_id", "VARCHAR(64) NOT NULL DEFAULT 'default'"),
+    ("users", "tenant_id", "VARCHAR(64) NOT NULL DEFAULT 'default'"),
 ]
 
 

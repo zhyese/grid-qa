@@ -28,8 +28,8 @@ async def register(
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(require_admin),
 ):
-    data = await register_user(db, body.username, body.password, body.role)
-    await write_log(db, admin.username, "注册用户", f"新增用户 {body.username}（{body.role}）")
+    data = await register_user(db, body.username, body.password, body.role, body.tenantId)
+    await write_log(db, admin.username, "注册用户", f"新增用户 {body.username}（{body.role}/{body.tenantId}）")
     return success(data, "注册成功")
 
 
@@ -90,3 +90,22 @@ async def health_providers(admin: User = Depends(require_admin)):
         },
         "provider 探测完成",
     )
+
+
+@router.get("/config/nacos")
+async def nacos_config_route(admin: User = Depends(require_admin)):
+    """拉取 Nacos 配置中心配置（测试连通 + 查看覆盖项）。"""
+    from app.clients.nacos_client import fetch_config
+
+    try:
+        cfg = await fetch_config()
+        return success(
+            {"server": settings.NACOS_SERVER, "dataId": settings.NACOS_DATA_ID,
+             "group": settings.NACOS_GROUP, "items": len(cfg), "config": cfg},
+            "拉取成功",
+        )
+    except Exception as e:
+        return success(
+            {"server": settings.NACOS_SERVER, "error": f"{type(e).__name__}: {e}"[:200]},
+            "拉取失败（确认 nacos 已启动：docker compose up -d nacos）",
+        )

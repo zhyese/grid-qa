@@ -19,4 +19,5 @@ class User(Base):
     username: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
     password_hash: Mapped[str] = mapped_column(String(128), nullable=False)
     role: Mapped[str] = mapped_column(String(16), default="operator", nullable=False)  # admin | operator
+    tenant_id: Mapped[str] = mapped_column(String(64), default="default", index=True)  # 多租户隔离
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())

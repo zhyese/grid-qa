@@ -15,7 +15,9 @@ from app.services.document_service import (
     get_preview,
     get_stats,
     list_documents,
+    list_versions,
     parse_documents,
+    rollback_version,
     upload_documents,
     vectorize_document,
 )
@@ -33,7 +35,7 @@ async def upload(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    data = await upload_documents(db, files, docType, user.username)
+    data = await upload_documents(db, files, docType, user.username, user.tenant_id)
     await write_log(
         db, user.username, "文档上传",
         f"成功 {len(data['successList'])} 份，失败 {len(data['failList'])} 份",
@@ -49,7 +51,7 @@ async def document_list(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    data = await list_documents(db, keyword, page, size)
+    data = await list_documents(db, keyword, page, size, user.tenant_id)
     return success(data, "查询成功")
 
 
@@ -73,6 +75,30 @@ async def preview_doc(
 
     content, mt = await get_preview(db, doc_id)
     return Response(content, media_type=mt)
+
+
+@router.get("/{doc_id}/versions")
+async def doc_versions(
+    doc_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """文档版本历史（换版归档列表）。"""
+    data = await list_versions(db, doc_id)
+    return success(data, "查询成功")
+
+
+@router.post("/rollback")
+async def rollback(
+    docId: str = Query(...),
+    version: int = Query(...),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """回滚到指定版本：恢复旧版 MinIO 对象，清向量待重新解析。"""
+    data = await rollback_version(db, docId, version)
+    await write_log(db, user.username, "版本回滚", f"{docId} → v{version}")
+    return success(data, "回滚成功，请重新解析向量化")
 
 
 @router.post("/parse")

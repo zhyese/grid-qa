@@ -87,9 +87,27 @@ export const exportAnswer = async (query, answer, sources, meta) => {
 export const getFaithfulness = (answer, sources, modelType) =>
   request.post('/qa/faithfulness', { answer, sources, modelType })
 
+// WebSocket 流式问答（双向，SSE 增强版，为服务端主动推送留能力）
+export const streamAnswerWS = (query, modelType, conversationId, onEvent) => {
+  const auth = useAuthStore()
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws'
+  const ws = new WebSocket(`${proto}://${location.host}/api/qa/answer/ws?token=${encodeURIComponent(auth.token || '')}`)
+  ws.onopen = () => ws.send(JSON.stringify({ query, modelType, conversationId }))
+  ws.onmessage = (e) => {
+    try {
+      const ev = JSON.parse(e.data)
+      onEvent(ev)
+      if (ev.type === '_ws_done' || ev.type === 'error') ws.close()
+    } catch (err) { /* skip */ }
+  }
+  ws.onerror = () => { onEvent({ type: 'done' }); try { ws.close() } catch (x) {} }
+  return ws
+}
+
 // 反馈管理（admin）：坏 case 看板 + 一键回流 golden
 export const getFeedbacks = (params) => request.get('/qa/feedbacks', { params })
 export const markFeedbackGolden = (id) => request.post(`/qa/feedbacks/${id}/golden`)
+export const getFeedbackStats = () => request.get('/qa/feedback-stats')
 
 // 智能推荐：生成 3 个相关问题（答案渲染后异步拉取，不阻塞流式）
 export const getRelatedQuestions = (query, answer, modelType) =>

@@ -845,6 +845,13 @@ flowchart LR
 - **🌙 暗色主题**：浮动按钮一键切换亮/暗（`useDark` + localStorage 持久化 + 全局 CSS 变量覆盖）。
 - **Grafana 20 → 22 面板**：新增「安全事件(prompt injection 命中)」「领域增强调用(诊断/两票/相似案例)」。
 
+### 🆕 v2.2 企业级能力
+- **🏢 多租户/多知识库隔离**：User/Document 加 `tenant_id`，上传/列表/检索/问答/CRAG 纠错全链路按当前用户租户过滤；`register` 接口指定租户。
+- **📚 知识库版本管理 + 回滚**：同名文档换版自动归档（`document_versions` 表），`GET /document/{id}/versions` 列版本，`POST /document/rollback?docId=&version=` 回滚（恢复 MinIO + 清向量，重新解析）。
+- **📈 故障趋势看板**：`GET /qa/feedback-stats` 聚合反馈（dislike 率/坏 case 设备聚类/高频问题/平均幻觉率），Dashboard 加图表反哺优化。
+- **🔧 Nacos 配置中心**：`CONFIG_SOURCE=nacos` 时启动拉取覆盖 `.env`（httpx 调 open API 免 SDK，降级安全）；`docker compose up -d nacos` 起服务；`/system/config/nacos` 拉取测试。
+- **🔌 WebSocket 流式**：`/qa/answer/ws`（双向，`?token=JWT` 鉴权），Chat 加 WS 切换；SSE 保留，WS 为服务端主动推送留能力。
+
 ### 🧠 图谱质量保障
 - **实体消歧 + Schema 约束**：`#1主变 / 1号主变 / 主变` → 统一 `主变压器`；关系收敛到白名单(发生/表现为/处置方法/原因/影响/...)，无法归类归"相关"保留连通性。`services/kg_normalize.py`。
 

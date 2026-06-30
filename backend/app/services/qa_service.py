@@ -22,7 +22,7 @@ def _cache_key(model_type: str | None, query: str) -> str:
 
 async def _crag_correct(
     db: AsyncSession, nq: str, contexts: list[dict],
-    model_type: str | None, topk: int,
+    model_type: str | None, topk: int, tenant: str = "default",
 ) -> tuple[list[dict], str, str, str]:
     """CRAG 分级 + 纠错闭环。返回 (contexts, confidence, action, grade)。
 
@@ -53,7 +53,7 @@ async def _crag_correct(
             from app.services.query_rewrite import rewrite_query
             new_q = await rewrite_query(nq, model_type, force=True)
             if new_q and new_q != nq:
-                new_ctx = await retrieval_service.mixed_search(db, new_q, topk)
+                new_ctx = await retrieval_service.mixed_search(db, new_q, topk, tenant=tenant)
                 if new_ctx:
                     contexts = new_ctx
                     top1 = float(contexts[0].get("score", 0.0))
@@ -98,6 +98,7 @@ async def _search_query_for_retrieve(
 async def answer(
     db: AsyncSession, query: str, model_type: str | None = None,
     topk: int = 5, conversation_id: str | None = None, username: str = "",
+    tenant: str = "default",
 ) -> dict:
     t0 = time.time()
     nq = term_service.normalize(query)
@@ -138,7 +139,7 @@ async def answer(
     # 多轮指代消解：检索用改写后的独立查询
     search_q = await _search_query_for_retrieve(db, query, nq, conversation_id, history, model_type)
 
-    contexts = await retrieval_service.mixed_search(db, search_q, topk)
+    contexts = await retrieval_service.mixed_search(db, search_q, topk, tenant=tenant)
     if not contexts:
         return {
             "answer": "根据现有资料无法确认该问题，请先上传并解析相关运维文档后重试。",
@@ -148,7 +149,7 @@ async def answer(
 
     # Corrective RAG：分级 + 纠错闭环
     contexts, confidence, crag_action, crag_grade = await _crag_correct(
-        db, nq, contexts, model_type, topk
+        db, nq, contexts, model_type, topk, tenant
     )
 
     # GraphRAG：融合知识图谱结构化上下文（KG_RAG_ENABLE 默认开）
@@ -214,6 +215,7 @@ async def answer(
 async def stream_answer(
     db: AsyncSession, query: str, model_type: str | None = None,
     topk: int = 5, conversation_id: str | None = None, username: str = "",
+    tenant: str = "default",
 ):
     """流式问答：单轮查热点缓存(命中则快流不调LLM) → 否则 meta/token/done 三段。"""
     t0 = time.time()
@@ -268,14 +270,14 @@ async def stream_answer(
         history = await conversation_service.get_messages(db, conversation_id, _HISTORY_LIMIT)
     search_q = await _search_query_for_retrieve(db, query, nq, conversation_id, history, model_type)
 
-    contexts = await retrieval_service.mixed_search(db, search_q, topk)
+    contexts = await retrieval_service.mixed_search(db, search_q, topk, tenant=tenant)
     if not contexts:
         yield {"type": "done", "content": "根据现有资料无法确认该问题，请先上传并解析相关运维文档后重试。"}
         return
 
     # Corrective RAG：分级 + 纠错闭环
     contexts, confidence, crag_action, crag_grade = await _crag_correct(
-        db, nq, contexts, model_type, topk
+        db, nq, contexts, model_type, topk, tenant
     )
 
     # GraphRAG

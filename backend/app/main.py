@@ -20,6 +20,15 @@ async def lifespan(app: FastAPI):
 
     setup_logging()
 
+    # Nacos 配置覆盖（若 CONFIG_SOURCE=nacos，在连接任何服务前拉取覆盖 .env）
+    try:
+        from app.clients.nacos_client import apply_overrides
+        n = await apply_overrides()
+        if n:
+            print(f"[nacos] 已从配置中心覆盖 {n} 个配置项")
+    except Exception as e:
+        print(f"[nacos] 配置覆盖跳过：{e}")
+
     from app.db.init_db import init_db
 
     await init_db()  # 建表 + 初始管理员

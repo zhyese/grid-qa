@@ -17,13 +17,18 @@ async def authenticate(db: AsyncSession, username: str, password: str) -> dict:
     return {"token": token, "username": user.username, "role": user.role}
 
 
-async def register_user(db: AsyncSession, username: str, password: str, role: str = "operator") -> dict:
+async def register_user(
+    db: AsyncSession, username: str, password: str, role: str = "operator", tenant_id: str = "default",
+) -> dict:
     if await get_user_by_username(db, username):
         raise BizError("用户名已存在", 400)
-    user = User(username=username, password_hash=hash_password(password), role=role)
+    user = User(
+        username=username, password_hash=hash_password(password),
+        role=role, tenant_id=tenant_id or "default",
+    )
     db.add(user)
     await db.commit()
-    return {"userId": user.id, "username": user.username}
+    return {"userId": user.id, "username": user.username, "tenantId": user.tenant_id}
 
 
 async def get_user_by_username(db: AsyncSession, username: str) -> Optional[User]:

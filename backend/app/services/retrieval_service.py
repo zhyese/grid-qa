@@ -100,7 +100,7 @@ async def _dense_and_sparse(
 async def mixed_search(
     db: AsyncSession, query: str, topk: int = 10,
     doc_type: str | None = None, model_type: str | None = None,
-    equipment: str | None = None,
+    equipment: str | None = None, tenant: str | None = None,
 ) -> list[dict]:
     _t0 = time.time()
     cand = max(topk * 4, 20)
@@ -141,18 +141,20 @@ async def mixed_search(
     else:
         pool = fused[: topk * 2]
 
-    # 4) docType / equipment 元数据过滤（设备台账关联 D5）
-    if doc_type or equipment:
-        doc_ids = {h.get("doc_id") for h in pool if h.get("doc_id")}
+    # 4) 元数据过滤：租户隔离 + docType/设备（多租户 + D5）
+    doc_ids = {h.get("doc_id") for h in pool if h.get("doc_id")}
+    if doc_ids and (tenant or doc_type or equipment):
         rows = (await db.execute(
-            select(Document.id, Document.doc_type, Document.equipment_tags)
+            select(Document.id, Document.doc_type, Document.equipment_tags, Document.tenant_id)
             .where(Document.id.in_(doc_ids))
         )).all()
         dt_map = {r[0]: r[1] for r in rows}
         eq_map = {r[0]: (r[2] or "") for r in rows}
+        tn_map = {r[0]: r[3] for r in rows}
         pool = [
             h for h in pool
-            if (not doc_type or dt_map.get(h.get("doc_id")) == doc_type)
+            if (not tenant or tn_map.get(h.get("doc_id")) == tenant)
+            and (not doc_type or dt_map.get(h.get("doc_id")) == doc_type)
             and (not equipment or equipment in eq_map.get(h.get("doc_id"), ""))
         ]
 
