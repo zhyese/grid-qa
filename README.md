@@ -89,88 +89,112 @@ graph TB
 ## 系统架构 竖版
 ```mermaid
 flowchart TD
-    %% 定义样式
+    %% 定义样式（new=粉色虚线，标注 v2 新增节点，一眼看增量）
     classDef client fill:#e1f5fe,stroke:#03a9f4,stroke-width:2px;
     classDef process fill:#fff3e0,stroke:#ff9800,stroke-width:2px;
     classDef storage fill:#e8f5e9,stroke:#4caf50,stroke-width:2px;
     classDef llm fill:#f3e5f5,stroke:#9c27b0,stroke-width:2px;
+    classDef new fill:#fce4ec,stroke:#e91e63,stroke-width:2px,stroke-dasharray:5 3;
 
-    User(["用户/前端 Vue3"]):::client
+    User(["用户/前端 Vue3<br/>Chat · 🩺Diagnose · Documents · Admin"]):::client
 
     subgraph WriteFlow ["① 文档写入流 (离线知识构建)"]
         direction TB
-        Upload["上传文件"]:::process
-        Parse["解析与分块 chunks"]:::process
-        EmbedRoute{"双 Embedding 路由"}:::process
-        ExtractKG["后台异步：LLM抽取三元组"]:::process
+        Upload["上传 PDF/Word/Excel/图片"]:::process
+        Parse["结构感知分块<br/>表格整体 · 父子两层"]:::new
+        EmbedRoute{"双 Embedding 路由<br/>大走云 / 小走 bge"}:::process
+        EqTag["设备自动打标 equipment_tags"]:::new
+        ExtractKG["后台异步:LLM 抽三元组<br/>+ 实体消歧 / schema 约束"]:::new
     end
 
     subgraph StorageLayer ["各司其职的存储层"]
         direction TB
         MinIO[("MinIO 原文")]:::storage
-        MySQL[("MySQL 元数据/Chunks/三元组")]:::storage
-        MilvusC[("Milvus 云向量库 1024维")]:::storage
-        MilvusB[("Milvus bge向量库 512维")]:::storage
-        Neo4j[("Neo4j 知识图谱")]:::storage
-        Redis[("Redis 缓存")]:::storage
+        MySQL[("MySQL Chunks(父子/类型/章节)<br/>三元组 · 设备标签 · 对话 · 反馈")]:::storage
+        MilvusC[("Milvus 云向量 1024维")]:::storage
+        MilvusB[("Milvus bge向量 512维")]:::storage
+        Neo4j[("Neo4j 图谱(消歧收敛)")]:::storage
+        Redis[("Redis 热点缓存 · query向量")]:::storage
     end
 
-    subgraph ReadFlow ["② 问答读取流 (在线 RAG 问答)"]
+    subgraph ReadFlow ["② 问答读取流 (在线 RAG · CRAG 自纠错 · 真可信)"]
         direction TB
-        Query["用户提问 query"]:::process
-        CheckCache{"命中 Redis 缓存?"}:::process
-        Retrieval["混合检索: BM25 + 双路向量"]:::process
+        Guard["🛡️ prompt injection 告警"]:::new
+        CheckCache{"命中热点缓存?"}:::process
+        Standalone["standalone 指代消解<br/>+ HyDE / 多查询分解"]:::new
+        Retrieval["混合检索:双路向量 + BM25 → RRF"]:::process
         Rerank["Rerank 重排"]:::process
-        CRAG{"CRAG 分级纠错"}:::process
+        Parent["parent 召回大块上下文"]:::new
+        CRAG{"CRAG 分级纠错<br/>v1 top1分 / v2 per-doc LLM"}:::new
         Rewrite["改写 Query 重检"]:::process
-        Refuse["低置信度拒答"]:::process
-        GenPrompt["融合文档与图谱构建 Prompt"]:::process
-        StreamGen["LLM SSE 流式生成答案"]:::process
+        Refuse["低置信度 refused 拒答"]:::process
+        GenPrompt["融合大块+图谱+置信度 构建 Prompt"]:::process
+        StreamGen["LLM SSE 流式生成"]:::process
+        Safe["脱敏(PII) + ⚠高风险标记"]:::new
+        Faith["异步:真 faithfulness<br/>LLM-judge 覆盖幻觉率"]:::new
+    end
+
+    subgraph DomainFlow ["③ 领域增强 (/domain · 复用检索+图谱)"]
+        direction TB
+        Diagnose["🩺 故障诊断:多查询→检索→因果链→原因排序"]:::new
+        Similar["📚 相似历史案例检索"]:::new
+        Ticket["📝 两票辅助生成"]:::new
     end
 
     subgraph CloudModels ["模型服务 Provider"]
         direction TB
-        LLM_Chat["大语言模型 LLM"]:::llm
-        LLM_Embed["云 Embedding"]:::llm
-        LLM_Rerank["Rerank 模型"]:::llm
+        LLM_Chat["LLM DeepSeek / Qwen / Doubao"]:::llm
+        LLM_Embed["云 Embedding 百炼/火山"]:::llm
+        LLM_Rerank["Rerank gte-rerank-v2"]:::llm
     end
 
-    %% 写入链路连接
+    %% 写入链路
     User --"上传文档"--> Upload
     Upload --> MinIO
     Upload --> Parse
     Parse --> MySQL
+    Parse --> EqTag
+    EqTag --> MySQL
     Parse --> EmbedRoute
-    Parse -.-> ExtractKG
-    EmbedRoute --"大文档(>5000字)"--> LLM_Embed
+    EmbedRoute --"大文档"--> LLM_Embed
     LLM_Embed --> MilvusC
     EmbedRoute --"小文档"--> MilvusB
+    Parse -.-> ExtractKG
     ExtractKG --> Neo4j
     ExtractKG --> MySQL
 
-    %% 读取链路连接
-    User --"提问"--> Query
-    Query --> CheckCache
-    CheckCache --"命中(0.002s)"--> User
-    CheckCache --"未命中"--> Retrieval
-    
+    %% 读取链路
+    User --"提问 · JWT"--> Guard
+    Guard --> CheckCache
+    CheckCache --"命中(秒回)"--> User
+    CheckCache --"未命中"--> Standalone
+    Standalone --> Retrieval
     Retrieval -.-> MilvusC
     Retrieval -.-> MilvusB
     Retrieval --> LLM_Rerank
     LLM_Rerank --> Rerank
-    Rerank --> CRAG
-    
-    CRAG --"Ambiguous/Incorrect"--> Rewrite
+    Rerank --> Parent
+    Parent --> CRAG
+    CRAG --"ambiguous/incorrect"--> Rewrite
     Rewrite -.-> Retrieval
-    Rewrite --"多次尝试仍低分"--> Refuse
-    
-    CRAG --"Correct (Top1 ≥ 0.6)"--> GenPrompt
+    Rewrite --"仍低分"--> Refuse
+    CRAG --"correct"--> GenPrompt
     GenPrompt -.-> Neo4j
     GenPrompt --> LLM_Chat
     LLM_Chat --> StreamGen
-    StreamGen --"写入缓存(TTL)"--> Redis
-    StreamGen --"返回答案+图谱引用"--> User
+    StreamGen --> Safe
+    Safe --"⚠highRisk + 引用 + 置信度"--> User
+    Safe -.-> Faith
+    Faith -.-> User
+    StreamGen --"写缓存(TTL)"--> Redis
     Refuse --"拒答(零幻觉)"--> User
+
+    %% 领域增强链路
+    User -.->|"诊断/两票/案例"| Diagnose
+    Diagnose -.-> Retrieval
+    Diagnose -.-> Neo4j
+    Diagnose --> Similar
+    Diagnose --> Ticket
 ```
 
 
