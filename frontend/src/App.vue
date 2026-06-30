@@ -1,14 +1,9 @@
 <template>
   <router-view />
-  <button class="theme-toggle" @click="toggleDark()" :title="isDark ? '切换亮色' : '切换暗色'">
-    {{ isDark ? '☀️' : '🌙' }}
-  </button>
 </template>
 
 <script setup>
-import { useDark, useToggle } from '@vueuse/core'
-
-// useDark: 自动管理 html.dark 类 + localStorage 持久化 + 跟随系统偏好
-const isDark = useDark()
-const toggleDark = useToggle(isDark)
+import { useDark } from '@vueuse/core'
+// 初始化主题（读 localStorage / 跟随系统偏好，应用 html.dark）；切换按钮在 AppLayout 侧栏
+useDark()
 </script>
