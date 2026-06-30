@@ -266,7 +266,7 @@
       },
       "targets": [
         {
-          "expr": "sum(rate(grid_errors_total[1m])) by (type)",
+          "expr": "(sum(rate(grid_errors_total[1m])) by (type)) or on() vector(0)",
           "legendFormat": "{{type}}",
           "refId": "A"
         }
@@ -512,7 +512,7 @@
       },
       "targets": [
         {
-          "expr": "topk(10, sum(grid_degraded_total) by (tag))",
+          "expr": "topk(10, (sum(grid_degraded_total) by (tag)) or on() vector(0))",
           "legendFormat": "{{tag}}",
           "refId": "A"
         }

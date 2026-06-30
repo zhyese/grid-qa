@@ -40,7 +40,7 @@
         </div>
       </header>
       <main class="page-body">
-        <slot />
+        <router-view />
       </main>
     </div>
   </div>

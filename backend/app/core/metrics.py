@@ -59,3 +59,45 @@ COMPONENT_HEALTH = Gauge("grid_component_health", "基础组件健康状态(1=up
 SAFETY_BLOCK = Counter("grid_safety_block_total", "安全事件(prompt injection/敏感信息脱敏)", ["kind"])
 # 领域增强：故障诊断 / 两票生成 / 相似案例 调用次数（D1/D2/D3）
 DOMAIN_CALLS = Counter("grid_domain_calls_total", "领域增强调用", ["feature"])
+
+
+def init_metric_series() -> None:
+    """预注册已知小基数业务指标的 0 值序列，让面板在事件发生前就“在场”显示 0。
+
+    底层逻辑：prometheus_client 只在被 .inc()/.observe()/.set() 触碰后才输出
+    某条 label 序列。事件驱动型指标(反馈/向量化路由/CRAG/领域/安全/组件健康)
+    在正常工况可能长时间不触发 → /metrics 不含该序列 → Grafana 面板 “No data”，
+    看起来像“没打通后端”。启动时把已知 label 组合预置为 0 即可消除该盲区。
+
+    开放基数指标(ERRORS.code / DEGRADED.tag)不在后端预置(会产生虚假序列)，
+    由 Grafana 面板的 `or vector(0)` 兜底；其余无 label 的 Gauge/Counter 自带
+    默认 0 值子项，天然可见，无需在此处理。
+    """
+    try:
+        # 反馈：👍/👎
+        FEEDBACK.labels("like").inc(0)
+        FEEDBACK.labels("dislike").inc(0)
+        # 双 embedding 路由：云 vs 本地 bge
+        VECTOR_ROUTE.labels("cloud").inc(0)
+        VECTOR_ROUTE.labels("bge").inc(0)
+        # CRAG 检索分级
+        CRAG_GRADE.labels("correct").inc(0)
+        CRAG_GRADE.labels("ambiguous").inc(0)
+        CRAG_GRADE.labels("incorrect").inc(0)
+        # CRAG 纠错动作
+        CRAG_ACTION.labels("normal").inc(0)
+        CRAG_ACTION.labels("rewritten").inc(0)
+        CRAG_ACTION.labels("refused").inc(0)
+        # 领域增强
+        DOMAIN_CALLS.labels("diagnose").inc(0)
+        DOMAIN_CALLS.labels("ticket").inc(0)
+        DOMAIN_CALLS.labels("similar_case").inc(0)
+        DOMAIN_CALLS.labels("safety_block").inc(0)
+        # 安全拦截
+        SAFETY_BLOCK.labels("injection").inc(0)
+        # 基础组件健康(先置 0，由后台周期任务刷为真实探活值)
+        for _comp in ("mysql", "minio", "milvus", "redis"):
+            COMPONENT_HEALTH.labels(_comp).set(0)
+    except Exception:
+        # 预注册失败不影响服务启动
+        pass

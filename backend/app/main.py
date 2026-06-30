@@ -3,6 +3,7 @@
 运行（项目根目录）：
     uvicorn app.main:app --reload --host 127.0.0.1 --port 8001 --app-dir backend
 """
+import asyncio
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
@@ -47,8 +48,22 @@ async def lifespan(app: FastAPI):
         await neo4j_client.ensure_constraint()  # Neo4j 知识图谱索引（未启用则跳过）
     except Exception as e:
         degraded("neo4j_init", e, "Neo4j 未启动?跳过")
+
+    # 监控：预注册业务指标 0 值序列(让事件驱动指标事件发生前就“在场”)
+    try:
+        from app.core.metrics import init_metric_series
+        init_metric_series()
+    except Exception as e:
+        print(f"[metrics] 业务指标预注册跳过：{e}")
+    # 后台周期刷新组件健康(原仅 GET /health 才更新 → 看板常驻空值)
+    app.state.component_health_task = asyncio.create_task(
+        _refresh_component_health_loop()
+    )
     # ---- 关闭 ----
     yield
+    _task = getattr(app.state, "component_health_task", None)
+    if _task:
+        _task.cancel()
     try:
         from app.clients import neo4j_client
         await neo4j_client.close()
@@ -76,9 +91,11 @@ app.add_middleware(
 )
 
 
-@app.get("/health", tags=["系统"])
-async def health():
-    """健康检查：探活 DB / MinIO / Milvus / Redis。"""
+async def _probe_components() -> dict[str, str]:
+    """探活 DB / MinIO / Milvus / Redis，返回 {component: "ok"|"down"}。
+
+    /health 端点与后台周期刷新任务共用，避免健康探活逻辑两处维护。
+    """
     checks: dict[str, str] = {}
 
     try:
@@ -114,6 +131,39 @@ async def health():
         checks["redis"] = "ok" if await redis_client.ping() else "down"
     except Exception:
         checks["redis"] = "down"
+    return checks
+
+
+def _sync_component_health(checks: dict[str, str]) -> None:
+    """把探活结果同步到 Prometheus 组件健康指标(1=up/0=down)。"""
+    try:
+        from app.core import metrics
+
+        for comp, st in checks.items():
+            metrics.COMPONENT_HEALTH.labels(comp).set(1 if st == "ok" else 0)
+    except Exception:
+        pass
+
+
+async def _refresh_component_health_loop() -> None:
+    """周期刷新组件健康指标(每 30s)。
+
+    原 COMPONENT_HEALTH 只在 GET /health 时才 set，看板每 10s 刷新但指标可能
+    长期不动 → “基础组件健康”面板常驻空值。后台任务让 /metrics 始终携带近实时健康态。
+    """
+    while True:
+        try:
+            _sync_component_health(await _probe_components())
+        except Exception:
+            pass
+        await asyncio.sleep(30)
+
+
+@app.get("/health", tags=["系统"])
+async def health():
+    """健康检查：探活 DB / MinIO / Milvus / Redis。"""
+    checks = await _probe_components()
+    _sync_component_health(checks)
 
     # provider 配置态快照（仅看 key 是否配置；运行态可用性见 /api/system/health/providers）
     def _key_ok(role: str) -> bool:
@@ -129,13 +179,6 @@ async def health():
         "llm": {"provider": settings.LLM_PROVIDER, "keyConfigured": _key_ok("llm")},
         "embedding": {"provider": settings.EMB_PROVIDER, "keyConfigured": _key_ok("emb")},
     }
-    # 基础组件探活结果写 Prometheus 指标（让 /health 状态进 Grafana 可监控）
-    try:
-        from app.core import metrics
-        for comp, st in checks.items():
-            metrics.COMPONENT_HEALTH.labels(comp).set(1 if st == "ok" else 0)
-    except Exception:
-        pass
     all_ok = all(v == "ok" for v in checks.values())
     return success(
         data={"status": "healthy" if all_ok else "degraded", "checks": checks,
