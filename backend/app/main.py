@@ -120,6 +120,13 @@ async def health():
         "llm": {"provider": settings.LLM_PROVIDER, "keyConfigured": _key_ok("llm")},
         "embedding": {"provider": settings.EMB_PROVIDER, "keyConfigured": _key_ok("emb")},
     }
+    # 基础组件探活结果写 Prometheus 指标（让 /health 状态进 Grafana 可监控）
+    try:
+        from app.core import metrics
+        for comp, st in checks.items():
+            metrics.COMPONENT_HEALTH.labels(comp).set(1 if st == "ok" else 0)
+    except Exception:
+        pass
     all_ok = all(v == "ok" for v in checks.values())
     return success(
         data={"status": "healthy" if all_ok else "degraded", "checks": checks,

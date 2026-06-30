@@ -53,3 +53,5 @@ DEGRADED = Counter("grid_degraded_total", "静默降级次数(失败被兜底)",
 # Corrective RAG：检索结果分级（correct/ambiguous/incorrect）+ 纠错动作
 CRAG_GRADE = Counter("grid_crag_grade_total", "CRAG 检索分级", ["grade"])
 CRAG_ACTION = Counter("grid_crag_action_total", "CRAG 纠错动作", ["action"])
+# 基础组件健康（MySQL/Milvus/Redis/MinIO 探活结果，1=up/0=down）—— 让 /health 状态进 Grafana 可监控可告警
+COMPONENT_HEALTH = Gauge("grid_component_health", "基础组件健康状态(1=up/0=down)", ["component"])
