@@ -60,6 +60,7 @@
               <div class="meta" v-if="m.time">
                 耗时 {{ m.time }}s · 幻觉率 {{ m.halluc }}
                 <span v-if="m.graphCount" class="kg-tag" title="本次问答融合的知识图谱结构化三元组数">🔗 图谱{{ m.graphCount }}</span>
+                <span v-if="m.confidence" class="conf-tag" :class="'conf-' + m.confidence" :title="confTitle(m.confidence)">{{ confLabel(m.confidence) }}</span>
                 <span class="fb">
                   <a class="fb-btn" @click="like(m)" :class="{ on: m.fb === 'like' }">👍</a>
                   <a class="fb-btn" @click="dislike(m)" :class="{ on: m.fb === 'dislike' }">👎</a>
@@ -225,6 +226,7 @@ async function ask() {
         if (typeof ev.responseTime === 'number') msg.time = ev.responseTime
         if (typeof ev.hallucinationRate === 'number') msg.halluc = ev.hallucinationRate
         if (typeof ev.graphCount === 'number') msg.graphCount = ev.graphCount
+        if (ev.confidence) msg.confidence = ev.confidence
         if (ev.conversationId) msg.conversationId = ev.conversationId
         msg.streaming = false
         currentConvId.value = msg.conversationId
@@ -248,6 +250,11 @@ async function dislike(m) {
   try { await sendFeedback(m.query, m.content, 'dislike', m.conversationId); m.fb = 'dislike' } catch (e) {}
 }
 
+// CRAG 置信度标签文案（high证据充分 / medium证据有限 / refused无强相关已保守作答）
+function confLabel(c) { return ({ high: '✓ 高置信', medium: '⚠ 证据有限', refused: '✗ 证据不足' })[c] || '' }
+function confTitle(c) {
+  return ({ high: '检索证据充分，答案可信度高', medium: '检索相关性中等，部分内容建议人工核对', refused: '未找到强相关资料(改写重检索后仍不足)，答案已保守处理' })[c] || ''
+}
 // F3: 引用溯源 + 复制（来源对象兼容字符串/对象，历史消息可能为空）
 function srcName(s) { return typeof s === 'string' ? '' : (s.docName || '') }
 function srcText(s) { return typeof s === 'string' ? s : (s.text || '') }
@@ -343,6 +350,10 @@ onMounted(loadConversations)
 .src-item { color: #475569; margin: 2px 0; }
 .meta { color: #94a3b8; font-size: 12px; margin-top: 6px; }
 .kg-tag { display: inline-block; margin-left: 10px; padding: 1px 8px; background: #ddd6fe; color: #6d28d9; border-radius: 10px; font-size: 11px; }
+.conf-tag { display: inline-block; margin-left: 6px; padding: 1px 8px; border-radius: 10px; font-size: 11px; }
+.conf-high { background: #dcfce7; color: #166534; }
+.conf-medium { background: #fef9c3; color: #854d0e; }
+.conf-refused { background: #fee2e2; color: #991b1b; }
 .fb { margin-left: 12px; }
 .related { margin-top: 10px; font-size: 13px; }
 .rq-list { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }

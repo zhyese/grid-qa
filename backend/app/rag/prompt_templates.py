@@ -26,10 +26,11 @@ def build_messages(query: str, contexts: list[dict]) -> list[dict]:
 
 
 def build_messages_with_history(query: str, contexts: list[dict], history: list[dict],
-                                graph: list[str] | None = None) -> list[dict]:
+                                graph: list[str] | None = None, confidence: str = "high") -> list[dict]:
     """多轮：system(规则) + 历史对话 + 当前(资料+图谱+问题)。
 
     history: [{role, content}]；graph: 知识图谱结构化三元组文本列表（GraphRAG 增强）。
+    confidence: CRAG 置信度 high/medium/low/refused，低置信时追加保守作答指令（实时护栏）。
     """
     refs = "\n\n".join(
         f"[{i + 1}] {c.get('docName', '')}：{c.get('chunk', '')}"
@@ -38,7 +39,12 @@ def build_messages_with_history(query: str, contexts: list[dict], history: list[
     graph_block = ""
     if graph:
         graph_block = "\n\n【知识图谱(结构化关系)】\n" + "\n".join(f"- {g}" for g in graph)
-    msgs = [{"role": "system", "content": SYSTEM_PROMPT}]
+    extra = ""
+    if confidence == "medium":
+        extra = "\n8) 注意：本次检索证据可能不充分，作答时明确标注不确定的部分，避免绝对化结论。"
+    elif confidence == "refused":
+        extra = "\n8) 注意：检索未找到强相关资料，优先回答\"根据现有资料无法确认该问题\"，可给通用方向但必须标注非资料依据。"
+    msgs = [{"role": "system", "content": SYSTEM_PROMPT + extra}]
     for h in history:
         msgs.append({"role": h["role"], "content": h["content"]})
     msgs.append(

@@ -51,6 +51,36 @@ async def answer(
             "hallucinationRate": 0.0, "cached": False, "conversationId": conversation_id or "",
         }
 
+    # Corrective RAG：检索分级 + 纠错闭环（低相关触发 query 改写重检索，仍低分→refused 保守拒答）
+    confidence, crag_action, crag_grade = "high", "normal", ""
+    if settings.CRAG_ENABLE:
+        from app.rag import crag
+        from app.services.query_rewrite import rewrite_query
+        rerank_ok = settings.RERANK_ENABLE
+        top1 = float(contexts[0].get("score", 0.0)) if contexts else 0.0
+        crag_grade, _ = crag.grade(top1, len(contexts), rerank_ok)
+        if crag_grade == crag.GRADE_INCORRECT:
+            try:
+                new_q = await rewrite_query(nq, model_type, force=True)
+                if new_q and new_q != nq:
+                    new_ctx = await retrieval_service.mixed_search(db, new_q, topk)
+                    if new_ctx:
+                        contexts = new_ctx
+                        top1 = float(contexts[0].get("score", 0.0))
+                        crag_grade, _ = crag.grade(top1, len(contexts), rerank_ok)
+                        crag_action = "rewritten"
+            except Exception as e:
+                degraded("crag_rewrite", e)
+        confidence = crag.confidence_of(crag_grade, crag_action == "rewritten")
+        if crag_grade == crag.GRADE_INCORRECT and crag_action == "rewritten":
+            crag_action = "refused"
+        try:
+            from app.core import metrics
+            metrics.CRAG_GRADE.labels(crag_grade).inc()
+            metrics.CRAG_ACTION.labels(crag_action).inc()
+        except Exception:
+            pass
+
     # 多轮历史
     history = []
     if conversation_id:
@@ -63,7 +93,7 @@ async def answer(
         except Exception as e:
             degraded("kg_graph_context", e)
             graph = []
-    messages = prompt_templates.build_messages_with_history(nq, contexts, history, graph)
+    messages = prompt_templates.build_messages_with_history(nq, contexts, history, graph, confidence)
     _llm0 = time.time()
     ans = await get_llm_provider(model_type).chat(messages, temperature=0.2)
     try:
@@ -91,6 +121,9 @@ async def answer(
         "answer": ans,
         "retrievalSource": [{"docName": c.get("docName", ""), "text": c["chunk"][:200]} for c in contexts],
         "graphCount": len(graph),
+        "confidence": confidence,
+        "cragAction": crag_action,
+        "cragGrade": crag_grade,
         "responseTime": round(time.time() - t0, 3),
         "hallucinationRate": _halluc,
         "cached": False,
@@ -157,6 +190,36 @@ async def stream_answer(
         yield {"type": "done", "content": "根据现有资料无法确认该问题，请先上传并解析相关运维文档后重试。"}
         return
 
+    # Corrective RAG：检索分级 + 纠错闭环（低相关触发 query 改写重检索，仍低分→refused 保守拒答）
+    confidence, crag_action, crag_grade = "high", "normal", ""
+    if settings.CRAG_ENABLE:
+        from app.rag import crag
+        from app.services.query_rewrite import rewrite_query
+        rerank_ok = settings.RERANK_ENABLE
+        top1 = float(contexts[0].get("score", 0.0)) if contexts else 0.0
+        crag_grade, _ = crag.grade(top1, len(contexts), rerank_ok)
+        if crag_grade == crag.GRADE_INCORRECT:
+            try:
+                new_q = await rewrite_query(nq, model_type, force=True)
+                if new_q and new_q != nq:
+                    new_ctx = await retrieval_service.mixed_search(db, new_q, topk)
+                    if new_ctx:
+                        contexts = new_ctx
+                        top1 = float(contexts[0].get("score", 0.0))
+                        crag_grade, _ = crag.grade(top1, len(contexts), rerank_ok)
+                        crag_action = "rewritten"
+            except Exception as e:
+                degraded("crag_rewrite", e)
+        confidence = crag.confidence_of(crag_grade, crag_action == "rewritten")
+        if crag_grade == crag.GRADE_INCORRECT and crag_action == "rewritten":
+            crag_action = "refused"
+        try:
+            from app.core import metrics
+            metrics.CRAG_GRADE.labels(crag_grade).inc()
+            metrics.CRAG_ACTION.labels(crag_action).inc()
+        except Exception:
+            pass
+
     # 多轮历史
     history = []
     if conversation_id:
@@ -169,7 +232,7 @@ async def stream_answer(
         except Exception as e:
             degraded("kg_graph_context", e)
             graph = []
-    messages = prompt_templates.build_messages_with_history(nq, contexts, history, graph)
+    messages = prompt_templates.build_messages_with_history(nq, contexts, history, graph, confidence)
 
     # 流式前先建会话，确保 conversationId 可随 meta 下发
     if is_single:
@@ -237,6 +300,9 @@ async def stream_answer(
         "responseTime": round(time.time() - t0, 3),
         "hallucinationRate": halluc,
         "graphCount": len(graph),
+        "confidence": confidence,
+        "cragAction": crag_action,
+        "cragGrade": crag_grade,
         "conversationId": conversation_id,
         "cached": False,
     }

@@ -7,9 +7,9 @@ from app.core.obs import degraded
 from app.providers.factory import get_llm_provider
 
 
-async def rewrite_query(query: str, model_type: str | None = None) -> str:
-    """改写失败时原样返回，不影响主流程。"""
-    if not settings.QUERY_REWRITE_ENABLE or not query.strip():
+async def rewrite_query(query: str, model_type: str | None = None, force: bool = False) -> str:
+    """改写失败时原样返回，不影响主流程。force=True 时跳过开关（CRAG 纠错强制改写用）。"""
+    if (not force and not settings.QUERY_REWRITE_ENABLE) or not query.strip():
         return query
     prompt = (
         "你是电网运维检索查询改写助手。将下面的用户提问改写为更规范、信息更完整、"

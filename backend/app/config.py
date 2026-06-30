@@ -104,6 +104,11 @@ class Settings(BaseSettings):
     CHUNK_SIZE: int = 500
     CHUNK_OVERLAP: int = 80
 
+    # ---------- Corrective RAG（检索自纠错闭环）----------
+    CRAG_ENABLE: bool = True     # 检索后分级+纠错(低相关触发query改写重检索/拒答)
+    CRAG_HIGH: float = 0.6       # top1 rerank分>=此值=correct(证据充分)
+    CRAG_LOW: float = 0.3        # top1 rerank分<此值=incorrect(触发纠错)
+
 
 @lru_cache
 def get_settings() -> Settings:
