@@ -5,10 +5,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.limiter import limiter
 from app.core.response import success
 from app.db.session import get_db
-from app.dependencies import get_current_user
+from app.dependencies import get_current_user, require_admin
 from app.models.user import User
-from app.schemas.domain import DiagnoseRequest, SimilarCaseRequest, TicketRequest
+from app.schemas.domain import DiagnoseRequest, SimilarCaseRequest, TicketAuditRequest, TicketRequest
 from app.services import domain_service
+from app.services import ticket_audit_service
 from app.services.log_service import write_log
 
 router = APIRouter(prefix="/domain", tags=["领域增强"])
@@ -53,3 +54,17 @@ async def ticket(
     data = await domain_service.generate_ticket(db, body.task, body.modelType)
     await write_log(db, user.username, "两票生成", f"任务：{body.task[:40]}")
     return success(data, "生成完成")
+
+
+@router.post("/ticket/audit")
+@limiter.limit("10/minute")
+async def ticket_audit(
+    request: Request,
+    body: TicketAuditRequest,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_admin),
+):
+    """两票智能审核：已填票据 → 规则引擎+LLM 双层审核报告（仅管理员）。"""
+    data = await ticket_audit_service.audit_ticket(body.ticketText, body.ticketType, body.modelType)
+    await write_log(db, user.username, "两票审核", f"{body.ticketType} | {body.ticketText[:40]}")
+    return success(data, "审核完成")

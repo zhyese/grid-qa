@@ -60,6 +60,8 @@ COMPONENT_HEALTH = Gauge("grid_component_health", "基础组件健康状态(1=up
 SAFETY_BLOCK = Counter("grid_safety_block_total", "安全事件(prompt injection/敏感信息脱敏)", ["kind"])
 # 领域增强：故障诊断 / 两票生成 / 相似案例 调用次数（D1/D2/D3）
 DOMAIN_CALLS = Counter("grid_domain_calls_total", "领域增强调用", ["feature"])
+# 两票智能审核结果分布（pass/warn/fail）
+TICKET_AUDIT = Counter("grid_ticket_audit_total", "两票智能审核结果", ["result"])
 # 告警闭环：Grafana alerting webhook 回调接收到的告警数（按 severity）
 ALERT_RECEIVED = Counter("grid_alert_received_total", "告警接收总数(Grafana回调)", ["severity"])
 
@@ -96,6 +98,9 @@ def init_metric_series() -> None:
         DOMAIN_CALLS.labels("ticket").inc(0)
         DOMAIN_CALLS.labels("similar_case").inc(0)
         DOMAIN_CALLS.labels("safety_block").inc(0)
+        # 两票审核结果（预注册 0 值，消除面板 No data 盲区）
+        for _res in ("pass", "warn", "fail"):
+            TICKET_AUDIT.labels(_res).inc(0)
         # 安全拦截
         SAFETY_BLOCK.labels("injection").inc(0)
         # 告警回调（Grafana severity 维度）

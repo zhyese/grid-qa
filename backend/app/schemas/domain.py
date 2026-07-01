@@ -17,3 +17,9 @@ class SimilarCaseRequest(BaseModel):
 class TicketRequest(BaseModel):
     task: str                        # 操作任务（如"#1主变由运行转检修"）
     modelType: Optional[str] = None
+
+
+class TicketAuditRequest(BaseModel):
+    ticketText: str                       # 已填票据全文（粘贴）
+    ticketType: str = "操作票"             # 操作票 / 工作票
+    modelType: Optional[str] = None
