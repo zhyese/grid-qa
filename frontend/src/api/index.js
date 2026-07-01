@@ -40,6 +40,8 @@ export const debugRetrieval = (query, topK, params = {}) =>
 export const diagnose = (symptom, modelType) => request.post('/domain/diagnose', { symptom, modelType })
 export const similarCase = (symptom, modelType) => request.post('/domain/similar-case', { symptom, modelType })
 export const generateTicket = (task, modelType) => request.post('/domain/ticket', { task, modelType })
+export const auditTicket = (ticketText, ticketType, modelType) =>
+  request.post('/domain/ticket/audit', { ticketText, ticketType, modelType })
 
 // 流式问答（SSE）：fetch + ReadableStream，支持 JWT header（EventSource 无法带 header）
 // signal：AbortController.signal，用于「停止生成」；regen：跳过缓存重新生成

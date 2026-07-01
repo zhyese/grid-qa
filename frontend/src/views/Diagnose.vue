@@ -4,6 +4,7 @@
       <button class="tab" :class="{ active: tab === 'diagnose' }" @click="tab = 'diagnose'">🩺 故障诊断推理</button>
       <button class="tab" :class="{ active: tab === 'case' }" @click="tab = 'case'">📚 相似案例</button>
       <button class="tab" :class="{ active: tab === 'ticket' }" @click="tab = 'ticket'">📝 两票生成</button>
+      <button class="tab" :class="{ active: tab === 'audit' }" @click="tab = 'audit'">🔍 两票审核</button>
     </div>
 
     <!-- 诊断 -->
@@ -58,13 +59,38 @@
         <sources-list :sources="ticket.sources" />
       </div>
     </div>
+
+    <!-- 两票审核 -->
+    <div class="card" v-show="tab === 'audit'">
+      <div class="row" style="margin-bottom: 14px">
+        <select class="select" v-model="auditType" style="max-width:120px"><option value="操作票">操作票</option><option value="工作票">工作票</option></select>
+        <select class="select" v-model="modelType" style="max-width:140px"><option value="">默认模型</option><option value="deepseek">DeepSeek</option><option value="qwen">通义千问</option><option value="doubao">豆包</option></select>
+        <button class="btn btn-primary" @click="doAudit" :disabled="auditLoading || !auditText.trim()">{{ auditLoading ? '审核中…' : '开始审核' }}</button>
+      </div>
+      <textarea class="input" v-model="auditText" placeholder="粘贴已填票据全文（含 任务/调度指令号/操作人/操作步骤/安全措施/危险点）" style="width:100%;min-height:160px;resize:vertical;font-family:inherit;margin-bottom:12px"></textarea>
+      <div v-if="audit">
+        <div class="audit-head">
+          <span class="badge" :class="'ov-' + audit.overall">{{ {pass:'✓ 合规',warn:'⚠ 需修改',fail:'✗ 不合规'}[audit.overall] }}</span>
+          <span class="score">得分 {{ audit.score }}</span>
+          <span class="hint">· {{ audit.latencyMs }}ms</span>
+        </div>
+        <div v-if="!audit.items.length" class="empty">未发现问题</div>
+        <div class="cause" v-for="(it, i) in audit.items" :key="i">
+          <span class="lk" :class="'sv-' + it.severity">{{ {critical:'严',major:'重',minor:'轻'}[it.severity] }}</span>
+          <div class="cause-body">
+            <div class="cause-name">{{ it.msg }} <span class="hint">[{{ it.ruleId }} · {{ it.layer }}]</span></div>
+            <div class="cause-line" v-if="it.suggestion"><b>建议：</b>{{ it.suggestion }}</div>
+          </div>
+        </div>
+      </div>
+    </div>
     <div class="toast" v-if="toast">{{ toast }}</div>
   </div>
 </template>
 
 <script setup>
 import { ref, h } from 'vue'
-import { diagnose, similarCase, generateTicket } from '../api'
+import { diagnose, similarCase, generateTicket, auditTicket } from '../api'
 
 const SourcesList = {
   props: ['sources'],
@@ -98,6 +124,13 @@ async function doTicket() {
   ticketLoading.value = true; ticket.value = null
   try { ticket.value = (await generateTicket(ticketTask.value, modelType.value || null)).data } catch (e) { show('生成失败') } finally { ticketLoading.value = false }
 }
+const auditText = ref(''); const auditType = ref('操作票'); const auditLoading = ref(false); const audit = ref(null)
+async function doAudit() {
+  if (!auditText.value.trim()) return
+  auditLoading.value = true; audit.value = null
+  try { audit.value = (await auditTicket(auditText.value, auditType.value, modelType.value || null)).data }
+  catch (e) { show('审核失败（需管理员权限）') } finally { auditLoading.value = false }
+}
 </script>
 
 <style scoped>
@@ -121,4 +154,9 @@ html.dark .dim-tag { background: var(--primary-soft-2) }
 .ticket { background: var(--surface-2); padding: 14px; border-radius: var(--radius); }
 .t-row { font-size: 14px; margin-bottom: 8px; } .t-block { font-size: 13px; margin-bottom: 10px; }
 .t-block ol, .t-block ul { margin: 4px 0; padding-left: 22px; color: var(--text); line-height: 1.8; }
+.audit-head { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.ov-pass { background: var(--success, #34c759); } .ov-warn { background: var(--warning); } .ov-fail { background: var(--danger); }
+.ov-pass, .ov-warn, .ov-fail { color: #fff; }
+.score { font-weight: 700; font-size: 15px; color: var(--text); }
+.sv-critical { background: var(--danger); } .sv-major { background: var(--warning); } .sv-minor { background: var(--text-soft); }
 </style>
