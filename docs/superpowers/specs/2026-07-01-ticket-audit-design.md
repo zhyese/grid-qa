@@ -1,7 +1,7 @@
 # 两票智能审核 — 设计 spec
 
 > 日期：2026-07-01 ｜ 选型：规则引擎 + LLM 双层（用户确认）
-> 状态：待用户审阅
+> 状态：已确认，转入实现（writing-plans）
 
 ## 背景与目标
 
@@ -77,7 +77,7 @@
 
 ## 测试
 
-- `backend/tests/test_ticket_audit.py`：
+- `tests/test_ticket_audit.py`（与既有测试结构一致，本项目测试均在顶层 `tests/`）：
   - 规则引擎单测：每类规则各 2 个正反例
   - `parse_ticket`：操作票/工作票各 1 例
   - 端点集成测：mock LLM，验证聚合报告结构
