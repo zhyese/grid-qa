@@ -1,0 +1,14 @@
+{
+  "required_fields": [
+    {"id": "REQ_TASK", "field": "task", "label": "任务", "severity": "critical", "suggestion": "补充操作任务"},
+    {"id": "REQ_DISPATCH", "field": "dispatch_no", "label": "调度指令号", "severity": "major", "suggestion": "补充调度指令号"},
+    {"id": "REQ_OPERATOR", "field": "operator", "label": "操作人", "severity": "major", "suggestion": "补充操作人/负责人"}
+  ],
+  "sequences": [
+    {"id": "SEQ_001", "before": "挂地线", "after": "验电", "severity": "critical", "msg": "挂地线出现在验电之前", "suggestion": "应先验电确认无电后再挂地线"},
+    {"id": "SEQ_002", "before": "接地", "after": "验电", "severity": "critical", "msg": "接地出现在验电之前", "suggestion": "应先验电确认无电后再接地"}
+  ],
+  "danger_keywords": ["停电", "接地", "倒闸", "拉闸", "合闸", "带电", "登高", "挂地线"],
+  "dispatch_pattern": "^[A-Za-z0-9\\-]{4,}$",
+  "blocklist": ["约时停送电", "约定停送电", "口头指令"]
+}
