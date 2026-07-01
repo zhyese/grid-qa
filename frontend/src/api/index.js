@@ -45,20 +45,20 @@ export const generateTicket = (task, modelType) => request.post('/domain/ticket'
 // signal：AbortController.signal，用于「停止生成」；regen：跳过缓存重新生成
 export const streamAnswer = async (query, modelType, conversationId, onEvent, signal, regen = false) => {
   const auth = useAuthStore()
-  const resp = await fetch(`/api/qa/answer/stream${regen ? '?regen=true' : ''}`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(auth.token ? { Authorization: `Bearer ${auth.token}` } : {}),
-    },
-    body: JSON.stringify({ query, modelType, conversationId }),
-    signal,
-  })
-  if (!resp.ok) throw new Error(`流式请求失败: ${resp.status}`)
-  const reader = resp.body.getReader()
   const decoder = new TextDecoder('utf-8')
   let buf = ''
   try {
+    const resp = await fetch(`/api/qa/answer/stream${regen ? '?regen=true' : ''}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(auth.token ? { Authorization: `Bearer ${auth.token}` } : {}),
+      },
+      body: JSON.stringify({ query, modelType, conversationId }),
+      signal,
+    })
+    if (!resp.ok) throw new Error(`流式请求失败: ${resp.status}`)
+    const reader = resp.body.getReader()
     while (true) {
       const { value, done } = await reader.read()
       if (done) break
@@ -75,7 +75,8 @@ export const streamAnswer = async (query, modelType, conversationId, onEvent, si
     }
     onEvent({ type: 'done' })
   } catch (e) {
-    if (e.name === 'AbortError') { onEvent({ type: 'aborted' }); return }   // 停止生成：保留已收内容
+    // 停止生成（fetch/reader 任一阶段 abort）：保留已收内容，发 aborted 事件
+    if (e.name === 'AbortError') { onEvent({ type: 'aborted' }); return }
     throw e
   }
 }

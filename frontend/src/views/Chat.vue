@@ -207,7 +207,7 @@ async function ask() {
 async function runStream(q, opts = {}) {
   const { regen = false, cid } = opts
   loading.value = true
-  const msg = reactive({ role: 'assistant', content: '', sources: [], time: 0, halluc: 0, conversationId: cid || currentConvId.value || '', query: q, fb: '', streaming: true })
+  const msg = reactive({ role: 'assistant', content: '', sources: [], time: 0, halluc: 0, conversationId: cid || currentConvId.value || '', query: q, fb: '', streaming: true, aborted: false })
   messages.value.push(msg)
   nextTick(() => { if (msgListEl.value) msgListEl.value.scrollTop = msgListEl.value.scrollHeight })
   const onStreamEvent = (ev) => {
@@ -253,6 +253,7 @@ async function regenerate(m) {
   let q = m.query
   for (let i = idx - 1; i >= 0; i--) { if (messages.value[i].role === 'user') { q = messages.value[i].content; break } }
   if (!q) return
+  messages.value.push({ role: 'user', content: q })   // 补全 user 回合，形成完整"新轮"
   await runStream(q, { regen: true, cid: m.conversationId || currentConvId.value })
 }
 
@@ -262,6 +263,7 @@ function cancelEdit(m) { m.editing = false }
 async function resendEdit(m) {
   const q = (m.editText || '').trim(); if (!q || loading.value) return
   m.editing = false
+  messages.value.push({ role: 'user', content: q })   // 编辑后的新文本作为新 user 回合
   await runStream(q, { cid: currentConvId.value })
 }
 
