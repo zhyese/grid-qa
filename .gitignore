@@ -46,6 +46,7 @@ Thumbs.db
 *.log
 logs/
 
-# ===== 根目录规划文档仅本地保留，不入库（README.md 除外）=====
+# ===== 根目录规划文档仅本地保留，不入库（README.md / 使用手册.md 除外）=====
 /*.md
 !README.md
+!使用手册.md
