@@ -22,6 +22,7 @@ ENV/
 /backend/data/*
 !/backend/data/golden_qa.json
 !/backend/data/ticket_rules.json
+!/backend/data/golden_tickets.json
 /uploads/
 /reports/
 /chroma/

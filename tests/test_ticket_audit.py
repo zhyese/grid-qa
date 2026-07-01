@@ -1,5 +1,7 @@
 """两票智能审核单测：解析 / 规则引擎 / LLM语义 / 聚合 / 端到端。"""
 import asyncio
+import json
+from pathlib import Path
 from app.services import ticket_audit_service as svc
 
 _OP_TICKET = """操作任务：1号主变由运行转检修
@@ -166,3 +168,19 @@ def test_audit_ticket_degrades_on_llm_failure(monkeypatch):
     assert report["overall"] in ("pass", "warn", "fail")
     assert report["items"], "降级应仍返回规则层结果"
     assert all(it["layer"] == "rule" for it in report["items"]), "LLM 失败不应有 llm 项"
+
+
+_GOLDEN_PATH = Path(__file__).resolve().parent.parent / "backend" / "data" / "golden_tickets.json"
+
+
+def test_golden_tickets_regression(monkeypatch):
+    """规则层确定性回归：LLM mock 为 []，每例 overall 必须等于 expect。"""
+    async def no_llm(*a, **k): return []
+    monkeypatch.setattr(svc, "_llm_check", no_llm)
+    cases = json.loads(_GOLDEN_PATH.read_text(encoding="utf-8"))
+    assert len(cases) == 10
+    for i, c in enumerate(cases):
+        report = asyncio.run(svc.audit_ticket(c["text"], c["ticketType"], None))
+        assert report["overall"] == c["expect"], (
+            f"golden #{i} 期望 {c['expect']} 实得 {report['overall']} "
+            f"(score={report['score']}, items={[it['ruleId'] for it in report['items']]})")
