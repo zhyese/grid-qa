@@ -95,7 +95,7 @@
       },
       "targets": [
         {
-          "expr": "sum(grid_qa_total{cached=\"true\"})",
+          "expr": "sum(grid_qa_total{cached=\"true\"}) or vector(0)",
           "refId": "A"
         }
       ],
@@ -443,6 +443,11 @@
           "expr": "grid_kb_vectors",
           "legendFormat": "向量",
           "refId": "C"
+        },
+        {
+          "expr": "grid_kb_vectorized_docs",
+          "legendFormat": "已向量化",
+          "refId": "D"
         }
       ],
       "gridPos": {
@@ -456,7 +461,7 @@
           "calcs": [
             "lastNotNull"
           ],
-          "values": true
+          "values": false
         }
       }
     },
@@ -469,7 +474,7 @@
       },
       "targets": [
         {
-          "expr": "sum(grid_qa_total{cached=\"true\"}) / clamp_min(sum(grid_qa_total), 1) * 100",
+          "expr": "(sum(grid_qa_total{cached=\"true\"}) or vector(0)) / clamp_min(sum(grid_qa_total), 1) * 100",
           "refId": "A"
         }
       ],

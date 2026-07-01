@@ -1,14 +1,14 @@
 """系统接口：登录 / 注册 / 操作日志（角色+时间过滤） / 配置（管理员，Redis 持久化）。"""
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.response import success
+from app.core.response import BizError, success
 from app.db.session import get_db
 from app.dependencies import get_current_user, require_admin
 from app.models.user import User
 from app.schemas.auth import LoginRequest, RegisterRequest
 from app.schemas.system import MilvusConfigRequest, ModelConfigRequest
-from app.services import config_service
+from app.services import config_service, log_service
 from app.services.auth_service import authenticate, register_user
 from app.services.log_service import query_logs, write_log
 
@@ -110,3 +110,54 @@ async def nacos_config_route(admin: User = Depends(require_admin)):
             {"server": settings.NACOS_SERVER, "error": f"{type(e).__name__}: {e}"[:200]},
             "拉取失败（确认 nacos 已启动：docker compose up -d nacos）",
         )
+
+
+@router.post("/alerts/webhook")
+async def alerts_webhook(
+    request: Request,
+    token: str = Query(""),
+    db: AsyncSession = Depends(get_db),
+):
+    """Grafana alerting contact point 回调：接收告警 → 落操作日志(operate_type=告警) + 计指标。
+
+    免 JWT 鉴权（Grafana webhook 不带我们的 token），改用共享密钥 query 校验防滥发。
+    落库后管理员在「系统管理 → 操作日志/告警」直接看到，形成"指标→告警→可见"闭环，
+    不依赖外部钉钉/企微凭据。payload 取 Grafana 标准 alertmanager 风格 {alerts:[...]}。
+    """
+    from app.config import settings
+
+    if token != settings.ALERT_WEBHOOK_TOKEN:
+        raise BizError("告警 webhook token 无效", 403)
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    alerts = body.get("alerts") or []
+    from app.core import metrics
+
+    for a in alerts:
+        labels = a.get("labels") or {}
+        ann = a.get("annotations") or {}
+        sev = labels.get("severity", "warning")
+        title = labels.get("alertname", "未知告警")
+        summary = ann.get("summary", "")
+        state = a.get("status", "firing")
+        content = f"[{sev}] {title}" + (f"：{summary}" if summary else "") + f"（{state}）"
+        await write_log(db, "Grafana", "告警", content[:500])
+        try:
+            metrics.ALERT_RECEIVED.labels(sev).inc()
+        except Exception:
+            pass
+    return success({"received": len(alerts)}, "告警已接收")
+
+
+@router.get("/alerts")
+async def alerts(
+    page: int = Query(1, ge=1),
+    size: int = Query(20, ge=1, le=100),
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+):
+    """告警列表（操作日志中 operate_type=告警），管理员。"""
+    data = await query_logs(db, page, size, operate_type="告警")
+    return success(data, "查询成功")

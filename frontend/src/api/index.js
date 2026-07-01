@@ -5,8 +5,13 @@ import { useAuthStore } from '../stores/auth'
 export const login = (username, password) => request.post('/system/login', { username, password })
 export const register = (username, password, role) => request.post('/system/register', { username, password, role })
 export const getLogs = (params) => request.get('/system/logs', { params })
+export const getAlerts = (params) => request.get('/system/alerts', { params })
 export const configMilvus = (indexType, param) => request.post('/system/config/milvus', { indexType, param })
 export const configModel = (modelType, param) => request.post('/system/config/model', { modelType, param })
+export const getMilvusConfig = () => request.get('/system/config/milvus')
+export const getModelConfig = () => request.get('/system/config/model')
+export const getProviderHealth = () => request.get('/system/health/providers')
+export const rebuildBm25 = () => request.post('/retrieval/bm25/rebuild')
 
 // 文档
 export const uploadDocs = (form, onProgress) => request.post('/document/upload', form, {
@@ -28,6 +33,8 @@ export const getKgInfluence = (limit = 15) => request.get('/kg/influence', { par
 // 检索与问答
 export const answer = (query, modelType) => request.post('/qa/answer', { query, modelType })
 export const mixedRetrieval = (query, topK) => request.post('/retrieval/mixed', { query, topK })
+export const debugRetrieval = (query, topK, params = {}) =>
+  request.post('/retrieval/debug', { query, topK, ...params })
 
 // 领域增强：故障诊断(D1) / 相似案例(D2) / 两票生成(D3)
 export const diagnose = (symptom, modelType) => request.post('/domain/diagnose', { symptom, modelType })

@@ -1,0 +1,109 @@
+# 电网运维 RAG 告警规则（Grafana 13 结构：folder + relativeTimeRange 必填）
+# 数据源 uid=prometheus；触发 → 后端告警Webhook → 落操作日志(operate_type=告警)
+apiVersion: 1
+
+groups:
+  - orgId: 1
+    name: grid-qa-alerts
+    folder: 电网运维 RAG
+    interval: 30s
+    rules:
+      # 1) 基础组件下线（MySQL/MinIO/Milvus/Redis 任一探活失败）
+      - uid: grid-component-down
+        title: 基础组件下线
+        condition: A
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: prometheus
+            model:
+              expr: max(grid_component_health) by (component) == 0
+              instant: true
+              range: false
+              refId: A
+        noDataState: NoData
+        execErrState: Error
+        for: 1m
+        annotations:
+          summary: "组件 {{ $labels.component }} 下线"
+          description: "基础组件探活返回 0，可能影响问答/检索/知识库"
+        labels:
+          severity: critical
+        isPaused: false
+
+      # 2) 静默降级激增（5分钟内降级兜底 >10 次，多处失败被吞）
+      - uid: grid-degraded-spike
+        title: 静默降级激增
+        condition: A
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: prometheus
+            model:
+              expr: sum(increase(grid_degraded_total[5m])) > 10
+              instant: true
+              range: false
+              refId: A
+        noDataState: OK
+        execErrState: Error
+        for: 2m
+        annotations:
+          summary: "5 分钟内静默降级 {{ $value }} 次"
+          description: "多个兜底分支被触发，可能 Neo4j/rerank/缓存/百炼 等组件异常"
+        labels:
+          severity: warning
+        isPaused: false
+
+      # 3) 答案幻觉率 P95 超阈（答案可信度下降）
+      - uid: grid-hallucination-high
+        title: 答案幻觉率P95超阈
+        condition: A
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: prometheus
+            model:
+              expr: histogram_quantile(0.95, sum(rate(grid_hallucination_rate_bucket[5m])) by (le)) > 0.5
+              instant: true
+              range: false
+              refId: A
+        noDataState: OK
+        execErrState: Error
+        for: 5m
+        annotations:
+          summary: "答案幻觉率 P95 = {{ $value }}（>0.5）"
+          description: "检索证据支撑不足，建议排查检索召回/rerank/CRAG 配置"
+        labels:
+          severity: warning
+        isPaused: false
+
+      # 4) 安全事件命中（prompt injection 攻击）
+      - uid: grid-safety-injection
+        title: Prompt Injection 命中
+        condition: A
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: prometheus
+            model:
+              expr: sum(increase(grid_safety_block_total[5m])) > 0
+              instant: true
+              range: false
+              refId: A
+        noDataState: OK
+        execErrState: Error
+        for: 0s
+        annotations:
+          summary: "5 分钟内 prompt injection 命中 {{ $value }} 次"
+          description: "检测到越狱/注入尝试，关注是否有滥用"
+        labels:
+          severity: warning
+        isPaused: false

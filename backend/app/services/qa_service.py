@@ -11,7 +11,7 @@ from app.core import safety
 from app.core.obs import degraded
 from app.providers.factory import get_llm_provider
 from app.rag import citation, prompt_templates
-from app.services import conversation_service, kg_service, retrieval_service, term_service
+from app.services import config_service, conversation_service, kg_service, retrieval_service, term_service
 
 _HISTORY_LIMIT = 6  # 拼接最近 3 轮（6 条消息）
 
@@ -162,7 +162,7 @@ async def answer(
             graph = []
     messages = prompt_templates.build_messages_with_history(nq, contexts, history, graph, confidence)
     _llm0 = time.time()
-    ans = await get_llm_provider(model_type).chat(messages, temperature=0.2)
+    ans = await get_llm_provider(model_type).chat(messages, temperature=config_service.rt_temperature())
     ans = safety.safe_answer(ans)  # 答案脱敏（PII_MASK_ENABLE 开启时，D4）
     try:
         from app.core import metrics
@@ -305,7 +305,7 @@ async def stream_answer(
     # 2) 逐 token 流式（打字机）+ LLM 调用埋点
     parts: list[str] = []
     _llm0 = time.time()
-    async for token in get_llm_provider(model_type).stream(messages, temperature=0.2):
+    async for token in get_llm_provider(model_type).stream(messages, temperature=config_service.rt_temperature()):
         parts.append(token)
         yield {"type": "token", "content": token}
     try:

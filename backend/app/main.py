@@ -55,6 +55,12 @@ async def lifespan(app: FastAPI):
         init_metric_series()
     except Exception as e:
         print(f"[metrics] 业务指标预注册跳过：{e}")
+    # 运行时配置：从 Redis 载入内存热读缓存(让 /system/config/* 改的 ef/temperature 真生效)
+    try:
+        from app.services import config_service
+        await config_service.load_runtime()
+    except Exception as e:
+        print(f"[config] 运行时配置载入跳过：{e}")
     # 后台周期刷新组件健康(原仅 GET /health 才更新 → 看板常驻空值)
     app.state.component_health_task = asyncio.create_task(
         _refresh_component_health_loop()

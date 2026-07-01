@@ -1,0 +1,11 @@
+# 告警通知策略：所有告警默认路由到「后端告警Webhook」联系点
+apiVersion: 1
+
+policies:
+  - orgId: 1
+    receiver: 后端告警Webhook
+    group_by: ['alertname']
+    group_wait: 10s
+    group_interval: 30s
+    repeat_interval: 1h
+    routes: []

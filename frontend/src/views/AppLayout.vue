@@ -78,7 +78,10 @@ const navItems = computed(() => {
     { to: '/dashboard', icon: '📊', label: '统计看板' },
     { to: '/kg', icon: '🧠', label: '知识图谱' },
   ]
-  if (auth.role === 'admin') items.push({ to: '/admin', icon: '⚙️', label: '系统管理' })
+  if (auth.role === 'admin') {
+    items.push({ to: '/retrieval-debug', icon: '🔬', label: '检索调试' })
+    items.push({ to: '/admin', icon: '⚙️', label: '系统管理' })
+  }
   return items
 })
 function isActive(to) { return route.path === to || route.path.startsWith(to + '/') }

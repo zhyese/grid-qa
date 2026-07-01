@@ -45,6 +45,7 @@ VECTOR_ROUTE = Counter("grid_vector_route_total", "向量化路由", ["route"])
 KB_DOCS = Gauge("grid_kb_docs", "知识库文档总数")
 KB_CHUNKS = Gauge("grid_kb_chunks", "知识库分块总数")
 KB_VECTORS = Gauge("grid_kb_vectors", "知识库向量总数")
+KB_VECTORIZED_DOCS = Gauge("grid_kb_vectorized_docs", "已向量化文档数(status=vectorized)")
 # 知识图谱
 KG_EXTRACT = Counter("grid_kg_extract_total", "知识图谱抽取次数")
 KB_TRIPLES = Gauge("grid_kb_triples", "知识图谱三元组总数")
@@ -59,6 +60,8 @@ COMPONENT_HEALTH = Gauge("grid_component_health", "基础组件健康状态(1=up
 SAFETY_BLOCK = Counter("grid_safety_block_total", "安全事件(prompt injection/敏感信息脱敏)", ["kind"])
 # 领域增强：故障诊断 / 两票生成 / 相似案例 调用次数（D1/D2/D3）
 DOMAIN_CALLS = Counter("grid_domain_calls_total", "领域增强调用", ["feature"])
+# 告警闭环：Grafana alerting webhook 回调接收到的告警数（按 severity）
+ALERT_RECEIVED = Counter("grid_alert_received_total", "告警接收总数(Grafana回调)", ["severity"])
 
 
 def init_metric_series() -> None:
@@ -95,6 +98,9 @@ def init_metric_series() -> None:
         DOMAIN_CALLS.labels("safety_block").inc(0)
         # 安全拦截
         SAFETY_BLOCK.labels("injection").inc(0)
+        # 告警回调（Grafana severity 维度）
+        for _sev in ("info", "warning", "critical"):
+            ALERT_RECEIVED.labels(_sev).inc(0)
         # 基础组件健康(先置 0，由后台周期任务刷为真实探活值)
         for _comp in ("mysql", "minio", "milvus", "redis"):
             COMPONENT_HEALTH.labels(_comp).set(0)

@@ -33,6 +33,7 @@ async def query_logs(
     page: int = 1,
     size: int = 10,
     operate_user: Optional[str] = None,
+    operate_type: Optional[str] = None,
     start_time: Optional[str] = None,
     end_time: Optional[str] = None,
 ) -> dict:
@@ -41,6 +42,9 @@ async def query_logs(
     if operate_user:
         base = base.where(OperationLog.operate_user == operate_user)
         cnt = cnt.where(OperationLog.operate_user == operate_user)
+    if operate_type:
+        base = base.where(OperationLog.operate_type == operate_type)
+        cnt = cnt.where(OperationLog.operate_type == operate_type)
     st, et = _parse_time(start_time), _parse_time(end_time)
     if st:
         base = base.where(OperationLog.operate_time >= st)

@@ -1,0 +1,16 @@
+# Grafana alerting 告警联系点 + 路由策略
+# 闭环：告警触发 → 回调后端 webhook(host.docker.internal:8001) → 落操作日志(operate_type=告警)
+# 共享 token 防滥发（与后端 settings.ALERT_WEBHOOK_TOKEN 一致）
+apiVersion: 1
+
+contactPoints:
+  - orgId: 1
+    name: 后端告警Webhook
+    receivers:
+      - uid: backend-alert-webhook
+        type: webhook
+        settings:
+          url: http://host.docker.internal:8001/api/system/alerts/webhook?token=grid-alert-token-2026
+          httpMethod: POST
+          maxAlerts: 50
+        disableResolveMessage: false

@@ -127,6 +127,9 @@ class Settings(BaseSettings):
     PII_MASK_ENABLE: bool = False       # 出站答案敏感信息脱敏（默认关，按合规要求开）
     HIGH_RISK_KEYWORDS: str = "停电,拉闸,合闸,接地,挂地线,带电,登高,攀登,放电,倒闸"
 
+    # ---------- 告警闭环（Grafana alerting → webhook 落库进日志页）----------
+    ALERT_WEBHOOK_TOKEN: str = "grid-alert-token-2026"  # Grafana contact point 回调共享密钥（免 JWT）
+
     # ---------- 可信度评测（真 faithfulness，替代粗糙启发式）----------
     ONLINE_FAITHFULNESS_ENABLE: bool = True  # 线上答案异步 LLM-judge，前端拉取覆盖"幻觉率"展示
     FAITHFULNESS_GATE: float = 0.85          # 生成质量门禁：平均支撑率阈值（eval_generation 用）

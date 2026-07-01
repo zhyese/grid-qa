@@ -3,6 +3,7 @@
     <div class="tabs">
       <button class="tab" :class="{ active: tab === 'feedback' }" @click="loadFeedbacks(fbFilter); tab = 'feedback'">🛡️ 反馈管理</button>
       <button class="tab" :class="{ active: tab === 'log' }" @click="tab = 'log'">📋 操作日志</button>
+      <button class="tab" :class="{ active: tab === 'alert' }" @click="loadAlerts(); tab = 'alert'">🚨 告警 <span v-if="alerts.total" class="badge badge-danger">{{ alerts.total }}</span></button>
       <button class="tab" :class="{ active: tab === 'config' }" @click="tab = 'config'">⚙️ 系统配置</button>
     </div>
 
@@ -47,22 +48,73 @@
       </div>
     </div>
 
+    <!-- 告警（Grafana alerting → webhook 落库） -->
+    <div class="card" v-show="tab === 'alert'">
+      <div class="card-header">
+        <h3 class="card-title">🚨 告警 <span class="badge badge-neutral">{{ alerts.total }}</span></h3>
+        <button class="btn btn-ghost btn-sm" @click="loadAlerts">🔄 刷新</button>
+      </div>
+      <p class="hint" style="margin-top:0">Grafana 告警规则（组件下线/降级激增/幻觉率/安全命中）触发后经 webhook 回调落库，在此实时可见。规则在 Grafana「Alerting」页可查可改。</p>
+      <div style="overflow-x:auto">
+        <table class="tbl">
+          <thead><tr><th>级别</th><th>告警</th><th>来源</th><th>时间</th></tr></thead>
+          <tbody>
+            <tr v-for="a in alerts.list" :key="a.id">
+              <td><span class="badge" :class="sevBadge(a.content)">{{ sevOf(a.content) }}</span></td>
+              <td>{{ a.content.replace(/^\[(info|warning|critical)\]\s*/, '') }}</td>
+              <td class="muted">{{ a.operateUser }}</td>
+              <td class="muted">{{ a.operateTime }}</td>
+            </tr>
+            <tr v-if="!alerts.list.length"><td colspan="4" class="empty">暂无告警（系统正常）</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
     <!-- 系统配置 -->
     <div v-show="tab === 'config'">
+      <!-- provider 连通性 -->
+      <div class="card">
+        <div class="card-header">
+          <h3 class="card-title">Provider 连通性</h3>
+          <button class="btn btn-primary btn-sm" :disabled="healthLoading" @click="loadHealth">{{ healthLoading ? '探测中...' : '🧪 测试连通' }}</button>
+        </div>
+        <p class="hint" style="margin-top:0">主动 ping LLM/Embedding provider，抓欠费/配额/key 失效/网络问题（消耗少量 token）。</p>
+        <div class="config-grid" v-if="health">
+          <div class="stat stat-accent">
+            <div class="stat-val" :style="{ color: health.llm.status === 'ok' ? 'var(--success)' : 'var(--danger)' }">{{ health.llm.status === 'ok' ? '正常' : '异常' }}</div>
+            <div class="stat-lbl">LLM：{{ health.llm.provider || '—' }}<br><span class="muted" style="font-size:11px">{{ health.llm.detail || health.llm.error || '' }}</span></div>
+          </div>
+          <div class="stat stat-accent">
+            <div class="stat-val" :style="{ color: health.embedding.status === 'ok' ? 'var(--success)' : 'var(--danger)' }">{{ health.embedding.status === 'ok' ? '正常' : '异常' }}</div>
+            <div class="stat-lbl">Embedding：{{ health.embedding.provider || '—' }}<br><span class="muted" style="font-size:11px">{{ health.embedding.detail || health.embedding.error || '' }}</span></div>
+          </div>
+        </div>
+        <div v-else class="hint">点「测试连通」探测当前 provider（结果不会自动刷新）。</div>
+      </div>
+
       <div class="config-grid">
         <div class="card">
-          <div class="card-header"><h3 class="card-title">Milvus 索引配置</h3></div>
+          <div class="card-header"><h3 class="card-title">Milvus 索引配置</h3><span v-if="configLoaded" class="badge badge-success">已读取线上值</span></div>
           <div class="field"><label class="field-label">indexType</label><input class="input" v-model="milvus.indexType" /></div>
-          <div class="field"><label class="field-label">nprobe</label><input class="input" v-model="milvus.nprobe" /></div>
-          <div class="field"><label class="field-label">nlist</label><input class="input" v-model="milvus.nlist" /></div>
+          <div class="field"><label class="field-label">M（HNSW 建索引参数）</label><input class="input" v-model="milvus.M" /></div>
+          <div class="field"><label class="field-label">efConstruction（建索引参数）</label><input class="input" v-model="milvus.efConstruction" /></div>
+          <div class="field"><label class="field-label">ef（查询参数 · 运行时即时生效）</label><input class="input" v-model="milvus.ef" /><span class="hint">↑ef 召回↑延迟↑，可实时调</span></div>
           <button class="btn btn-primary" @click="saveMilvus">保存</button>
         </div>
         <div class="card">
-          <div class="card-header"><h3 class="card-title">模型参数配置</h3></div>
+          <div class="card-header"><h3 class="card-title">模型参数配置</h3><span v-if="configLoaded" class="badge badge-success">已读取线上值</span></div>
           <div class="field"><label class="field-label">modelType</label><input class="input" v-model="model.modelType" /></div>
-          <div class="field"><label class="field-label">temperature</label><input class="input" v-model="model.temperature" /></div>
+          <div class="field"><label class="field-label">temperature（主答案 · 运行时即时生效）</label><input class="input" v-model="model.temperature" /></div>
+          <div class="field"><label class="field-label">max_tokens</label><input class="input" v-model="model.max_tokens" /></div>
           <button class="btn btn-primary" @click="saveModel">保存</button>
         </div>
+      </div>
+
+      <!-- BM25 重建 -->
+      <div class="card">
+        <div class="card-header"><h3 class="card-title">BM25 索引</h3><button class="btn btn-ghost btn-sm" :disabled="bm25Loading" @click="handleRebuildBm25">{{ bm25Loading ? '重建中...' : '🔄 全量重建' }}</button></div>
+        <p class="hint" style="margin-top:0">新文档默认增量进内存；进程重启/异常后点此兜底全量重建。</p>
       </div>
     </div>
     <div class="toast" v-if="toastMsg">{{ toastMsg }}</div>
@@ -71,14 +123,19 @@
 
 <script setup>
 import { ref, reactive, onMounted } from 'vue'
-import { getLogs, configMilvus, configModel, getFeedbacks, markFeedbackGolden } from '../api'
+import { getLogs, getAlerts, configMilvus, configModel, getMilvusConfig, getModelConfig, getProviderHealth, rebuildBm25, getFeedbacks, markFeedbackGolden } from '../api'
 
 const tab = ref('feedback')
 const logs = ref({ total: 0, list: [] })
+const alerts = ref({ total: 0, list: [] })
 const feedbacks = ref({ total: 0, list: [] })
 const fbFilter = ref('dislike')
-const milvus = reactive({ indexType: 'IVF_FLAT', nprobe: 16, nlist: 1024 })
-const model = reactive({ modelType: 'deepseek', temperature: 0.2 })
+const milvus = reactive({ indexType: 'HNSW', M: 16, efConstruction: 200, ef: 64 })
+const model = reactive({ modelType: 'deepseek', temperature: 0.2, max_tokens: 2048 })
+const health = ref(null)
+const healthLoading = ref(false)
+const bm25Loading = ref(false)
+const configLoaded = ref(false)
 const toastMsg = ref('')
 let toastTimer = null
 function toast(m) { toastMsg.value = m; clearTimeout(toastTimer); toastTimer = setTimeout(() => (toastMsg.value = ''), 1600) }
@@ -90,11 +147,38 @@ function judgeBadge(h) {
 }
 
 async function loadLogs() { logs.value = (await getLogs({ page: 1, size: 20 })).data }
+async function loadAlerts() { try { alerts.value = (await getAlerts({ page: 1, size: 30 })).data } catch (e) { toast('加载告警失败') } }
+const sevOf = (c = '') => { const m = c.match(/^\[(info|warning|critical)\]/i); return m ? m[1].toLowerCase() : 'info' }
+const sevBadge = (c = '') => ({ critical: 'badge badge-danger', warning: 'badge badge-warning', info: 'badge badge-info' }[sevOf(c)] || 'badge badge-neutral')
 async function loadFeedbacks(fb = 'dislike') { fbFilter.value = fb; try { feedbacks.value = (await getFeedbacks({ feedback: fb, page: 1, size: 30 })).data } catch (e) { toast('加载反馈失败') } }
 async function markGolden(f) { try { const r = (await markFeedbackGolden(f.id)).data; toast(r.added ? `已加入 golden 集（共 ${r.total} 条）` : `未加入：${r.reason || '已存在'}`) } catch (e) { toast('操作失败') } }
-async function saveMilvus() { await configMilvus(milvus.indexType, { nprobe: Number(milvus.nprobe), nlist: Number(milvus.nlist) }); toast('已保存') }
-async function saveModel() { await configModel(model.modelType, { temperature: Number(model.temperature) }); toast('已保存') }
-onMounted(() => { loadLogs(); loadFeedbacks('dislike') })
+async function saveMilvus() { await configMilvus(milvus.indexType, { M: Number(milvus.M), efConstruction: Number(milvus.efConstruction), ef: Number(milvus.ef) }); toast('Milvus 已保存（ef 即时生效）') }
+async function saveModel() { await configModel(model.modelType, { temperature: Number(model.temperature), max_tokens: Number(model.max_tokens) }); toast('模型参数已保存（temperature 即时生效）') }
+async function loadConfig() {
+  try {
+    const mv = (await getMilvusConfig()).data || {}
+    const md = (await getModelConfig()).data || {}
+    const mp = mv.param || {}
+    milvus.indexType = mv.indexType || 'HNSW'
+    milvus.M = mp.M ?? 16
+    milvus.efConstruction = mp.efConstruction ?? 200
+    milvus.ef = mp.ef ?? 64
+    const pp = md.param || {}
+    model.modelType = md.modelType || 'deepseek'
+    model.temperature = pp.temperature ?? 0.2
+    model.max_tokens = pp.max_tokens ?? 2048
+    configLoaded.value = true
+  } catch (e) { toast('读取线上配置失败') }
+}
+async function loadHealth() {
+  healthLoading.value = true
+  try { health.value = (await getProviderHealth()).data } catch (e) { toast('探测失败') } finally { healthLoading.value = false }
+}
+async function handleRebuildBm25() {
+  bm25Loading.value = true
+  try { const r = (await rebuildBm25()).data; toast(`BM25 重建完成（${r.chunks} 个分块）`) } catch (e) { toast('重建失败') } finally { bm25Loading.value = false }
+}
+onMounted(() => { loadLogs(); loadFeedbacks('dislike'); loadAlerts(); loadConfig() })
 </script>
 
 <style scoped>

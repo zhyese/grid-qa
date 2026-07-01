@@ -11,7 +11,7 @@ from app.models.chunk import Chunk
 from app.models.document import Document
 from app.rag import mmr, rrf
 from app.core.obs import degraded
-from app.services import bm25_service, embedding_service, query_rewrite, rerank_service
+from app.services import bm25_service, config_service, embedding_service, query_rewrite, rerank_service
 
 
 def _to_item(h: dict) -> dict:
@@ -174,3 +174,181 @@ async def mixed_search(
     except Exception:
         pass
     return [_to_item(h) for h in pool]
+
+
+async def debug_search(
+    db: AsyncSession, query: str, topk: int = 10,
+    doc_type: str | None = None, model_type: str | None = None,
+    equipment: str | None = None, tenant: str | None = None,
+) -> dict:
+    """检索调试：与 mixed_search 同源构建块，但把每一步中间结果透出，供 admin 排障调参。
+
+    不命中缓存、不裁剪中间态，返回 trace：config 快照 + 各步(改写/HyDE/multi-query/
+    dense·BM25召回/RRF/rerank/元数据过滤/MMR) + 最终命中及其分数归因(dense/bm25/rrf/rerank)。
+    生产路径 mixed_search 不受影响。
+    """
+    t_start = time.time()
+    cand = max(topk * 4, 20)
+    trace: dict = {"config": {}, "steps": [], "result": {}}
+
+    def _step(name: str, **kw) -> None:
+        trace["steps"].append({"step": name, **kw})
+
+    trace["config"] = {
+        "topK": topk, "candidate": cand, "docType": doc_type, "equipment": equipment,
+        "queryRewrite": bool(getattr(settings, "QUERY_REWRITE_ENABLE", False)),
+        "hyde": bool(getattr(settings, "HYDE_ENABLE", False)),
+        "multiQuery": bool(getattr(settings, "MULTI_QUERY_ENABLE", False)),
+        "rerank": bool(settings.RERANK_ENABLE),
+        "mmr": bool(settings.MMR_ENABLE), "mmrLambda": float(getattr(settings, "MMR_LAMBDA", 0.6)),
+        "smallToBig": bool(getattr(settings, "SMALL_TO_BIG_ENABLE", False)),
+        "embProvider": settings.EMB_PROVIDER,
+        "rerankModel": getattr(settings, "RERANK_MODEL", "gte-rerank-v2"),
+        "milvusCollections": [settings.MILVUS_COLLECTION, settings.MILVUS_COLLECTION_BGE],
+        "runtimeEf": config_service.rt_ef(),          # 运行时生效的 HNSW ef（/system/config/milvus 可调）
+        "runtimeTemperature": config_service.rt_temperature(),  # 主答案 temperature（/system/config/model 可调）
+    }
+
+    # 0) query 改写
+    q = await query_rewrite.rewrite_query(query, model_type)
+    _step("query_rewrite", input=query, output=q, changed=(q != query))
+
+    # 0.5) 多查询分解
+    queries = [q]
+    mq_subs: list[str] = []
+    if getattr(settings, "MULTI_QUERY_ENABLE", False):
+        from app.services import multi_query
+        try:
+            mq_subs = await multi_query.decompose(query, model_type) or []
+            queries.extend(mq_subs)
+        except Exception as e:
+            degraded("multi_query_dispatch", e)
+            _step("multi_query", error=str(e))
+    _step("multi_query", subQueries=mq_subs, totalQueries=len(queries))
+
+    # 1) 每个 query 跑 dense(双collection+可选HyDE) + BM25，归集 per-key 原始分
+    dense_raw: dict = {}      # key -> [{"src","score"}, ...]
+    bm25_raw: dict = {}       # key -> [score, ...]
+    per_query = []
+    all_dense, all_sparse = [], []
+    await bm25_service.ensure_built(db)
+    for qq in queries:
+        dense_q = qq
+        hyde_text = None
+        if getattr(settings, "HYDE_ENABLE", False):
+            from app.services import hyde
+            try:
+                hyde_text = await hyde.generate_hypothetical(qq, model_type)
+                if hyde_text:
+                    dense_q = hyde_text
+            except Exception as e:
+                degraded("hyde_dispatch", e)
+        qvec_cloud, qvec_bge = await asyncio.gather(
+            embedding_service.embed_query(dense_q, settings.EMB_PROVIDER),
+            embedding_service.embed_query(dense_q, "bge"),
+        )
+        dense_cloud, dense_bge = await asyncio.gather(
+            asyncio.to_thread(milvus_client.search, settings.MILVUS_COLLECTION, qvec_cloud, cand, config_service.rt_ef()),
+            asyncio.to_thread(milvus_client.search, settings.MILVUS_COLLECTION_BGE, qvec_bge, cand, config_service.rt_ef()),
+        )
+        dense_hits = []
+        for src, results in (("dense_cloud", dense_cloud), ("dense_bge", dense_bge)):
+            for d in results:
+                k = (d.get("doc_id"), d.get("chunk_idx"))
+                dense_raw.setdefault(k, []).append({"src": src, "score": float(d.get("score", 0.0) or 0.0)})
+                dense_hits.append({**d, "key": k})
+        sparse_hits = []
+        for s in bm25_service.search(qq, topk=cand):
+            c = bm25_service.get_chunk(s["idx"])
+            if not c:
+                continue
+            k = (c["doc_id"], c["chunk_idx"])
+            sc = float(s.get("score", 0.0) or 0.0)
+            bm25_raw.setdefault(k, []).append(sc)
+            sparse_hits.append({
+                "key": k, "text": c["text"], "doc_id": c["doc_id"],
+                "doc_name": c["doc_name"], "chunk_idx": c["chunk_idx"], "score": sc,
+            })
+        all_dense.extend(dense_hits)
+        all_sparse.extend(sparse_hits)
+        per_query.append({"query": qq, "hyde": hyde_text, "denseHits": len(dense_hits), "bm25Hits": len(sparse_hits)})
+    _step("retrieve", perQuery=per_query, denseTotal=len(all_dense), bm25Total=len(all_sparse))
+
+    # 2) RRF 融合
+    fused = rrf.rrf_fuse([all_dense, all_sparse], key_fn=lambda h: h["key"])
+    rrf_map = {h["key"]: float(h.get("score", 0.0) or 0.0) for h in fused}
+    _step("rrf_fuse", fusedCount=len(fused))
+
+    # 3) 重排
+    rerank_scores: dict = {}
+    if settings.RERANK_ENABLE and len(fused) > 1:
+        try:
+            docs = [h.get("text", "") for h in fused]
+            ranked = await rerank_service.get_reranker().rerank(q, docs, top_n=min(topk * 2, len(fused)))
+            for idx, score in ranked:
+                rerank_scores[fused[idx]["key"]] = float(score)
+            pool = [{**fused[idx], "score": float(score)} for idx, score in ranked]
+            _step("rerank", ok=True, reranked=len(ranked))
+        except Exception as e:
+            degraded("rerank", e)
+            pool = fused[: topk * 2]
+            _step("rerank", ok=False, error=str(e))
+    else:
+        pool = fused[: topk * 2]
+        _step("rerank", ok=False, reason="disabled")
+
+    # 4) 元数据过滤
+    doc_ids = {h.get("doc_id") for h in pool if h.get("doc_id")}
+    if doc_ids and (tenant or doc_type or equipment):
+        rows = (await db.execute(
+            select(Document.id, Document.doc_type, Document.equipment_tags, Document.tenant_id)
+            .where(Document.id.in_(doc_ids))
+        )).all()
+        dt_map = {r[0]: r[1] for r in rows}
+        eq_map = {r[0]: (r[2] or "") for r in rows}
+        tn_map = {r[0]: r[3] for r in rows}
+        before = len(pool)
+        pool = [
+            h for h in pool
+            if (not tenant or tn_map.get(h.get("doc_id")) == tenant)
+            and (not doc_type or dt_map.get(h.get("doc_id")) == doc_type)
+            and (not equipment or equipment in eq_map.get(h.get("doc_id"), ""))
+        ]
+        _step("metadata_filter", before=before, after=len(pool))
+    else:
+        _step("metadata_filter", skipped=True)
+
+    # 5) MMR
+    if settings.MMR_ENABLE and len(pool) > topk:
+        pool = mmr.mmr(pool, topk, settings.MMR_LAMBDA)
+        _step("mmr", applied=True)
+    else:
+        pool = pool[:topk]
+        _step("mmr", applied=False)
+
+    # 6) 组装最终命中 + 分数归因
+    hits = []
+    for h in pool:
+        k = h.get("key")
+        d_list = dense_raw.get(k, [])
+        hits.append({
+            "docId": h.get("doc_id", ""), "docName": h.get("doc_name", ""),
+            "chunkIdx": h.get("chunk_idx"),
+            "text": (h.get("text", "") or "")[:200],
+            "sources": sorted({x["src"] for x in d_list} | ({"bm25"} if bm25_raw.get(k) else set())),
+            "scores": {
+                "dense": d_list,
+                "bm25": max(bm25_raw.get(k, [0.0])),
+                "rrf": rrf_map.get(k),
+                "rerank": rerank_scores.get(k),
+                "final": float(h.get("score", 0.0) or 0.0),
+            },
+        })
+    hits.sort(key=lambda x: -(x["scores"].get("rerank") if x["scores"].get("rerank") is not None
+                              else (x["scores"].get("rrf") or 0.0)))
+
+    trace["result"] = {
+        "finalHits": len(hits), "hits": hits,
+        "latencyMs": round((time.time() - t_start) * 1000, 1),
+    }
+    return trace

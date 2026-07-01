@@ -325,6 +325,7 @@ async def get_stats(db: AsyncSession) -> dict:
         metrics.KB_DOCS.set(sum(by_status.values()))
         metrics.KB_CHUNKS.set(chunk_total)
         metrics.KB_VECTORS.set(vector_total)
+        metrics.KB_VECTORIZED_DOCS.set(by_status.get("vectorized", 0))
     except Exception:
         pass
     return {

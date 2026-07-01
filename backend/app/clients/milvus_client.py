@@ -60,13 +60,13 @@ def insert_chunks(collection_name, vectors, texts, doc_ids, doc_names, chunk_idx
     return len(vectors)
 
 
-def search(collection_name, query_vec, topk: int = 10) -> list[dict]:
+def search(collection_name, query_vec, topk: int = 10, ef: int | None = None) -> list[dict]:
     _connect()
     col = Collection(collection_name)
     col.load()
     res = col.search(
         [query_vec], "embedding",
-        param={"metric_type": "COSINE", "params": {"ef": 64}},
+        param={"metric_type": "COSINE", "params": {"ef": ef or 64}},
         limit=topk, output_fields=["text", "doc_id", "doc_name", "chunk_idx"],
     )
     out = []
