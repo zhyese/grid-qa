@@ -7,6 +7,7 @@ get_llm_provider, temperature=0）→ _aggregate 聚合打分。LLM 失败走 de
 """
 import json
 import re
+import time
 from pathlib import Path
 
 from app.core.obs import degraded
@@ -153,3 +154,99 @@ def _rule_check(parsed: dict, rules: dict) -> list[dict]:
             items.append(_item("rule", "BLOCK_001", "keyword_blocklist", "major",
                                f"含禁用表述：{kw}", "按安规规范表述"))
     return items
+
+
+_LLM_AUDIT_PROMPT = """你是电网两票审核专家。规则引擎已查硬性项（必填/顺序/危险点/调度格式/禁用术语），
+你专查语义合规：
+1. 安措是否覆盖所有危险点与高风险操作
+2. 术语是否规范、步骤是否可执行、有无遗漏关键步骤
+输出严格 JSON 数组，每项 {{"ruleId":"LLM_xxx","severity":"critical|major|minor","msg":"问题描述","suggestion":"修正建议"}}；无问题输出 []。
+
+【票据类型】{ttype}
+【任务】{task}
+【操作步骤】{steps}
+【安全措施】{safety}
+【危险点】{dangers}"""
+
+
+def _extract_json(ans: str):
+    """从 LLM 回答里抠 JSON（数组或对象）；镜像 domain_service._extract_json。"""
+    m = re.search(r"(\{.*\}|\[.*\])", ans or "", re.S)
+    if not m:
+        return None
+    try:
+        return json.loads(m.group(0))
+    except Exception:
+        return None
+
+
+async def _llm_check(parsed: dict, ticket_type: str, model_type: str | None) -> list[dict]:
+    """LLM 语义审核（temperature=0，结构化 JSON）。"""
+    provider = get_llm_provider(model_type)
+    prompt = _LLM_AUDIT_PROMPT.format(
+        ttype=ticket_type, task=parsed.get("task", ""),
+        steps=";".join(parsed.get("steps", [])) or "无",
+        safety=";".join(parsed.get("safety", [])) or "无",
+        dangers=";".join(parsed.get("dangers", [])) or "无",
+    )
+    ans = await provider.chat([{"role": "user", "content": prompt}], temperature=0, max_tokens=800)
+    arr = _extract_json(ans)
+    items: list[dict] = []
+    if isinstance(arr, list):
+        for it in arr:
+            if not isinstance(it, dict):
+                continue
+            items.append(_item("llm", it.get("ruleId", "LLM_xxx"), "semantic",
+                               it.get("severity", "minor"), it.get("msg", ""), it.get("suggestion", "")))
+    return items
+
+
+_DEDUCT = {"critical": 35, "major": 15, "minor": 5}
+
+
+def _score(items: list[dict]) -> int:
+    s = 100 - sum(_DEDUCT.get(it.get("severity", "minor"), 5) for it in items)
+    return max(0, min(100, s))
+
+
+def _overall(score: int) -> str:
+    return "pass" if score >= 85 else "warn" if score >= 60 else "fail"
+
+
+def _inc_metric(overall: str) -> None:
+    try:
+        from app.core import metrics
+        metrics.TICKET_AUDIT.labels(overall).inc()
+    except Exception:
+        pass
+
+
+async def audit_ticket(text: str, ticket_type: str = "操作票", model_type: str | None = None) -> dict:
+    """编排双层审核 + 聚合。LLM 失败降级只返回规则层。"""
+    t0 = time.perf_counter()
+    rules = _load_rules()
+    parsed = parse_ticket(text, ticket_type)
+    latency = lambda: int((time.perf_counter() - t0) * 1000)
+
+    # 解析为空短路
+    if not parsed["task"] and not parsed["steps"]:
+        report = {"overall": "fail", "score": 0, "ticketType": ticket_type,
+                  "items": [_item("rule", "PARSE_001", "parse", "critical",
+                                  "无法识别票据内容", "请按规范格式粘贴票据（含任务/步骤等）")],
+                  "latencyMs": latency()}
+        _inc_metric("fail")
+        return report
+
+    rule_items = _rule_check(parsed, rules)
+    try:
+        llm_items = await _llm_check(parsed, ticket_type, model_type)
+    except Exception as e:
+        degraded("ticket_audit_llm", e)
+        llm_items = []
+
+    items = rule_items + llm_items
+    score = _score(items)
+    overall = _overall(score)
+    _inc_metric(overall)
+    return {"overall": overall, "score": score, "ticketType": ticket_type,
+            "items": items, "latencyMs": latency()}

@@ -111,3 +111,58 @@ def test_rule_blocklist():
     assert any(it["ruleId"] == "BLOCK_001" for it in svc._rule_check(p, svc._DEFAULT_RULES))
     p2 = _parsed(steps=["正常操作"], raw="正常操作", dangers=["d"])
     assert "BLOCK_001" not in [it["ruleId"] for it in svc._rule_check(p2, svc._DEFAULT_RULES)]
+
+
+class _FakeProvider:
+    def __init__(self, resp): self.resp = resp
+    async def chat(self, msgs, **kw): return self.resp
+
+
+def test_scoring_pure():
+    assert svc._score([]) == 100
+    assert svc._score([{"severity": "critical"}]) == 65       # 100-35
+    assert svc._score([{"severity": "critical"}, {"severity": "major"}]) == 50
+    assert svc._score([{"severity": "critical"}, {"severity": "critical"}]) == 30
+    assert svc._overall(90) == "pass"
+    assert svc._overall(70) == "warn"
+    assert svc._overall(50) == "fail"
+
+
+def test_llm_check_parses_items(monkeypatch):
+    monkeypatch.setattr(
+        svc, "get_llm_provider",
+        lambda mt=None: _FakeProvider('[{"ruleId":"LLM_1","severity":"major",'
+                                      '"msg":"安措未覆盖危险点","suggestion":"补安措"}]'))
+    items = asyncio.run(svc._llm_check(
+        {"task": "t", "steps": ["停电"], "safety": [], "dangers": ["触电"]}, "操作票", None))
+    assert len(items) == 1
+    assert items[0]["layer"] == "llm" and items[0]["severity"] == "major"
+
+
+def test_llm_check_empty_array(monkeypatch):
+    monkeypatch.setattr(svc, "get_llm_provider", lambda mt=None: _FakeProvider("[]"))
+    assert asyncio.run(svc._llm_check({"task": "t", "steps": [], "safety": [], "dangers": []}, "操作票", None)) == []
+
+
+def test_audit_ticket_happy_path(monkeypatch):
+    async def no_llm(*a, **k): return []
+    monkeypatch.setattr(svc, "_llm_check", no_llm)
+    report = asyncio.run(svc.audit_ticket(_OP_TICKET, "操作票", None))
+    assert report["overall"] == "pass" and report["score"] == 100
+    assert report["ticketType"] == "操作票" and "latencyMs" in report
+
+
+def test_audit_ticket_empty_input():
+    report = asyncio.run(svc.audit_ticket("", "操作票", None))
+    assert report["overall"] == "fail" and report["score"] == 0
+    assert report["items"][0]["severity"] == "critical"
+
+
+def test_audit_ticket_degrades_on_llm_failure(monkeypatch):
+    async def boom(*a, **k): raise RuntimeError("llm down")
+    monkeypatch.setattr(svc, "_llm_check", boom)
+    bad = "操作任务：1号主变由运行转检修\n调度指令号：DD-2026-001\n操作步骤：\n1. 验电\n2. 挂地线\n危险点：\n- 触电\n"  # 缺操作人 → REQ_OPERATOR
+    report = asyncio.run(svc.audit_ticket(bad, "操作票", None))
+    assert report["overall"] in ("pass", "warn", "fail")
+    assert report["items"], "降级应仍返回规则层结果"
+    assert all(it["layer"] == "rule" for it in report["items"]), "LLM 失败不应有 llm 项"
