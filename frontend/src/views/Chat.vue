@@ -25,14 +25,25 @@
     <section class="chat-main">
       <div class="msg-list" ref="msgListEl">
         <div v-for="(m, i) in messages" :key="i" class="msg" :class="m.role">
-          <div v-if="m.role === 'user'" class="bubble user-bubble">{{ m.content }}</div>
+          <div v-if="m.role === 'user'" class="bubble user-bubble">
+            <template v-if="m.editing">
+              <textarea class="input edit-area" v-model="m.editText" rows="2"></textarea>
+              <div class="edit-ops"><button class="btn btn-primary btn-sm" @click="resendEdit(m)">重提</button><button class="btn btn-ghost btn-sm" @click="cancelEdit(m)">取消</button></div>
+            </template>
+            <template v-else>
+              {{ m.content }}
+              <a class="edit-btn" @click="startEdit(m)" title="编辑后重新提问">✏️</a>
+            </template>
+          </div>
           <div v-else class="bubble ai-bubble">
             <div v-if="!m.streaming" class="bubble-actions">
+              <a @click="regenerate(m)">🔄 重新生成</a>
               <a @click="copyAnswer(m)">📋 复制</a>
               <a @click="exportWord(m)">📄 导出 Word</a>
             </div>
             <pre v-if="m.streaming" class="streaming-text">{{ m.content }}<span class="cursor">▍</span></pre>
             <div v-else class="ans md" @click="onAnsClick($event, m)" v-html="renderMd(m.content)"></div>
+            <div v-if="m.aborted" class="hint" style="margin-top:8px">⏹ 已停止生成（仅显示已接收内容）</div>
 
             <div class="sources" v-if="m.sources && m.sources.length">
               <div class="src-head">📎 引用来源 <span class="hint">点 [n] 定位 · 点卡片复制</span></div>
@@ -81,8 +92,9 @@
           <option value="doubao">豆包</option>
         </select>
         <label class="ws-toggle" title="WebSocket 双向流式（默认 SSE）"><input type="checkbox" v-model="useWS" /> WS</label>
-        <input class="input" v-model="query" placeholder="输入运维问题，如：主变压器温度异常如何处置..." @keyup.enter="ask" />
-        <button class="btn btn-primary send-btn" @click="ask" :disabled="loading">{{ loading ? '生成中...' : '发送' }}</button>
+        <input class="input" v-model="query" placeholder="输入运维问题，如：主变压器温度异常如何处置..." @keyup.enter="ask" :disabled="loading" />
+        <button v-if="loading && !useWS" class="btn btn-danger send-btn" @click="stopGen">⏹ 停止</button>
+        <button v-else class="btn btn-primary send-btn" @click="ask" :disabled="loading">{{ loading ? '生成中...' : '发送' }}</button>
       </div>
     </section>
     <div class="toast" v-if="toastMsg">{{ toastMsg }}</div>
@@ -144,6 +156,7 @@ const editingId = ref('')
 const editingTitle = ref('')
 const convCollapsed = ref(localStorage.getItem('conv-collapsed') === '1')
 const useWS = ref(false)
+const abortCtrl = ref(null)   // 流式生成 AbortController（停止生成用）
 const toastMsg = ref('')
 let toastTimer = null
 function toast(msg) { toastMsg.value = msg; clearTimeout(toastTimer); toastTimer = setTimeout(() => (toastMsg.value = ''), 1600) }
@@ -187,13 +200,20 @@ async function ask() {
   const q = query.value
   messages.value.push({ role: 'user', content: q })
   query.value = ''
+  await runStream(q)
+}
+
+/** 核心流式发送流程，被 ask / regenerate / resendEdit 复用。opts.regen=跳缓存，opts.cid=指定会话。 */
+async function runStream(q, opts = {}) {
+  const { regen = false, cid } = opts
   loading.value = true
-  const msg = reactive({ role: 'assistant', content: '', sources: [], time: 0, halluc: 0, conversationId: currentConvId.value || '', query: q, fb: '', streaming: true })
+  const msg = reactive({ role: 'assistant', content: '', sources: [], time: 0, halluc: 0, conversationId: cid || currentConvId.value || '', query: q, fb: '', streaming: true })
   messages.value.push(msg)
   nextTick(() => { if (msgListEl.value) msgListEl.value.scrollTop = msgListEl.value.scrollHeight })
   const onStreamEvent = (ev) => {
     if (ev.type === 'meta') { msg.sources = ev.sources || []; if (ev.conversationId) msg.conversationId = ev.conversationId }
     else if (ev.type === 'token') { msg.content += ev.content || ''; nextTick(() => { if (msgListEl.value) msgListEl.value.scrollTop = msgListEl.value.scrollHeight }) }
+    else if (ev.type === 'aborted') { msg.aborted = true; msg.streaming = false; loading.value = false }   // 停止生成：保留已收内容
     else if (ev.type === 'done' || ev.type === 'error') {
       if (ev.content) msg.content = ev.content
       if (typeof ev.responseTime === 'number') msg.time = ev.responseTime
@@ -204,19 +224,45 @@ async function ask() {
       if (ev.conversationId) msg.conversationId = ev.conversationId
       msg.streaming = false
       loading.value = false
+      abortCtrl.value = null
       currentConvId.value = msg.conversationId
       loadConversations()
-      loadRelated(msg)
-      loadFaithfulness(msg)
+      if (!msg.aborted) { loadRelated(msg); loadFaithfulness(msg) }   // 中断的不再拉 related/faithfulness
     }
   }
   try {
-    if (useWS.value) streamAnswerWS(q, modelType.value || undefined, currentConvId.value || undefined, onStreamEvent)
-    else await streamAnswer(q, modelType.value || undefined, currentConvId.value || undefined, onStreamEvent)
+    if (useWS.value) {
+      streamAnswerWS(q, modelType.value || undefined, currentConvId.value || undefined, onStreamEvent)
+    } else {
+      abortCtrl.value = new AbortController()
+      await streamAnswer(q, modelType.value || undefined, currentConvId.value || undefined, onStreamEvent, abortCtrl.value.signal, regen)
+    }
   } catch (e) {
     msg.content += (msg.content ? '\n' : '') + '（流式中断：' + (e.message || '') + '）'
-    msg.streaming = false; loading.value = false
+    msg.streaming = false; loading.value = false; abortCtrl.value = null
   }
+}
+
+function stopGen() { if (abortCtrl.value) { abortCtrl.value.abort(); abortCtrl.value = null } }
+
+/** 重新生成：取该 assistant 上一条 user 的 query，regen=true 作为新一轮追加（原答保留）。 */
+async function regenerate(m) {
+  if (loading.value) return
+  // 找该 assistant 消息对应的上一条 user query
+  const idx = messages.value.indexOf(m)
+  let q = m.query
+  for (let i = idx - 1; i >= 0; i--) { if (messages.value[i].role === 'user') { q = messages.value[i].content; break } }
+  if (!q) return
+  await runStream(q, { regen: true, cid: m.conversationId || currentConvId.value })
+}
+
+/** 编辑重提：就地编辑 user 消息，重提作为新一轮追加（历史保留）。 */
+function startEdit(m) { m.editing = true; m.editText = m.content }
+function cancelEdit(m) { m.editing = false }
+async function resendEdit(m) {
+  const q = (m.editText || '').trim(); if (!q || loading.value) return
+  m.editing = false
+  await runStream(q, { cid: currentConvId.value })
 }
 
 async function like(m) { if (m.fb) return; try { await sendFeedback(m.query, m.content, 'like', m.conversationId); m.fb = 'like' } catch (e) {} }
@@ -342,6 +388,11 @@ html.dark .ai-bubble { background: var(--surface); }
 .ws-toggle { display: flex; align-items: center; gap: 4px; font-size: 12px; color: var(--text-muted); cursor: pointer; white-space: nowrap; }
 .ws-toggle input { width: auto; }
 .send-btn { padding: 9px 22px; }
+.edit-btn { margin-left: 6px; cursor: pointer; opacity: .55; font-size: 12px; }
+.edit-btn:hover { opacity: 1; }
+.edit-area { background: rgba(255,255,255,.15); color: #fff; border-color: rgba(255,255,255,.3); margin-bottom: 6px; }
+.edit-area::placeholder { color: rgba(255,255,255,.6); }
+.edit-ops { display: flex; gap: 6px; justify-content: flex-end; }
 .empty.small { padding: 20px; font-size: 12px; }
 @media (max-width: 768px) {
   .conv-bar { position: absolute; left: 14px; right: 14px; bottom: 14px; top: 14px; z-index: 20; height: auto; }

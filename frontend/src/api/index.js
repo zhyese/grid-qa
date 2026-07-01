@@ -42,35 +42,42 @@ export const similarCase = (symptom, modelType) => request.post('/domain/similar
 export const generateTicket = (task, modelType) => request.post('/domain/ticket', { task, modelType })
 
 // 流式问答（SSE）：fetch + ReadableStream，支持 JWT header（EventSource 无法带 header）
-export const streamAnswer = async (query, modelType, conversationId, onEvent) => {
+// signal：AbortController.signal，用于「停止生成」；regen：跳过缓存重新生成
+export const streamAnswer = async (query, modelType, conversationId, onEvent, signal, regen = false) => {
   const auth = useAuthStore()
-  const resp = await fetch('/api/qa/answer/stream', {
+  const resp = await fetch(`/api/qa/answer/stream${regen ? '?regen=true' : ''}`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       ...(auth.token ? { Authorization: `Bearer ${auth.token}` } : {}),
     },
     body: JSON.stringify({ query, modelType, conversationId }),
+    signal,
   })
   if (!resp.ok) throw new Error(`流式请求失败: ${resp.status}`)
   const reader = resp.body.getReader()
   const decoder = new TextDecoder('utf-8')
   let buf = ''
-  while (true) {
-    const { value, done } = await reader.read()
-    if (done) break
-    buf += decoder.decode(value, { stream: true })
-    const lines = buf.split('\n')
-    buf = lines.pop()                       // 保留半行，下次拼接
-    for (const line of lines) {
-      const s = line.trim()
-      if (!s.startsWith('data:')) continue
-      const payload = s.slice(5).trim()
-      if (payload === '[DONE]') return onEvent({ type: 'done' })
-      try { onEvent(JSON.parse(payload)) } catch (e) { /* skip */ }
+  try {
+    while (true) {
+      const { value, done } = await reader.read()
+      if (done) break
+      buf += decoder.decode(value, { stream: true })
+      const lines = buf.split('\n')
+      buf = lines.pop()                       // 保留半行，下次拼接
+      for (const line of lines) {
+        const s = line.trim()
+        if (!s.startsWith('data:')) continue
+        const payload = s.slice(5).trim()
+        if (payload === '[DONE]') return onEvent({ type: 'done' })
+        try { onEvent(JSON.parse(payload)) } catch (e) { /* skip */ }
+      }
     }
+    onEvent({ type: 'done' })
+  } catch (e) {
+    if (e.name === 'AbortError') { onEvent({ type: 'aborted' }); return }   // 停止生成：保留已收内容
+    throw e
   }
-  onEvent({ type: 'done' })
 }
 export const sendFeedback = (query, answer, feedback, conversationId, reason) =>
   request.post('/qa/feedback', { query, answer, feedback, conversationId, reason })
