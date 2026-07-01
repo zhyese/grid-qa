@@ -102,8 +102,12 @@ def test_rule_danger_point_ok_when_listed():
 def test_rule_dispatch_format():
     p = _parsed(dispatch_no="非法")
     assert any(it["ruleId"] == "DISP_001" for it in svc._rule_check(p, svc._DEFAULT_RULES))
+    p2 = _parsed(dispatch_no="DD-2026-001")
+    assert "DISP_001" not in [it["ruleId"] for it in svc._rule_check(p2, svc._DEFAULT_RULES)]
 
 
 def test_rule_blocklist():
     p = _parsed(steps=["约时停送电送电"], raw="约时停送电", dangers=["d"])
     assert any(it["ruleId"] == "BLOCK_001" for it in svc._rule_check(p, svc._DEFAULT_RULES))
+    p2 = _parsed(steps=["正常操作"], raw="正常操作", dangers=["d"])
+    assert "BLOCK_001" not in [it["ruleId"] for it in svc._rule_check(p2, svc._DEFAULT_RULES)]
