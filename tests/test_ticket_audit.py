@@ -66,3 +66,44 @@ def test_load_rules_reads_json(tmp_path, monkeypatch):
     )
     monkeypatch.setattr(svc, "_RULES_PATH", f)
     assert svc._load_rules()["sequences"][0]["id"] == "X"
+
+
+def _parsed(**over):
+    base = {"task": "t", "dispatch_no": "DD-2026-001", "operator": "x",
+            "steps": [], "safety": [], "dangers": ["d"], "raw": ""}
+    base.update(over)
+    return base
+
+
+def test_rule_required_field_present_then_absent():
+    p = _parsed(operator="张三")
+    assert not any(it["ruleId"] == "REQ_OPERATOR" for it in svc._rule_check(p, svc._DEFAULT_RULES))
+    p2 = _parsed(operator="")
+    assert any(it["ruleId"] == "REQ_OPERATOR" for it in svc._rule_check(p2, svc._DEFAULT_RULES))
+
+
+def test_rule_sequence_violation_and_correct_order():
+    bad = _parsed(steps=["挂地线", "验电"])           # 挂地线在验电前 → 违安措
+    assert "SEQ_001" in [it["ruleId"] for it in svc._rule_check(bad, svc._DEFAULT_RULES)]
+    good = _parsed(steps=["验电", "挂地线"])          # 正确顺序不命中
+    assert "SEQ_001" not in [it["ruleId"] for it in svc._rule_check(good, svc._DEFAULT_RULES)]
+
+
+def test_rule_danger_point_missing_when_high_risk():
+    p = _parsed(steps=["停电操作"], raw="涉及停电", dangers=[])
+    assert any(it["ruleId"] == "DANGER_001" for it in svc._rule_check(p, svc._DEFAULT_RULES))
+
+
+def test_rule_danger_point_ok_when_listed():
+    p = _parsed(steps=["停电操作"], raw="涉及停电", dangers=["触电"])
+    assert not any(it["ruleId"] == "DANGER_001" for it in svc._rule_check(p, svc._DEFAULT_RULES))
+
+
+def test_rule_dispatch_format():
+    p = _parsed(dispatch_no="非法")
+    assert any(it["ruleId"] == "DISP_001" for it in svc._rule_check(p, svc._DEFAULT_RULES))
+
+
+def test_rule_blocklist():
+    p = _parsed(steps=["约时停送电送电"], raw="约时停送电", dangers=["d"])
+    assert any(it["ruleId"] == "BLOCK_001" for it in svc._rule_check(p, svc._DEFAULT_RULES))

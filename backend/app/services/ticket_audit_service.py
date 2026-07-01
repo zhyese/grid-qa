@@ -107,3 +107,49 @@ def _load_rules() -> dict:
     except Exception as e:
         degraded("ticket_rules_load", e)
     return _DEFAULT_RULES
+
+
+def _item(layer: str, rule_id: str, typ: str, severity: str, msg: str, suggestion: str = "") -> dict:
+    return {"layer": layer, "ruleId": rule_id, "type": typ,
+            "severity": severity, "msg": msg, "suggestion": suggestion}
+
+
+def _find_idx(steps: list[str], kw: str):
+    for i, s in enumerate(steps):
+        if kw in s:
+            return i
+    return None
+
+
+def _rule_check(parsed: dict, rules: dict) -> list[dict]:
+    """确定性硬规则：必填项 / 操作顺序 / 危险点 / 调度格式 / 禁用术语。"""
+    items: list[dict] = []
+    # 1) required_field
+    for r in rules.get("required_fields", []):
+        key, label = r.get("field"), r.get("label", r.get("field"))
+        if key and not parsed.get(key):
+            items.append(_item("rule", r["id"], "required_field", r["severity"],
+                               f"缺少{label}", r.get("suggestion", "")))
+    # 2) sequence：before 出现在 after 之前 → 违安措
+    steps = parsed.get("steps", [])
+    for r in rules.get("sequences", []):
+        ib, ia = _find_idx(steps, r["before"]), _find_idx(steps, r["after"])
+        if ib is not None and ia is not None and ib < ia:
+            items.append(_item("rule", r["id"], "sequence", r["severity"],
+                               r["msg"], r.get("suggestion", "")))
+    # 3) danger_point：含高危关键词但未列危险点
+    blob = parsed.get("raw", "") + "".join(steps)
+    if any(k in blob for k in rules.get("danger_keywords", [])) and not parsed.get("dangers"):
+        items.append(_item("rule", "DANGER_001", "danger_point", "major",
+                           "涉及高风险操作但未列出危险点", "补充对应危险点分析"))
+    # 4) dispatch_format
+    pat = rules.get("dispatch_pattern")
+    if pat and parsed.get("dispatch_no") and not re.match(pat, parsed["dispatch_no"]):
+        items.append(_item("rule", "DISP_001", "dispatch_format", "minor",
+                           "调度指令号格式不规范", "按 字母数字- 的规范格式填写"))
+    # 5) keyword_blocklist
+    for kw in rules.get("blocklist", []):
+        if kw in blob:
+            items.append(_item("rule", "BLOCK_001", "keyword_blocklist", "major",
+                               f"含禁用表述：{kw}", "按安规规范表述"))
+    return items
