@@ -215,7 +215,7 @@ async def answer(
 async def stream_answer(
     db: AsyncSession, query: str, model_type: str | None = None,
     topk: int = 5, conversation_id: str | None = None, username: str = "",
-    tenant: str = "default",
+    tenant: str = "default", regen: bool = False,
 ):
     """流式问答：单轮查热点缓存(命中则快流不调LLM) → 否则 meta/token/done 三段。"""
     t0 = time.time()
@@ -236,7 +236,8 @@ async def stream_answer(
             return
 
     # 0) 单轮查热点缓存 → 命中则不调 LLM，一次性下发完整答案（cached=true）
-    if is_single:
+    #    regen=True（重新生成）跳过缓存读，强制重走 LLM
+    if is_single and not regen:
         try:
             cached = await redis_client.cache_get_json(_cache_key(model_type, nq))
         except Exception as e:

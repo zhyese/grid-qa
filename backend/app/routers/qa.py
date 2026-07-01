@@ -48,11 +48,13 @@ async def answer_stream(
     body: QaAnswerRequest,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
+    regen: bool = False,
 ):
     async def gen():
         async for item in qa_service.stream_answer(
             db, body.query, body.modelType,
             conversation_id=body.conversationId, username=user.username, tenant=user.tenant_id,
+            regen=regen,
         ):
             yield f"data: {json.dumps(item, ensure_ascii=False)}\n\n"
         yield "data: [DONE]\n\n"
