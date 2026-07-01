@@ -857,6 +857,13 @@ flowchart LR
 - **设计系统**：科技蓝（Indigo + Slate）+ 圆角/柔和阴影/明暗双主题 + 通用组件（`.card/.btn/.badge/.tbl/.stat/.tabs/.modal`）。
 - **7 个 view 全量重写，功能 100% 保留**：Login（渐变登录卡）/ Chat（对话历史栏 + 聊天）/ Documents（上传 + 列表 + 预览）/ Dashboard（统计 + 故障趋势）/ KgGraph（三 tab）/ Diagnose（诊断 + 案例 + 两票）/ Admin（反馈 + 日志 + 配置）。
 
+### 🆕 v2.4 检索调试 + 告警闭环 + 运维增强（admin 运维神器）
+- **🔬 检索调试页（`/retrieval-debug`，admin）**：`POST /retrieval/debug` 透出检索全链路 trace（query改写 / HyDE / 多查询 / 双路 dense+BM25 / RRF / rerank / 元数据过滤 / MMR 每步中间结果）+ 每条命中的**分数归因**（dense/bm25/rrf/rerank/final）；前端 `RetrievalDebug.vue`（运行配置快照 + 7 步链路 + 命中表 + score-bar）。"为什么没命中某文档"一目了然，排障调参神器。
+- **🚨 告警闭环（Grafana → 系统管理页）**：`POST /system/alerts/webhook`（Grafana alerting contact point 回调，共享 token 校验免 JWT）→ 落操作日志 + `ALERT_RECEIVED{severity}` 指标；`GET /system/alerts` 列表；Admin 加「告警」tab。Grafana provisioning 含 alerting（rules/contactpoints/notificationpolicies）。组件下线/降级激增/幻觉率/安全命中触发后，管理员在系统管理页直接看到，不依赖钉钉/企微。
+- **🧪 provider 连通性探测**：Admin 配置 tab 加 LLM/Embedding 主动 ping（抓欠费/配额/key 失效/网络），消耗少量 token。
+- **🔄 BM25 全量重建**：`POST /retrieval/bm25/rebuild`（admin 兜底，进程重启/异常后重建内存索引）；Admin 按钮。
+- **⚙️ 运行时配置即时生效**：Milvus HNSW `ef`（查询参数）/ 模型 `temperature` 运行时可调（`/system/config/milvus|model`），无需重启；检索调试页展示运行时值。
+
 ### 🧠 图谱质量保障
 - **实体消歧 + Schema 约束**：`#1主变 / 1号主变 / 主变` → 统一 `主变压器`；关系收敛到白名单(发生/表现为/处置方法/原因/影响/...)，无法归类归"相关"保留连通性。`services/kg_normalize.py`。
 
