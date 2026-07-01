@@ -1,5 +1,5 @@
 <template>
-  <div>
+  <div class="kg-page">
     <!-- 统计 -->
     <div class="stat-grid cols-4" v-if="stats">
       <div class="stat stat-accent"><div class="stat-val">{{ stats.tripleTotal }}</div><div class="stat-lbl">三元组</div></div>
@@ -69,7 +69,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onBeforeUnmount, nextTick } from 'vue'
+import { ref, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import * as echarts from 'echarts/core'
 import { GraphChart } from 'echarts/charts'
 import { TooltipComponent, LegendComponent } from 'echarts/components'
@@ -115,6 +115,7 @@ function render() {
       emphasis: { focus: 'adjacency', lineStyle: { width: 3 } },
       force: { repulsion: 220, edgeLength: [60, 150], gravity: 0.08 } }],
   })
+  chart.resize()
 }
 function searchGraph() { loadGraph(entity.value.trim()) }
 function resetGraph() { entity.value = ''; loadGraph('') }
@@ -131,13 +132,18 @@ async function doExtract() {
   catch (e) { show('抽取失败') } finally { extracting.value = false }
 }
 function onResize() { chart && chart.resize() }
+watch(tab, async (t) => { if (t === 'graph') { await nextTick(); chart && chart.resize() } })
 onMounted(async () => { await Promise.all([loadStats(), loadDocs(), loadGraph('')]); window.addEventListener('resize', onResize) })
 onBeforeUnmount(() => { window.removeEventListener('resize', onResize); chart && chart.dispose() })
 </script>
 
 <style scoped>
-.stat-grid.cols-4 { grid-template-columns: repeat(4, 1fr); margin-bottom: 16px; }
-.graph { height: 560px; }
+.kg-page { display: flex; flex-direction: column; height: calc(100vh - var(--topbar-h) - 8px); gap: 14px; }
+.kg-page .stat-grid.cols-4 { flex-shrink: 0; margin-bottom: 0; }
+.kg-page .tabs { flex-shrink: 0; }
+.kg-page > .card { flex: 1; min-height: 0; margin-bottom: 0; display: flex; flex-direction: column; overflow: hidden; }
+.stat-grid.cols-4 { grid-template-columns: repeat(4, 1fr); }
+.graph { flex: 1; min-height: 320px; }
 .path-list { display: flex; flex-direction: column; gap: 8px; max-height: 540px; overflow-y: auto; }
 .path-item { display: flex; align-items: center; gap: 10px; background: var(--surface-2); padding: 10px 12px; border-radius: var(--radius-sm); flex-wrap: wrap; }
 .path-chain { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; font-size: 13px; }

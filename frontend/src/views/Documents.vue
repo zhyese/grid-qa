@@ -1,5 +1,5 @@
 <template>
-  <div>
+  <div class="doc-page">
     <div class="doc-grid">
       <!-- 上传卡 -->
       <div class="card">
@@ -38,7 +38,7 @@
     </div>
 
     <!-- 文档列表 -->
-    <div class="card">
+    <div class="card doc-list">
       <div class="card-header">
         <h3 class="card-title">📚 文档列表 <span class="badge badge-neutral">{{ filtered.length }}</span></h3>
         <div class="row">
@@ -49,7 +49,7 @@
           <button class="btn btn-danger btn-sm" @click="batchDelete" :disabled="!selected.length">批量删除</button>
         </div>
       </div>
-      <div style="overflow-x:auto">
+      <div class="tbl-wrap">
         <table class="tbl">
           <thead><tr>
             <th style="width:36px"><input type="checkbox" :checked="allChecked" @change="toggleAll($event.target.checked)" /></th>
@@ -159,6 +159,10 @@ onMounted(load)
 </script>
 
 <style scoped>
+.doc-page { display: flex; flex-direction: column; height: calc(100vh - var(--topbar-h) - 8px); gap: 14px; }
+.doc-page .doc-grid { flex-shrink: 0; margin-bottom: 0; }
+.doc-page .doc-list { flex: 1; min-height: 0; margin-bottom: 0; display: flex; flex-direction: column; overflow: hidden; }
+.doc-page .tbl-wrap { flex: 1; overflow: auto; }
 .doc-grid { display: grid; grid-template-columns: 1.4fr 1fr; gap: 16px; margin-bottom: 16px; }
 .dropzone { border: 2px dashed var(--border); border-radius: var(--radius); padding: 28px; text-align: center; cursor: pointer; transition: all .15s; background: var(--surface-2); }
 .dropzone.over { border-color: var(--primary); background: var(--primary-soft); }
