@@ -11,6 +11,7 @@ from app.db.session import get_db
 from app.dependencies import get_current_user, require_admin
 from app.models.user import User
 from app.schemas.qa import (
+    BatchDeleteRequest,
     ExportRequest,
     FaithfulnessRequest,
     FeedbackRequest,
@@ -91,6 +92,34 @@ async def delete_conv(
 ):
     ok = await conversation_service.delete_conversation(db, user.username, conv_id)
     return success({"deleted": ok}, "删除成功" if ok else "对话不存在或无权限")
+
+
+@router.post("/conversations/batch-delete")
+@limiter.limit("30/minute")
+async def batch_delete_convs(
+    request: Request,
+    body: BatchDeleteRequest,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """批量软删会话（DB 行保留，列表过滤）。仅删本人会话。"""
+    n = await conversation_service.batch_delete_conversations(db, user.username, body.ids)
+    await write_log(db, user.username, "批量删除会话", f"{n} 条")
+    return success({"deleted": n}, f"已删除 {n} 条")
+
+
+@router.post("/messages/batch-delete")
+@limiter.limit("30/minute")
+async def batch_delete_msgs(
+    request: Request,
+    body: BatchDeleteRequest,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """批量软删消息（DB 行保留，历史过滤）。仅删本人会话下消息。"""
+    n = await conversation_service.batch_delete_messages(db, user.username, body.ids)
+    await write_log(db, user.username, "批量删除消息", f"{n} 条")
+    return success({"deleted": n}, f"已删除 {n} 条")
 
 
 @router.get("/history")
