@@ -13,6 +13,13 @@ class LLMProvider(ABC):
     async def stream(self, messages: list[dict], **kwargs) -> AsyncIterator[str]:
         raise NotImplementedError
 
+    async def chat_with_tools(self, messages: list[dict], tools: list[dict],
+                              tool_choice: str = "auto", temperature: float = 0.2,
+                              max_tokens: int = 2048, **kwargs) -> dict:
+        """function-calling：返回 {"content": str|None, "tool_calls": [{id,name,arguments:dict}]|None}。
+        子类用 openai SDK 透传 tools=。"""
+        raise NotImplementedError
+
 
 class EmbeddingProvider(ABC):
     """向量化。dim 固定 1024（两家 embedding 统一对齐）。"""

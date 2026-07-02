@@ -27,3 +27,21 @@ class DoubaoLLM(LLMProvider):
         async for chunk in r:
             if chunk.choices and chunk.choices[0].delta.content:
                 yield chunk.choices[0].delta.content
+
+    async def chat_with_tools(self, messages, tools, tool_choice="auto", temperature=0.2, max_tokens=2048, **kw):
+        import json as _json
+        r = await self.client.chat.completions.create(
+            model=self.model, messages=messages, tools=tools, tool_choice=tool_choice,
+            temperature=temperature, max_tokens=max_tokens, **kw,
+        )
+        msg = r.choices[0].message
+        tool_calls = None
+        if msg.tool_calls:
+            tool_calls = []
+            for tc in msg.tool_calls:
+                try:
+                    args = _json.loads(tc.function.arguments or "{}")
+                except Exception:
+                    args = {}
+                tool_calls.append({"id": tc.id, "name": tc.function.name, "arguments": args})
+        return {"content": msg.content, "tool_calls": tool_calls}
