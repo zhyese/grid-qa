@@ -35,3 +35,21 @@ def test_relation_fallback_to_related():
 def test_entity_empty_safe():
     assert canonical_entity("") == ""
     assert canonical_entity("   ") == ""
+
+
+def test_canonical_relation_protect():
+    assert canonical_relation("动作于") == "保护"
+    assert canonical_relation("保护范围") == "保护"
+    assert canonical_relation("跳闸") == "保护"
+
+
+def test_canonical_relation_test():
+    assert canonical_relation("校验") == "试验"
+    assert canonical_relation("检验") == "试验"
+    assert canonical_relation("测试") == "试验"
+
+
+def test_canonical_relation_existing_unchanged():
+    assert canonical_relation("导致") == "原因"
+    assert canonical_relation("处理") == "处置方法"
+    assert canonical_relation("无语义关系xyz") == "相关"
