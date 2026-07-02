@@ -59,7 +59,7 @@ graph TB
         Parse["结构感知分块<br/>表格·父子"]:::new
         EqTag["设备打标"]:::new
         EmbR{"双 Embedding 路由"}:::process
-        ExtKG["后台抽三元组<br/>消歧+schema"]:::new
+        ExtKG["后台抽三元组<br/>schema约束(13关系)+去重过滤"]:::new
     end
 
     subgraph READ["② 读取流 · 在线 RAG 自纠错"]
@@ -74,7 +74,9 @@ graph TB
     end
 
     subgraph DOMAIN["③ 领域 /domain"]
-        Diag["🩺诊断 · 📚案例 · 📝两票"]:::new
+        Diag["🩺固定诊断 · 📚案例 · 📝两票生成"]:::new
+        Agent["🤖 Agentic 诊断<br/>function-calling 自主调工具≤6轮"]:::new
+        Audit["🔍 两票审核<br/>规则+LLM 双层"]:::new
     end
 
     subgraph STORE["存储层 · 各存其职"]
@@ -93,7 +95,7 @@ graph TB
 
     FE -->|"提问/上传/诊断"| Upload
     FE --> Guard
-    FE -.-> Diag
+    FE -.-> Diag & Agent & Audit
     Upload --> MinIO
     Upload --> Parse --> MySQL & EqTag & EmbR & ExtKG
     EmbR -->|"大"| EMB --> Milvus
@@ -109,6 +111,8 @@ graph TB
     CRAG -.->|"incorrect→refused"| FE
     Gen -.->|"SSE+置信度+⚠highRisk · 真faithfulness异步"| FE
     Diag -.-> Ret & Neo4j
+    Agent -.-> Ret & Neo4j
+    Agent --> LLM
 
     style WRITE fill:#fff3e0,stroke:#ff9800
     style READ fill:#fffde7,stroke:#f9a825
@@ -134,7 +138,7 @@ flowchart TD
         Parse["结构感知分块<br/>表格整体 · 父子两层"]:::new
         EmbedRoute{"双 Embedding 路由<br/>大走云 / 小走 bge"}:::process
         EqTag["设备自动打标 equipment_tags"]:::new
-        ExtractKG["后台异步:LLM 抽三元组<br/>+ 实体消歧 / schema 约束"]:::new
+        ExtractKG["后台异步:schema 约束抽取(13关系)<br/>+ 实体归一/去重/噪声过滤"]:::new
     end
 
     subgraph StorageLayer ["各司其职的存储层"]
@@ -167,8 +171,10 @@ flowchart TD
     subgraph DomainFlow ["③ 领域增强 (/domain · 复用检索+图谱)"]
         direction TB
         Diagnose["🩺 故障诊断:多查询→检索→因果链→原因排序"]:::new
+        AgentDiag["🤖 Agentic 深度诊断:function-calling 自主调工具(检索/图谱/案例/两票)≤6轮"]:::new
         Similar["📚 相似历史案例检索"]:::new
         Ticket["📝 两票辅助生成"]:::new
+        TicketAudit["🔍 两票审核:规则引擎+LLM 双层"]:::new
     end
 
     subgraph CloudModels ["模型服务 Provider"]
@@ -220,11 +226,17 @@ flowchart TD
     Refuse --"拒答(零幻觉)"--> User
 
     %% 领域增强链路
-    User -.->|"诊断/两票/案例"| Diagnose
+    User -.->|"诊断/两票/案例/审核"| Diagnose
     Diagnose -.-> Retrieval
     Diagnose -.-> Neo4j
     Diagnose --> Similar
     Diagnose --> Ticket
+    User -.->|"深度诊断"| AgentDiag
+    AgentDiag -.-> Retrieval
+    AgentDiag -.-> Neo4j
+    AgentDiag --> LLM_Chat
+    User -.->|"两票审核"| TicketAudit
+    TicketAudit --> LLM_Chat
 
     %% 阶段色块
     style WriteFlow fill:#fff3e0,stroke:#ff9800
@@ -252,7 +264,7 @@ flowchart LR
         SK --> EQ[设备自动打标]:::new
         SK --> V[Embedding 路由<br/>大走云/小走bge]:::process
         V --> VMIL[("Milvus 向量<br/>grid_chunks/_bge")]:::storage
-        SK -.->|后台异步| K[LLM 抽三元组<br/>+消歧/schema]:::new
+        SK -.->|后台异步| K[schema 约束抽取<br/>13关系白名单+归一/去重/过滤]:::new
         K --> KG[("MySQL 三元组<br/>+ Neo4j 图")]:::storage
     end
 
@@ -294,6 +306,7 @@ flowchart LR
 ```mermaid
 sequenceDiagram
     autonumber
+    %% 注：本序列为智能问答(/qa/answer)固定 RAG 管线；🤖深度诊断(/domain/diagnose-agent)是独立 function-calling agent 流，见架构图③领域
     participant FE as 前端
     participant BE as 后端 /qa/answer<br/>(stream_answer)
     participant Redis as Redis 热点缓存
