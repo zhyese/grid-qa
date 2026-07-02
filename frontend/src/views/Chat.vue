@@ -3,12 +3,13 @@
     <!-- 对话历史栏 -->
     <aside class="conv-bar" :class="{ collapsed: convCollapsed }">
       <button class="btn btn-primary new-btn" @click="newChat">＋ 新建对话</button>
-      <div class="conv-batch" v-if="selectedConvs.size">
-        <span class="hint">已选 {{ selectedConvs.size }}</span>
-        <button class="btn btn-danger btn-sm" @click="batchRemoveConvs">🗑️ 批量删除</button>
-        <button class="btn btn-ghost btn-sm" @click="selectedConvs = new Set()">取消</button>
-      </div>
       <input class="input" v-model="searchKw" placeholder="🔍 搜索对话..." @input="onSearch" />
+      <div class="conv-batch" v-if="conversations.length">
+        <label class="msg-check"><input type="checkbox" :checked="allConvsSelected" @change="toggleAllConvs($event.target.checked)" /> 全选</label>
+        <span class="hint">{{ selectedConvs.size }}/{{ conversations.length }}</span>
+        <button class="btn btn-danger btn-sm" :disabled="!selectedConvs.size" @click="batchRemoveConvs">🗑️ 批量删除</button>
+        <button class="btn btn-ghost btn-sm" v-if="selectedConvs.size" @click="selectedConvs = new Set()">取消</button>
+      </div>
       <div class="conv-list">
         <div v-for="c in conversations" :key="c.id" class="conv-item" :class="{ active: c.id === currentConvId }" @click="selectConv(c.id)">
           <input v-if="editingId === c.id" class="input rename-input" v-model="editingTitle" @click.stop @keyup.enter="saveRename(c)" @keyup.esc="cancelRename" />
@@ -30,10 +31,11 @@
     <!-- 聊天主区 -->
     <section class="chat-main">
       <div class="msg-list" ref="msgListEl">
-        <div class="msg-batch" v-if="selectedMsgs.size">
-          <span class="hint">已选 {{ selectedMsgs.size }} 条消息</span>
-          <button class="btn btn-danger btn-sm" @click="batchRemoveMsgs">🗑️ 批量删除</button>
-          <button class="btn btn-ghost btn-sm" @click="selectedMsgs = new Set()">取消</button>
+        <div class="msg-batch" v-if="selectableMsgIds.length">
+          <label class="msg-check"><input type="checkbox" :checked="allMsgsSelected" @change="toggleAllMsgs($event.target.checked)" /> 全选</label>
+          <span class="hint">已选 {{ selectedMsgs.size }}/{{ selectableMsgIds.length }}</span>
+          <button class="btn btn-danger btn-sm" :disabled="!selectedMsgs.size" @click="batchRemoveMsgs">🗑️ 批量删除</button>
+          <button class="btn btn-ghost btn-sm" v-if="selectedMsgs.size" @click="selectedMsgs = new Set()">取消</button>
         </div>
         <div v-for="(m, i) in messages" :key="i" class="msg" :class="m.role">
           <div v-if="m.role === 'user'" class="bubble user-bubble">
@@ -114,7 +116,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted, nextTick } from 'vue'
+import { ref, reactive, onMounted, nextTick, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import MarkdownIt from 'markdown-it'
 import hljs from 'highlight.js/lib/core'
@@ -164,6 +166,9 @@ const messages = ref([])
 const conversations = ref([])
 const selectedConvs = ref(new Set())   // 批量选中会话 id
 const selectedMsgs = ref(new Set())    // 批量选中消息 id
+const selectableMsgIds = computed(() => messages.value.filter((m) => m.id).map((m) => m.id))
+const allConvsSelected = computed(() => conversations.value.length > 0 && selectedConvs.value.size === conversations.value.length)
+const allMsgsSelected = computed(() => selectableMsgIds.value.length > 0 && selectedMsgs.value.size === selectableMsgIds.value.length)
 const currentConvId = ref('')
 const searchKw = ref('')
 const editingId = ref('')
@@ -342,6 +347,12 @@ async function batchRemoveMsgs() {
     messages.value = messages.value.filter((m) => !ids.includes(m.id))   // 本地移除已删 user 消息
     toast(`已删除 ${n} 条`)
   } catch (e) { toast('删除失败') }
+}
+function toggleAllConvs(checked) {
+  selectedConvs.value = checked ? new Set(conversations.value.map((c) => c.id)) : new Set()
+}
+function toggleAllMsgs(checked) {
+  selectedMsgs.value = checked ? new Set(selectableMsgIds.value) : new Set()
 }
 function startRename(c) { editingId.value = c.id; editingTitle.value = c.title || '' }
 function cancelRename() { editingId.value = ''; editingTitle.value = '' }
