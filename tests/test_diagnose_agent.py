@@ -57,3 +57,76 @@ def test_run_tool_handles_handler_error(monkeypatch):
     monkeypatch.setitem(svc._HANDLERS, "search_regulation", boom)
     out = asyncio.run(svc._run_tool(None, None, "search_regulation", {"query": "x"}))
     assert "执行失败" in out and "下游挂了" in out
+
+
+# ---------- agent 循环 ----------
+class _ScriptedProvider:
+    """按脚本依次返回 chat_with_tools 响应。"""
+    def __init__(self, script):
+        self.script = list(script)   # [(content, tool_calls|None), ...]
+
+    async def chat_with_tools(self, messages, tools, **kw):
+        content, tcs = self.script.pop(0)
+        return {"content": content, "tool_calls": tcs}
+
+
+def _tc(id_, name, **args):
+    return {"id": id_, "name": name, "arguments": args}
+
+
+def test_agent_loop_happy_path(monkeypatch):
+    # 第1轮调检索，第2轮调图谱，第3轮 final
+    prov = _ScriptedProvider([
+        ("先查规程", [_tc("1", "search_regulation", query="主变油温高")]),
+        ("再查图谱", [_tc("2", "query_equipment_graph", entity="1号主变")]),
+        ('{"causes":[{"name":"冷却系统故障","likelihood":"高","evidence":"风扇故障","handling":"检查风扇"}],"summary":"冷却不足致过热","risks":["高温跳闸"]}', None),
+    ])
+    monkeypatch.setattr(svc, "get_llm_provider", lambda mt=None: prov)
+
+    async def fake_run_tool(db, mt, name, args):
+        return f"{name} 结果摘要"
+    monkeypatch.setattr(svc, "_run_tool", fake_run_tool)
+
+    r = asyncio.run(svc.diagnose_agent(db=None, symptom="1号主变油温高", model_type=None))
+    assert r["degraded"] is False
+    assert r["iterations"] == 3                       # 2 个工具步 + 1 个收尾步
+    assert [s["tool"] for s in r["steps"]] == ["search_regulation", "query_equipment_graph", None]
+    assert r["diagnosis"]["summary"] == "冷却不足致过热"
+    assert r["diagnosis"]["causes"][0]["name"] == "冷却系统故障"
+
+
+def test_agent_loop_degrades_on_max_iter(monkeypatch):
+    # 永远要调工具 → 触发 MAX_ITER → 降级
+    prov = _ScriptedProvider([("继续查", [_tc(str(i), "search_regulation", query="x")]) for i in range(99)])
+    monkeypatch.setattr(svc, "get_llm_provider", lambda mt=None: prov)
+
+    async def fake_run_tool(db, mt, name, args):
+        return "ok"
+    monkeypatch.setattr(svc, "_run_tool", fake_run_tool)
+
+    fallback_called = []
+
+    async def fake_diagnose(db, symptom, model_type=None, topk=5):
+        fallback_called.append(symptom)
+        return {"diagnosis": {"summary": "兜底", "causes": []}}
+    monkeypatch.setattr(svc.domain_service, "diagnose", fake_diagnose)
+
+    r = asyncio.run(svc.diagnose_agent(db=None, symptom="循环症状", model_type=None))
+    assert r["degraded"] is True
+    assert r["degradeReason"] == "max_iter"
+    assert fallback_called == ["循环症状"]
+
+
+def test_agent_loop_degrades_on_exception(monkeypatch):
+    class _Boom:
+        async def chat_with_tools(self, *a, **kw):
+            raise RuntimeError("LLM 挂了")
+    monkeypatch.setattr(svc, "get_llm_provider", lambda mt=None: _Boom())
+
+    async def fake_diagnose(db, symptom, model_type=None, topk=5):
+        return {"diagnosis": {"summary": "兜底", "causes": []}}
+    monkeypatch.setattr(svc.domain_service, "diagnose", fake_diagnose)
+
+    r = asyncio.run(svc.diagnose_agent(db=None, symptom="x", model_type=None))
+    assert r["degraded"] is True
+    assert "exception" in r["degradeReason"]
