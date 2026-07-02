@@ -12,7 +12,8 @@
       <div class="row" style="margin-bottom: 14px">
         <input class="input" v-model="symptom" placeholder="描述故障症状，如：1号主变上层油温 88℃ 持续上升，负载 70%" @keyup.enter="doDiagnose" style="flex:1;min-width:260px" />
         <select class="select" v-model="modelType" style="max-width:140px"><option value="">默认模型</option><option value="deepseek">DeepSeek</option><option value="qwen">通义千问</option><option value="doubao">豆包</option></select>
-        <button class="btn btn-primary" @click="doDiagnose" :disabled="loading || !symptom.trim()">{{ loading ? '诊断中…' : '开始诊断' }}</button>
+        <label class="agent-toggle"><input type="checkbox" v-model="agentMode" /> 🔬 深度诊断(Agent)</label>
+        <button class="btn btn-primary" @click="doDiagnose" :disabled="loading || !symptom.trim()">{{ loading ? (agentMode ? '深度诊断中…' : '诊断中…') : (agentMode ? '深度诊断' : '开始诊断') }}</button>
       </div>
       <div v-if="diag" class="result">
         <div class="src-head">排查方向（多查询分解）<span class="hint">· 证据{{ diag.evidenceCount }} · 图谱{{ diag.graphCount }}</span></div>
@@ -24,6 +25,22 @@
           <div class="cause-body"><div class="cause-name">{{ c.name }}</div><div class="cause-line" v-if="c.evidence"><b>依据：</b>{{ c.evidence }}</div><div class="cause-line" v-if="c.handling"><b>处置：</b>{{ c.handling }}</div></div>
         </div>
         <div class="risks" v-if="diag.diagnosis?.risks?.length"><b>⚠ 风险提示：</b><span class="badge badge-danger" v-for="r in diag.diagnosis.risks" :key="r" style="margin:2px">{{ r }}</span></div>
+        <div v-if="agentMode && agentSteps.length" class="agent-trace">
+          <div class="src-head" @click="traceOpen = !traceOpen" style="cursor:pointer">
+            🧠 Agent 思考过程（{{ agentSteps.length }} 步<span v-if="agentDegraded"> · 已降级</span>）<span class="hint">{{ traceOpen ? '▾' : '▸' }}</span>
+          </div>
+          <div v-show="traceOpen">
+            <div class="trace-step" v-for="(s, i) in agentSteps" :key="i">
+              <span class="trace-iter">{{ s.iter }}</span>
+              <div class="trace-body">
+                <div class="trace-thought" v-if="s.thought">{{ s.thought }}</div>
+                <div class="trace-tool" v-if="s.tool">🔧 {{ s.tool }}<span class="hint" v-if="s.args"> ({{ JSON.stringify(s.args) }})</span></div>
+                <div class="trace-tool" v-else><span class="hint">✓ 综合诊断</span></div>
+                <div class="trace-result" v-if="s.result">{{ s.result }}</div>
+              </div>
+            </div>
+          </div>
+        </div>
         <sources-list :sources="diag.sources" />
       </div>
     </div>
@@ -90,7 +107,7 @@
 
 <script setup>
 import { ref, h } from 'vue'
-import { diagnose, similarCase, generateTicket, auditTicket } from '../api'
+import { diagnose, similarCase, generateTicket, auditTicket, diagnoseAgent } from '../api'
 
 const SourcesList = {
   props: ['sources'],
@@ -107,10 +124,20 @@ let toastTimer = null
 function show(m) { toast.value = m; clearTimeout(toastTimer); toastTimer = setTimeout(() => (toast.value = ''), 2400) }
 
 const symptom = ref(''); const loading = ref(false); const diag = ref(null)
+const agentMode = ref(false); const agentSteps = ref([]); const agentDegraded = ref(false); const traceOpen = ref(true)
 async function doDiagnose() {
   if (!symptom.value.trim()) return
-  loading.value = true; diag.value = null
-  try { diag.value = (await diagnose(symptom.value, modelType.value || null)).data } catch (e) { show('诊断失败') } finally { loading.value = false }
+  loading.value = true; diag.value = null; agentSteps.value = []; agentDegraded.value = false
+  try {
+    if (agentMode.value) {
+      const r = (await diagnoseAgent(symptom.value, modelType.value || null)).data
+      diag.value = { diagnosis: r.diagnosis }
+      agentSteps.value = r.steps || []
+      agentDegraded.value = !!r.degraded
+    } else {
+      diag.value = (await diagnose(symptom.value, modelType.value || null)).data
+    }
+  } catch (e) { show('诊断失败') } finally { loading.value = false }
 }
 const caseSymptom = ref(''); const caseLoading = ref(false); const cases = ref(null)
 async function doCase() {
@@ -159,4 +186,12 @@ html.dark .dim-tag { background: var(--primary-soft-2) }
 .ov-pass, .ov-warn, .ov-fail { color: #fff; }
 .score { font-weight: 700; font-size: 15px; color: var(--text); }
 .sv-critical { background: var(--danger); } .sv-major { background: var(--warning); } .sv-minor { background: var(--text-soft); }
+.agent-toggle { display: flex; align-items: center; gap: 4px; font-size: 13px; color: var(--text-muted); cursor: pointer; user-select: none; white-space: nowrap; }
+.agent-trace { margin-top: 12px; padding-top: 10px; border-top: 1px dashed var(--border); }
+.trace-step { display: flex; gap: 8px; margin-bottom: 8px; }
+.trace-iter { flex-shrink: 0; width: 22px; height: 22px; border-radius: 50%; background: var(--primary); color: #fff; font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center; }
+.trace-body { flex: 1; background: var(--surface-2); padding: 6px 10px; border-radius: var(--radius-sm); }
+.trace-thought { font-size: 12px; color: var(--text); font-style: italic; margin-bottom: 2px; }
+.trace-tool { font-size: 12px; color: var(--primary); font-weight: 600; }
+.trace-result { font-size: 12px; color: var(--text-muted); margin-top: 2px; line-height: 1.5; white-space: pre-wrap; }
 </style>
