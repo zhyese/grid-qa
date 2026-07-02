@@ -50,6 +50,85 @@ def _parse_triples(ans: str) -> list[dict]:
     return out
 
 
+def _validate_triples(arr) -> list[dict]:
+    """逐条校验：dict、s/r/o 非空、长度 ≤30。"""
+    out = []
+    for it in arr:
+        if not isinstance(it, dict):
+            continue
+        s = str(it.get("s", "")).strip()
+        r = str(it.get("r", "")).strip()
+        o = str(it.get("o", "")).strip()
+        if s and r and o and len(s) <= 30 and len(r) <= 30 and len(o) <= 30:
+            out.append({"s": s, "r": r, "o": o})
+    return out
+
+
+def _parse_triples_v2(ans: str) -> list[dict]:
+    """解析 LLM 三元组输出：JSON 数组优先，行式回退，逐条校验丢弃坏条目。"""
+    if not ans:
+        return []
+    m = re.search(r"\[.*\]", ans, re.S)
+    if m:
+        try:
+            arr = json.loads(m.group(0))
+            if isinstance(arr, list):
+                return _validate_triples(arr)
+        except Exception:
+            pass
+    # 行式回退：逐个 {...} 解析
+    line_objs = []
+    for frag in re.findall(r"\{[^{}]*\}", ans):
+        try:
+            line_objs.append(json.loads(frag))
+        except Exception:
+            pass
+    return _validate_triples(line_objs)
+
+
+_TRIVIAL_BLACK = ("本文", "本节", "本章", "章节", "附录", "摘要", "目录", "前言")
+_TRIVIAL_PAT = re.compile(r"(^第[一二三四五六七八九十百0-9]+[章节条])|^[0-9]+(\.[0-9]+)+$|^[0-9]+$|^[图表][0-9一二三四五六七八九十]")
+
+
+def _is_trivial(s: str) -> bool:
+    """噪声判断：空/过短/章节标题/纯数字标点/黑名单词。"""
+    if not s:
+        return True
+    s = s.strip()
+    if len(s) < 2:
+        return True
+    if s in _TRIVIAL_BLACK:
+        return True
+    if _TRIVIAL_PAT.match(s):
+        return True
+    if re.fullmatch(r"[\d\.\s\-/,，。：:;；、]+", s):
+        return True
+    return False
+
+
+def _normalize_triples(triples: list[dict]) -> list[dict]:
+    """全局后处理：实体归一 + 关系白名单 + 去重(s,r,o) + 噪声过滤。"""
+    from app.services.kg_normalize import canonical_entity, canonical_relation
+    seen: set = set()
+    out: list[dict] = []
+    for tp in triples:
+        if not isinstance(tp, dict):
+            continue
+        s = canonical_entity(str(tp.get("s", "")))
+        r = canonical_relation(str(tp.get("r", "")))
+        o = canonical_entity(str(tp.get("o", "")))
+        if not (s and r and o):
+            continue
+        if s == o or _is_trivial(s) or _is_trivial(o):
+            continue
+        key = (s, r, o)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append({"s": s[:256], "r": r[:128], "o": o[:256]})
+    return out
+
+
 async def extract_triples(db: AsyncSession, doc_id: str, model_type: str | None = None) -> dict:
     """对某文档分块批量抽取三元组，双写 MySQL + Neo4j（清旧写新）。"""
     doc = (await db.execute(select(Document).where(Document.id == doc_id))).scalar_one_or_none()
