@@ -30,7 +30,7 @@
 
     <!-- 聊天主区 -->
     <section class="chat-main">
-      <button class="menu-btn" @click="convCollapsed = !convCollapsed" title="历史对话">☰</button>
+      <button class="menu-btn" v-show="convCollapsed" @click="convCollapsed = !convCollapsed" title="历史对话">☰</button>
       <div class="msg-list" ref="msgListEl">
         <div class="msg-batch" v-if="selectableMsgIds.length">
           <label class="msg-check"><input type="checkbox" :checked="allMsgsSelected" @change="toggleAllMsgs($event.target.checked)" /> 全选</label>
@@ -467,7 +467,7 @@ html.dark .ai-bubble { background: var(--surface); }
 .menu-btn { display: none; }
 
 @media (max-width: 768px) {
-  .menu-btn { display: flex; align-items: center; justify-content: center; position: absolute; top: 10px; left: 10px; z-index: 30; width: 38px; height: 38px; border-radius: var(--radius-sm); background: var(--surface); border: 1px solid var(--border); color: var(--text); font-size: 20px; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,.15); }
+  .menu-btn { display: flex; align-items: center; justify-content: center; position: absolute; top: 8px; left: 8px; z-index: 30; width: 30px; height: 30px; padding: 0; border-radius: var(--radius-sm); background: var(--surface); border: 1px solid var(--border); color: var(--text); font-size: 16px; cursor: pointer; box-shadow: 0 1px 4px rgba(0,0,0,.12); }
   .conv-bar { position: absolute; left: 14px; right: 14px; bottom: 14px; top: 14px; z-index: 20; height: auto; }
   .conv-bar.collapsed { display: none; }
   .bubble { max-width: 92%; }
