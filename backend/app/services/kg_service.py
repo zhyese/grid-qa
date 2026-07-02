@@ -19,13 +19,26 @@ from app.providers.factory import get_llm_provider
 
 _BATCH = 6  # 每批喂 LLM 的分块数（控制输入长度与抽取稳定性）
 
-_KG_PROMPT = """你是电网运维知识图谱抽取器。从下面这段运维文本中，抽取结构化三元组 (主体, 关系, 客体)。
-抽取范围：设备/部件名称、故障/异常现象、处置/检修措施、运行参数、所属系统等。
-关系尽量动词化，如：发生、表现为、处置方法、检修步骤、属于、位于、额定值、预警阈值。
-严格要求：
-1) 只抽取文本中明确出现的事实，绝不编造或脑补。
-2) 输出严格 JSON 数组：[{{"s":"主体","r":"关系","o":"客体"}}, ...]，无则输出 []。
-3) s/r/o 为简短中文短语（不超过 20 字），不要输出任何解释文字、不要用 markdown 代码块包裹。
+_KG_PROMPT_V2 = """你是电网运维知识图谱抽取器。从下面运维文本中抽取结构化三元组 (主体, 关系, 客体)。
+
+【实体类型】只抽这些类型的名词短语作为主体/客体：
+设备(主变压器/断路器/隔离开关/互感器/避雷器/电缆/母线/GIS等)、部件、故障现象、异常、处置措施、检修步骤、运行参数、危险点、保护装置、标准、系统。
+
+【关系白名单】关系 r 只能从以下选一个；文本中不属于这些语义的【不要抽】：
+发生 / 表现为 / 处置方法 / 检修步骤 / 原因 / 影响 / 预防 / 属于 / 位于 / 额定值 / 预警阈值 / 保护 / 试验
+
+【严格要求】
+1) 只抽文本中明确出现的事实，绝不编造。
+2) 主体 s 与客体 o 必须是具体名词短语（设备名/现象/措施/参数），不得是章节号、"本文""本章"等泛指词。
+3) 关系 r 必须在白名单内。
+4) 输出严格 JSON 数组：[{{"s":"主体","r":"关系","o":"客体"}}, ...]；无合适三元组输出 []。不要解释、不要 markdown 代码块。
+
+【好例】
+文本：主变压器上层油温超过 95℃，应立即减负荷运行并检查冷却系统。
+输出：[{{"s":"主变压器","r":"预警阈值","o":"上层油温95℃"}},{{"s":"主变压器","r":"处置方法","o":"减负荷运行"}}]
+
+【坏例（禁止）】
+{{"s":"第二章","r":"属于","o":"本文"}}  ← 章节号/泛指词，禁止
 
 【文本】
 {text}"""
@@ -129,6 +142,23 @@ def _normalize_triples(triples: list[dict]) -> list[dict]:
     return out
 
 
+async def _extract_from_chunks(provider, chunks_text: list[str]) -> list[dict]:
+    """分批调 LLM 抽取（schema 约束 prompt）→ 解析为原始三元组。单批失败降级。"""
+    all_triples: list[dict] = []
+    for i in range(0, len(chunks_text), _BATCH):
+        batch = chunks_text[i:i + _BATCH]
+        text = "\n\n".join(batch)
+        try:
+            ans = await provider.chat(
+                [{"role": "user", "content": _KG_PROMPT_V2.format(text=text)}],
+                temperature=0.1, max_tokens=3000,
+            )
+            all_triples.extend(_parse_triples_v2(ans))
+        except Exception as e:
+            degraded("kg_extract_batch", e)
+    return all_triples
+
+
 async def extract_triples(db: AsyncSession, doc_id: str, model_type: str | None = None) -> dict:
     """对某文档分块批量抽取三元组，双写 MySQL + Neo4j（清旧写新）。"""
     doc = (await db.execute(select(Document).where(Document.id == doc_id))).scalar_one_or_none()
@@ -141,30 +171,8 @@ async def extract_triples(db: AsyncSession, doc_id: str, model_type: str | None 
         raise BizError("文档尚未解析，请先解析", 400)
 
     provider = get_llm_provider(model_type)
-    triples: list[dict] = []
-    for i in range(0, len(rows), _BATCH):
-        batch = rows[i:i + _BATCH]
-        text = "\n\n".join(c.content for c in batch)
-        try:
-            ans = await provider.chat(
-                [{"role": "user", "content": _KG_PROMPT.format(text=text)}],
-                temperature=0.1, max_tokens=3000,
-            )
-            triples.extend(_parse_triples(ans))
-        except Exception as e:
-            degraded("kg_extract_batch", e)
-            continue  # 单批失败不中断整体抽取
-
-    # 实体消歧 + 关系 schema 约束（A5）：同义实体归一、关系收敛白名单
-    from app.services.kg_normalize import canonical_entity, canonical_relation
-    normed: list[dict] = []
-    for tp in triples:
-        s = canonical_entity(tp["s"])
-        r = canonical_relation(tp["r"])
-        o = canonical_entity(tp["o"])
-        if s and r and o:
-            normed.append({"s": s[:256], "r": r[:128], "o": o[:256]})
-    triples = normed
+    raw = await _extract_from_chunks(provider, [c.content for c in rows])
+    triples = _normalize_triples(raw)
 
     # 清旧：MySQL + Neo4j
     await db.execute(delete(KgTriple).where(KgTriple.doc_id == doc_id))

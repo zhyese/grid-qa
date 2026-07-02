@@ -65,3 +65,37 @@ def test_normalize_dedup_selfloop_trivial_canon():
     assert ("主变压器", "原因", "冷却系统故障") in pairs
     assert ("断路器", "保护", "跳闸") in pairs
     assert len(out) == 2
+
+
+# ---------- _extract_from_chunks + _normalize_triples e2e ----------
+class _ScriptedProvider:
+    def __init__(self, replies):
+        self.replies = list(replies)
+        self.calls = 0
+
+    async def chat(self, msgs, **kw):
+        self.calls += 1
+        return self.replies.pop(0)
+
+
+def test_extract_pipeline_drops_noise_and_canonicalizes(monkeypatch):
+    monkeypatch.setattr(svc, "_BATCH", 1)   # 2 chunks → 2 批 → 2 次 chat
+    prov = _ScriptedProvider([
+        '[{"s":"1号主变","r":"原因","o":"冷却系统故障"},{"s":"第二章","r":"属于","o":"本文"}]',
+        '[{"s":"断路器","r":"动作于","o":"跳闸"},{"s":"主变压器","r":"导致","o":"冷却系统故障"}]',
+    ])
+    raw = asyncio.run(svc._extract_from_chunks(prov, ["batch1 text", "batch2 text"]))
+    assert len(raw) == 4                      # 解析阶段不过滤，含噪声
+    normed = svc._normalize_triples(raw)
+    pairs = {(t["s"], t["r"], t["o"]) for t in normed}
+    assert ("主变压器", "原因", "冷却系统故障") in pairs   # 1号主变→主变压器 + 导致→原因 + 去重
+    assert ("断路器", "保护", "跳闸") in pairs             # 动作于→保护
+    assert all("第" not in t["s"] and "本文" not in t["o"] for t in normed)  # 噪声已滤
+
+
+def test_extract_from_chunks_degrades_on_llm_failure():
+    class _Boom:
+        async def chat(self, *a, **k):
+            raise RuntimeError("LLM 挂")
+    out = asyncio.run(svc._extract_from_chunks(_Boom(), ["text"]))
+    assert out == []                          # 单批失败降级返回空，不抛
