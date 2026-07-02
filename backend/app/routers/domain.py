@@ -7,7 +7,8 @@ from app.core.response import success
 from app.db.session import get_db
 from app.dependencies import get_current_user, require_admin
 from app.models.user import User
-from app.schemas.domain import DiagnoseRequest, SimilarCaseRequest, TicketAuditRequest, TicketRequest
+from app.schemas.domain import DiagnoseAgentRequest, DiagnoseRequest, SimilarCaseRequest, TicketAuditRequest, TicketRequest
+from app.services import diagnose_agent_service
 from app.services import domain_service
 from app.services import ticket_audit_service
 from app.services.log_service import write_log
@@ -68,3 +69,17 @@ async def ticket_audit(
     data = await ticket_audit_service.audit_ticket(body.ticketText, body.ticketType, body.modelType)
     await write_log(db, user.username, "两票审核", f"{body.ticketType} | {body.ticketText[:40]}")
     return success(data, "审核完成")
+
+
+@router.post("/diagnose-agent")
+@limiter.limit("6/minute")
+async def diagnose_agent(
+    request: Request,
+    body: DiagnoseAgentRequest,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Agentic 深度诊断：LLM 自主多轮调工具（检索/图谱/案例/两票）交叉验证，返回诊断 + 思考链 steps。"""
+    data = await diagnose_agent_service.diagnose_agent(db, body.symptom, body.modelType)
+    await write_log(db, user.username, "深度诊断", f"症状：{body.symptom[:40]}")
+    return success(data, "深度诊断完成")

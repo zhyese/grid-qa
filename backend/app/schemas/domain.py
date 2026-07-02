@@ -23,3 +23,8 @@ class TicketAuditRequest(BaseModel):
     ticketText: str                       # 已填票据全文（粘贴）
     ticketType: str = "操作票"             # 操作票 / 工作票
     modelType: Optional[str] = None
+
+
+class DiagnoseAgentRequest(BaseModel):
+    symptom: str                        # 故障症状描述
+    modelType: Optional[str] = None

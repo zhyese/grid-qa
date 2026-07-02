@@ -62,6 +62,9 @@ SAFETY_BLOCK = Counter("grid_safety_block_total", "安全事件(prompt injection
 DOMAIN_CALLS = Counter("grid_domain_calls_total", "领域增强调用", ["feature"])
 # 两票智能审核结果分布（pass/warn/fail）
 TICKET_AUDIT = Counter("grid_ticket_audit_total", "两票智能审核结果", ["result"])
+# Agentic 诊断：循环深度分布（观测 agent 调几轮工具）
+AGENT_ITERS = Histogram("grid_agent_iters", "诊断 agent 循环深度(轮)",
+                        buckets=(1, 2, 3, 4, 5, 6, float("inf")))
 # 告警闭环：Grafana alerting webhook 回调接收到的告警数（按 severity）
 ALERT_RECEIVED = Counter("grid_alert_received_total", "告警接收总数(Grafana回调)", ["severity"])
 
@@ -98,6 +101,7 @@ def init_metric_series() -> None:
         DOMAIN_CALLS.labels("ticket").inc(0)
         DOMAIN_CALLS.labels("similar_case").inc(0)
         DOMAIN_CALLS.labels("safety_block").inc(0)
+        DOMAIN_CALLS.labels("diagnose_agent").inc(0)
         # 两票审核结果（预注册 0 值，消除面板 No data 盲区）
         for _res in ("pass", "warn", "fail"):
             TICKET_AUDIT.labels(_res).inc(0)
