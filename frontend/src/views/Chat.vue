@@ -3,11 +3,17 @@
     <!-- 对话历史栏 -->
     <aside class="conv-bar" :class="{ collapsed: convCollapsed }">
       <button class="btn btn-primary new-btn" @click="newChat">＋ 新建对话</button>
+      <div class="conv-batch" v-if="selectedConvs.size">
+        <span class="hint">已选 {{ selectedConvs.size }}</span>
+        <button class="btn btn-danger btn-sm" @click="batchRemoveConvs">🗑️ 批量删除</button>
+        <button class="btn btn-ghost btn-sm" @click="selectedConvs = new Set()">取消</button>
+      </div>
       <input class="input" v-model="searchKw" placeholder="🔍 搜索对话..." @input="onSearch" />
       <div class="conv-list">
         <div v-for="c in conversations" :key="c.id" class="conv-item" :class="{ active: c.id === currentConvId }" @click="selectConv(c.id)">
           <input v-if="editingId === c.id" class="input rename-input" v-model="editingTitle" @click.stop @keyup.enter="saveRename(c)" @keyup.esc="cancelRename" />
           <template v-else>
+            <input type="checkbox" class="conv-check" :checked="selectedConvs.has(c.id)" @click.stop="toggleConv(c.id)" title="选中以批量删除" />
             <div class="conv-title">{{ c.title || '(无标题对话)' }}</div>
             <div class="conv-time">{{ c.createdAt }}</div>
             <div class="conv-ops" @click.stop>
@@ -24,6 +30,11 @@
     <!-- 聊天主区 -->
     <section class="chat-main">
       <div class="msg-list" ref="msgListEl">
+        <div class="msg-batch" v-if="selectedMsgs.size">
+          <span class="hint">已选 {{ selectedMsgs.size }} 条消息</span>
+          <button class="btn btn-danger btn-sm" @click="batchRemoveMsgs">🗑️ 批量删除</button>
+          <button class="btn btn-ghost btn-sm" @click="selectedMsgs = new Set()">取消</button>
+        </div>
         <div v-for="(m, i) in messages" :key="i" class="msg" :class="m.role">
           <div v-if="m.role === 'user'" class="bubble user-bubble">
             <template v-if="m.editing">
@@ -31,6 +42,7 @@
               <div class="edit-ops"><button class="btn btn-primary btn-sm" @click="resendEdit(m)">重提</button><button class="btn btn-ghost btn-sm" @click="cancelEdit(m)">取消</button></div>
             </template>
             <template v-else>
+              <label v-if="m.id" class="msg-check" @click.stop><input type="checkbox" :checked="selectedMsgs.has(m.id)" @change="toggleMsg(m.id)" /></label>
               {{ m.content }}
               <a class="edit-btn" @click="startEdit(m)" title="编辑后重新提问">✏️</a>
             </template>
@@ -114,7 +126,7 @@ import sql from 'highlight.js/lib/languages/sql'
 import xml from 'highlight.js/lib/languages/xml'
 import markdown from 'highlight.js/lib/languages/markdown'
 import { useAuthStore } from '../stores/auth'
-import { streamAnswer, streamAnswerWS, sendFeedback, getFaithfulness, getRelatedQuestions, getConversations, getHistory, deleteConversation, renameConversation, exportAnswer } from '../api'
+import { streamAnswer, streamAnswerWS, sendFeedback, getFaithfulness, getRelatedQuestions, getConversations, getHistory, deleteConversation, renameConversation, batchDeleteConversations, batchDeleteMessages, exportAnswer } from '../api'
 
 hljs.registerLanguage('python', python)
 hljs.registerLanguage('javascript', javascript)
@@ -150,6 +162,8 @@ const modelType = ref('')
 const loading = ref(false)
 const messages = ref([])
 const conversations = ref([])
+const selectedConvs = ref(new Set())   // 批量选中会话 id
+const selectedMsgs = ref(new Set())    // 批量选中消息 id
 const currentConvId = ref('')
 const searchKw = ref('')
 const editingId = ref('')
@@ -189,11 +203,12 @@ async function loadConversations() {
 let searchTimer = null
 function onSearch() { clearTimeout(searchTimer); searchTimer = setTimeout(loadConversations, 300) }
 async function selectConv(id) {
+  selectedMsgs.value = new Set()
   currentConvId.value = id
   const r = await getHistory(id)
-  messages.value = (r.data || []).map((m) => ({ role: m.role, content: m.content, sources: [], time: 0, halluc: 0, query: m.role === 'user' ? m.content : '', fb: '' }))
+  messages.value = (r.data || []).map((m) => ({ id: m.id, role: m.role, content: m.content, sources: [], time: 0, halluc: 0, query: m.role === 'user' ? m.content : '', fb: '' }))
 }
-function newChat() { currentConvId.value = ''; messages.value = [] }
+function newChat() { currentConvId.value = ''; messages.value = []; selectedMsgs.value = new Set() }
 
 async function ask() {
   if (!query.value.trim() || loading.value) return
@@ -297,6 +312,37 @@ async function removeConv(c) {
   if (!confirm(`删除对话「${c.title || '无标题'}」？`)) return
   try { await deleteConversation(c.id); await loadConversations(); if (currentConvId.value === c.id) newChat(); toast('已删除') } catch (e) { toast('删除失败') }
 }
+function toggleConv(id) {
+  const s = new Set(selectedConvs.value); s.has(id) ? s.delete(id) : s.add(id); selectedConvs.value = s
+}
+async function batchRemoveConvs() {
+  const ids = [...selectedConvs.value]
+  if (!ids.length) return
+  if (!confirm(`删除选中的 ${ids.length} 个对话？`)) return
+  try {
+    const r = await batchDeleteConversations(ids)
+    const n = (r.data && r.data.deleted) || 0
+    selectedConvs.value = new Set()
+    await loadConversations()
+    if (currentConvId.value && ids.includes(currentConvId.value)) newChat()
+    toast(`已删除 ${n} 条`)
+  } catch (e) { toast('删除失败') }
+}
+function toggleMsg(id) {
+  const s = new Set(selectedMsgs.value); s.has(id) ? s.delete(id) : s.add(id); selectedMsgs.value = s
+}
+async function batchRemoveMsgs() {
+  const ids = [...selectedMsgs.value]
+  if (!ids.length) return
+  if (!confirm(`删除选中的 ${ids.length} 条消息？`)) return
+  try {
+    const r = await batchDeleteMessages(ids)
+    const n = (r.data && r.data.deleted) || 0
+    selectedMsgs.value = new Set()
+    messages.value = messages.value.filter((m) => !ids.includes(m.id))   // 本地移除已删 user 消息
+    toast(`已删除 ${n} 条`)
+  } catch (e) { toast('删除失败') }
+}
 function startRename(c) { editingId.value = c.id; editingTitle.value = c.title || '' }
 function cancelRename() { editingId.value = ''; editingTitle.value = '' }
 async function saveRename(c) {
@@ -395,6 +441,12 @@ html.dark .ai-bubble { background: var(--surface); }
 .edit-area { background: rgba(255,255,255,.15); color: #fff; border-color: rgba(255,255,255,.3); margin-bottom: 6px; }
 .edit-area::placeholder { color: rgba(255,255,255,.6); }
 .edit-ops { display: flex; gap: 6px; justify-content: flex-end; }
+.conv-batch { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; font-size: 12px; }
+.conv-batch .hint { color: var(--text-soft); }
+.conv-check { margin-right: 6px; cursor: pointer; }
+.msg-batch { position: sticky; top: 0; z-index: 6; display: flex; align-items: center; gap: 8px; padding: 6px 10px; margin-bottom: 8px; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-sm); font-size: 12px; }
+.msg-check { display: inline-flex; align-items: center; margin-right: 6px; cursor: pointer; opacity: .7; }
+.msg-check:hover { opacity: 1; }
 .empty.small { padding: 20px; font-size: 12px; }
 @media (max-width: 768px) {
   .conv-bar { position: absolute; left: 14px; right: 14px; bottom: 14px; top: 14px; z-index: 20; height: auto; }

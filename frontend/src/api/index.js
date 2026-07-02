@@ -134,6 +134,10 @@ export const getRelatedQuestions = (query, answer, modelType) =>
 // 对话历史
 export const getConversations = (keyword = '') => request.get('/qa/conversations', { params: { keyword } })
 export const deleteConversation = (id) => request.delete(`/qa/conversations/${id}`)
+export const batchDeleteConversations = (ids) =>
+  request.post('/qa/conversations/batch-delete', { ids })
+export const batchDeleteMessages = (ids) =>
+  request.post('/qa/messages/batch-delete', { ids })
 export const renameConversation = (id, title) => request.put(`/qa/conversations/${id}`, { title })
 export const getHistory = (conversationId) =>
   request.get('/qa/history', { params: { conversationId } })
