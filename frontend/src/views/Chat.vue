@@ -30,6 +30,7 @@
 
     <!-- 聊天主区 -->
     <section class="chat-main">
+      <button class="menu-btn" @click="convCollapsed = !convCollapsed" title="历史对话">☰</button>
       <div class="msg-list" ref="msgListEl">
         <div class="msg-batch" v-if="selectableMsgIds.length">
           <label class="msg-check"><input type="checkbox" :checked="allMsgsSelected" @change="toggleAllMsgs($event.target.checked)" /> 全选</label>
@@ -212,6 +213,7 @@ async function selectConv(id) {
   currentConvId.value = id
   const r = await getHistory(id)
   messages.value = (r.data || []).map((m) => ({ id: m.id, role: m.role, content: m.content, sources: [], time: 0, halluc: 0, query: m.role === 'user' ? m.content : '', fb: '' }))
+  if (window.innerWidth <= 768) convCollapsed.value = true   // 手机端选完会话自动收起，露出聊天区
 }
 function newChat() { currentConvId.value = ''; messages.value = []; selectedMsgs.value = new Set() }
 
@@ -361,7 +363,10 @@ async function saveRename(c) {
   try { await renameConversation(c.id, t); c.title = t; cancelRename(); toast('已重命名') } catch (e) { toast('重命名失败') }
 }
 
-onMounted(loadConversations)
+onMounted(() => {
+  if (window.innerWidth <= 768) convCollapsed.value = true   // 手机端默认收起侧栏
+  loadConversations()
+})
 </script>
 
 <style scoped>
@@ -386,7 +391,7 @@ html.dark .conv-item.active { background: var(--primary-soft-2); }
 .collapse-btn { position: absolute; top: 14px; right: -12px; width: 24px; height: 24px; border-radius: 50%; background: var(--surface); border: 1px solid var(--border); cursor: pointer; z-index: 5; font-size: 11px; color: var(--text-muted); }
 .conv-bar.collapsed .collapse-btn { right: -28px; }
 
-.chat-main { flex: 1; display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); overflow: hidden; min-width: 0; }
+.chat-main { position: relative; flex: 1; display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); overflow: hidden; min-width: 0; }
 .msg-list { flex: 1; overflow-y: auto; padding: 24px; }
 .msg { margin-bottom: 20px; display: flex; }
 .msg.user { justify-content: flex-end; }
@@ -459,7 +464,10 @@ html.dark .ai-bubble { background: var(--surface); }
 .msg-check { display: inline-flex; align-items: center; margin-right: 6px; cursor: pointer; opacity: .7; }
 .msg-check:hover { opacity: 1; }
 .empty.small { padding: 20px; font-size: 12px; }
+.menu-btn { display: none; }
+
 @media (max-width: 768px) {
+  .menu-btn { display: flex; align-items: center; justify-content: center; position: absolute; top: 10px; left: 10px; z-index: 30; width: 38px; height: 38px; border-radius: var(--radius-sm); background: var(--surface); border: 1px solid var(--border); color: var(--text); font-size: 20px; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,.15); }
   .conv-bar { position: absolute; left: 14px; right: 14px; bottom: 14px; top: 14px; z-index: 20; height: auto; }
   .conv-bar.collapsed { display: none; }
   .bubble { max-width: 92%; }
