@@ -7,3 +7,20 @@ def test_conversation_model_has_soft_delete_column():
 
     assert hasattr(Conversation, "is_deleted")
     assert hasattr(Message, "is_deleted")
+
+
+def test_batch_delete_request_accepts_ids():
+    from app.schemas.qa import BatchDeleteRequest
+
+    req = BatchDeleteRequest(ids=["conv1", "conv2"])
+    assert req.ids == ["conv1", "conv2"]
+
+
+def test_batch_delete_request_requires_ids():
+    import pytest
+    from pydantic import ValidationError
+
+    from app.schemas.qa import BatchDeleteRequest
+
+    with pytest.raises(ValidationError):
+        BatchDeleteRequest()  # ids 缺省必须报错

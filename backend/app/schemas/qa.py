@@ -52,3 +52,7 @@ class ExportRequest(BaseModel):
     answer: str
     sources: List[dict] = []
     meta: Optional[dict] = None           # confidence/hallucinationRate/responseTime
+
+
+class BatchDeleteRequest(BaseModel):
+    ids: List[str]
