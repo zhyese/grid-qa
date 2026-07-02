@@ -27,6 +27,8 @@ _COLUMN_MIGRATIONS = [
     ("documents", "equipment_tags", "VARCHAR(512) NOT NULL DEFAULT ''"),
     ("documents", "tenant_id", "VARCHAR(64) NOT NULL DEFAULT 'default'"),
     ("users", "tenant_id", "VARCHAR(64) NOT NULL DEFAULT 'default'"),
+    ("conversations", "is_deleted", "TINYINT(1) NOT NULL DEFAULT 0"),
+    ("messages", "is_deleted", "TINYINT(1) NOT NULL DEFAULT 0"),
 ]
 
 
