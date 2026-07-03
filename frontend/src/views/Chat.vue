@@ -72,6 +72,7 @@
             <div class="meta" v-if="m.time">
               <span>⏱ {{ m.time }}s</span>
               <span>· 幻觉率 {{ m.halluc }}</span>
+              <span v-if="m.route" class="badge" :class="routeBadge(m.route)" :title="m.routeReason || ''">🧭 {{ routeLabel(m.route) }}</span>
               <span v-if="m.graphCount" class="badge badge-info">🔗 图谱{{ m.graphCount }}</span>
               <span v-if="m.highRisk && m.highRisk.length" class="badge badge-danger" :title="'高风险：' + m.highRisk.join('、')">⚠ {{ m.highRisk.slice(0, 3).join('、') }}</span>
               <span v-if="m.confidence" class="badge" :class="confBadge(m.confidence)" :title="confTitle(m.confidence)">{{ confLabel(m.confidence) }}</span>
@@ -229,7 +230,7 @@ async function ask() {
 async function runStream(q, opts = {}) {
   const { regen = false, cid } = opts
   loading.value = true
-  const msg = reactive({ role: 'assistant', content: '', sources: [], time: 0, halluc: 0, conversationId: cid || currentConvId.value || '', query: q, fb: '', streaming: true, aborted: false })
+  const msg = reactive({ role: 'assistant', content: '', sources: [], time: 0, halluc: 0, route: '', routeReason: '', conversationId: cid || currentConvId.value || '', query: q, fb: '', streaming: true, aborted: false })
   messages.value.push(msg)
   nextTick(() => { if (msgListEl.value) msgListEl.value.scrollTop = msgListEl.value.scrollHeight })
   const onStreamEvent = (ev) => {
@@ -244,6 +245,8 @@ async function runStream(q, opts = {}) {
       if (ev.highRisk) msg.highRisk = ev.highRisk
       if (ev.confidence) msg.confidence = ev.confidence
       if (ev.conversationId) msg.conversationId = ev.conversationId
+      if (ev.route) msg.route = ev.route
+      if (ev.routeReason) msg.routeReason = ev.routeReason
       msg.streaming = false
       loading.value = false
       abortCtrl.value = null
@@ -299,6 +302,8 @@ async function dislike(m) {
 function confLabel(c) { return ({ high: '✓ 高置信', medium: '⚠ 证据有限', refused: '✗ 证据不足' })[c] || '' }
 function confTitle(c) { return ({ high: '检索证据充分，答案可信度高', medium: '检索相关性中等，部分内容建议人工核对', refused: '未找到强相关资料，答案已保守处理' })[c] || '' }
 function confBadge(c) { return ({ high: 'badge-success', medium: 'badge-warning', refused: 'badge-danger' })[c] || 'badge-neutral' }
+function routeLabel(r) { return ({ sparse: '🔤 关键词', dense: '🧠 语义', hybrid: '🔀 混合', sparse_first: '🔤→🔀' })[r] || r }
+function routeBadge(r) { return ({ sparse: 'badge-sparse', dense: 'badge-dense', hybrid: 'badge-neutral', sparse_first: 'badge-warning' })[r] || 'badge-neutral' }
 function srcName(s) { return typeof s === 'string' ? '' : (s.docName || '') }
 function srcText(s) { return typeof s === 'string' ? s : (s.text || '') }
 async function copyAnswer(m) { try { await navigator.clipboard.writeText(m.content); toast('答案已复制') } catch (e) { toast('复制失败') } }

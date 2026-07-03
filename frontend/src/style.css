@@ -166,6 +166,8 @@ html.dark .nav-item.active { background: var(--primary-soft-2); }
 .badge-info { background: var(--info-soft); color: var(--info); }
 .badge-primary { background: var(--primary-soft); color: var(--primary); }
 .badge-neutral { background: var(--surface-3); color: var(--text-muted); }
+.badge-sparse { background: #e8f5e9; color: #2e7d32; }   /* 绿色 — 关键词匹配 */
+.badge-dense  { background: #e3f2fd; color: #1565c0; }   /* 蓝色 — 语义检索 */
 
 /* 统计卡 */
 .stat-grid { display: grid; gap: 14px; margin-bottom: 18px; }

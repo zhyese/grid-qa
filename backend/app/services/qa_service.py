@@ -231,6 +231,8 @@ async def answer(
         "hallucinationRate": _halluc,
         "cached": False,
         "cacheLayer": "llm",
+        "route": routing.route if routing else "hybrid",
+        "routeReason": routing.reason if routing else "",
         "conversationId": conversation_id,
     }
 
@@ -460,6 +462,8 @@ async def stream_answer(
         "conversationId": conversation_id,
         "cached": False,
         "cacheLayer": "llm",
+        "route": routing.route if routing else "hybrid",
+        "routeReason": routing.reason if routing else "",
     }
 
 
