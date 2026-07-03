@@ -51,6 +51,7 @@ graph TB
     classDef storage fill:#ffffff,stroke:#4caf50,stroke-width:2px
     classDef llm fill:#ffffff,stroke:#9c27b0,stroke-width:2px
     classDef new fill:#fce4ec,stroke:#e91e63,stroke-width:2px,stroke-dasharray:5 3
+    classDef cache fill:#fff3e0,stroke:#ff9800,stroke-width:2px
 
     FE["🖥️ 前端 :5173<br/>Chat · 🩺Diagnose · Documents · Admin"]:::client
 
@@ -63,10 +64,11 @@ graph TB
         ExtKG["后台抽三元组<br/>schema约束(13关系)+去重过滤"]:::new
     end
 
-    subgraph READ["② 读取流 · 在线 RAG 自纠错"]
+    subgraph READ["② 读取流 · ★路由 · ★三级缓存 · CRAG 自纠错"]
         direction LR
         Guard["🛡️ 护栏"]:::new
-        Cache{"热点缓存?"}:::process
+        Cache3L["★ 三级缓存<br/>L1 Redis(1ms)<br/>L2 MySQL(qa_cache)<br/>L3 LLM全链路"]:::cache
+        Route{"★ 智能路由<br/>sparse/dense<br/>/hybrid"}:::new
         Stand["standalone<br/>HyDE/多查询"]:::new
         Ret["双路+BM25→RRF"]:::process
         Parent["parent 召回"]:::new
@@ -81,10 +83,10 @@ graph TB
     end
 
     subgraph STORE["存储层 · 各存其职"]
-        MySQL[("MySQL<br/>chunks·三元组·设备·对话")]:::storage
+        MySQL[("MySQL<br/>chunks·三元组·设备·对话<br/>★qa_cache L2冷备")]:::storage
         Milvus[("Milvus 双路向量")]:::storage
         Neo4j[("Neo4j 图谱")]:::storage
-        Redis[("Redis 缓存")]:::storage
+        Redis[("Redis ★10MB LRU<br/>热点缓存+query向量")]:::storage
         MinIO[("MinIO 原文")]:::storage
     end
 
@@ -102,15 +104,20 @@ graph TB
     EmbR -->|"大"| EMB --> Milvus
     EmbR -.->|"小"| Milvus
     ExtKG --> Neo4j
-    Guard --> Cache
-    Cache -.->|"命中秒回"| FE
-    Cache -->|"未命中"| Stand
-    Stand --> LLM
-    Stand --> Ret --> RR --> Parent --> CRAG
+    Guard --> Cache3L
+    Cache3L -.->|"L1/L2命中(1ms)"| FE
+    Cache3L -->|"L3 miss"| Route
+    Route --> Ret
+    Route -.->|"sparse:仅BM25"| Ret
+    Route -.->|"dense:仅向量"| Ret
+    Stand --> Ret
+    Ret --> RR --> Parent --> CRAG
     Ret -.-> Milvus
     CRAG -->|"correct"| Gen --> LLM
     CRAG -.->|"incorrect→refused"| FE
     Gen -.->|"SSE+置信度+⚠highRisk · 真faithfulness异步"| FE
+    Gen -.->|"★Write-Through双写"| MySQL
+    Gen -.->|"★写L1缓存"| Redis
     Diag -.-> Ret & Neo4j
     Agent -.-> Ret & Neo4j
     Agent --> LLM
@@ -145,11 +152,11 @@ flowchart TD
     subgraph StorageLayer ["各司其职的存储层"]
         direction TB
         MinIO[("MinIO 原文")]:::storage
-        MySQL[("MySQL Chunks(父子/类型/章节)<br/>三元组 · 设备标签 · 对话 · 反馈")]:::storage
+        MySQL[("MySQL Chunks(父子/类型/章节)<br/>三元组 · 设备标签 · 对话 · 反馈<br/>★qa_cache L2冷备")]:::storage
         MilvusC[("Milvus 云向量 1024维")]:::storage
         MilvusB[("Milvus bge向量 512维")]:::storage
         Neo4j[("Neo4j 图谱(消歧收敛)")]:::storage
-        Redis[("Redis 热点缓存 · query向量")]:::storage
+        Redis[("Redis ★10MB LRU<br/>热点缓存 · query向量")]:::storage
     end
 
     subgraph ReadFlow ["② 问答读取流 (在线 RAG · ★路由 · ★三级缓存 · CRAG 自纠错 · 真可信)"]
@@ -204,9 +211,13 @@ flowchart TD
 
     %% 读取链路
     User --"提问 · JWT"--> Guard
-    Guard --> CheckCache
-    CheckCache --"命中(秒回)"--> User
-    CheckCache --"未命中"--> Standalone
+    Guard --> ThreeCache
+    ThreeCache --"L1 Redis命中(1ms)"--> User
+    ThreeCache --"L2 MySQL命中(1-50ms)→回写L1"--> User
+    ThreeCache --"L3 miss→全链路"--> RouterLayer
+    RouterLayer --"sparse:仅BM25"--> Retrieval
+    RouterLayer --"dense:仅向量"--> Retrieval
+    RouterLayer --"hybrid:默认全链路"--> Retrieval
     Standalone --> Retrieval
     Retrieval -.-> MilvusC
     Retrieval -.-> MilvusB
@@ -225,7 +236,8 @@ flowchart TD
     Safe --"⚠highRisk + 引用 + 置信度"--> User
     Safe -.-> Faith
     Faith -.-> User
-    StreamGen --"写缓存(TTL)"--> Redis
+    StreamGen --"★Write-Through L2先→L1后"--> MySQL
+    StreamGen --"★写L1缓存(TTL=72h)"--> Redis
     Refuse --"拒答(零幻觉)"--> User
 
     %% 领域增强链路
@@ -312,57 +324,72 @@ sequenceDiagram
     %% 注：本序列为智能问答(/qa/answer)固定 RAG 管线；🤖深度诊断(/domain/diagnose-agent)是独立 function-calling agent 流，见架构图③领域
     participant FE as 前端
     participant BE as 后端 /qa/answer<br/>(stream_answer)
-    participant Redis as Redis 热点缓存
+    participant Router as ★智能路由
+    participant Redis as ★Redis L1<br/>10MB LRU
+    participant MySQL as ★MySQL L2<br/>qa_cache
     participant Milvus as Milvus(云+bge 双路)
-    participant MySQL as MySQL chunks/对话
     participant Neo4j as Neo4j 图谱
     participant LLM as LLM(DS/Qwen/Doubao)
 
     FE->>BE: ① 提问 + JWT
 
-    rect rgb(255, 235, 230)
-        Note right of BE: 🟠 入口护栏 + 缓存
+    rect rgb(255, 243, 224)
+        Note right of BE: 🟠 ★ 三级缓存查询
         BE->>BE: 🛡️ injection 告警 + 术语归一化
-        BE->>Redis: ② 查热点缓存(仅单轮)
+        BE->>Redis: ② L1 查热点(仅单轮)
     end
 
-    alt 缓存命中
+    alt L1 命中(1ms)
         Redis-->>BE: 缓存答案
-        BE-->>FE: 秒回(cached=true)
-    else 未命中 / 多轮
+        BE-->>FE: 秒回(cacheLayer=redis)
+    else L1 miss
+        BE->>MySQL: ③ L2 查qa_cache(MD5)
+        alt L2 命中(1-50ms)
+            MySQL-->>BE: 缓存答案
+            BE->>Redis: async 回写L1
+            BE-->>FE: 秒回(cacheLayer=mysql)
+        else L2 miss
 
         rect rgb(255, 248, 220)
-            Note right of BE: 🟡 检索增强
+            Note right of BE: 🟡 ★ 智能路由 + 检索增强
+            BE->>Router: ④ 特征提取+决策树(<1ms)
+            Router-->>BE: sparse|dense|hybrid
             opt 多轮
-                BE->>LLM: ③ standalone 指代消解
+                BE->>LLM: ⑤ standalone 指代消解
             end
             opt 开启
                 BE->>LLM: HyDE 假设文档 / 多查询分解
             end
-            par ④ 双路并行检索
-                BE->>Milvus: 云向量 TopK
-            and
-                BE->>Milvus: bge 向量 TopK
+            alt sparse路由: 仅BM25(~15ms)
+            else dense路由: 仅双路向量(~25ms)
+            else hybrid: 全链路
+                par ⑥ 双路并行检索
+                    BE->>Milvus: 云向量 TopK
+                and
+                    BE->>Milvus: bge 向量 TopK
+                end
+                BE->>BE: + BM25 → RRF 融合
             end
-            BE->>BE: + BM25 → RRF 融合
-            BE->>LLM: ⑤ rerank 重排
-            BE->>MySQL: ⑥ parent 召回大块上下文
+            opt skip_rerank=false
+                BE->>LLM: ⑦ rerank 重排
+            end
+            BE->>MySQL: ⑧ parent 召回大块上下文
         end
 
         rect rgb(255, 228, 225)
             Note right of BE: 🔴 CRAG 自纠错
-            BE->>BE: ⑦ ★ 分级(v1 top1分 / v2 per-doc LLM)
+            BE->>BE: ⑨ ★ 分级(v1 top1分 / v2 per-doc LLM)
             alt incorrect(低相关)
                 BE->>LLM: 改写 query 重检索
                 BE->>BE: 再分级 → 仍低 = refused
             end
         end
 
-        BE->>Neo4j: ⑧ graph_context 因果三元组
+        BE->>Neo4j: ⑩ graph_context 因果三元组
 
         rect rgb(230, 245, 230)
             Note right of BE: 🟢 SSE 流式生成
-            BE-->>FE: ⑨ meta(引用来源 + conversationId)
+            BE-->>FE: ⑪ meta(引用来源 + conversationId)
             BE->>LLM: ⑩ prompt(大块+图谱+置信度)
             loop 逐 token
                 LLM-->>BE: token
@@ -371,13 +398,14 @@ sequenceDiagram
         end
 
         rect rgb(243, 230, 255)
-            Note right of BE: 🟣 后处理 + done
-            BE->>MySQL: ⑪ 存对话消息
-            BE->>Redis: 写热点缓存(单轮·TTL)
-            BE-->>FE: ⑫ done(confidence · 图谱N · ⚠highRisk · 引用 · 耗时)
+            Note right of BE: 🟣 Write-Through 双写 + done
+            BE->>MySQL: ⑫ L2先写(qa_cache ON DUPLICATE KEY)
+            BE->>Redis: L1后写(单轮·TTL=72h)
+            BE->>MySQL: ⑬ 存对话消息
+            BE-->>FE: ⑭ done(confidence·cacheLayer·⚠highRisk·引用)
         end
 
-        Note over FE,BE: ⑬ 答案渲染后异步：FE 拉真 faithfulness(LLM-judge 覆盖幻觉率) + 相关追问
+        Note over FE,BE: ⑮ 答案渲染后异步：FE 拉真 faithfulness(LLM-judge) + 相关追问
     end
 ```
 
