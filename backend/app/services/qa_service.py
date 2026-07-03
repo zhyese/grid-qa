@@ -103,6 +103,7 @@ async def answer(
     t0 = time.time()
     nq = term_service.normalize(query)
     safety.guard_query(query)  # 入站 prompt injection 告警（D4）
+    is_single = not conversation_id  # 仅单轮查/写缓存（多轮上下文变化不缓存）
 
     # Self-RAG：非运维问题跳过检索直接拒答（省成本+防污染，SELF_RAG_ENABLE 默认关）
     if settings.SELF_RAG_ENABLE:
@@ -117,7 +118,7 @@ async def answer(
 
     # 多轮不走缓存（上下文变化）；单轮走三级缓存：Redis(L1) → MySQL(L2) → LLM(L3)
     cache_layer = "llm"  # 默认走 LLM
-    if not conversation_id:
+    if is_single:
         # L1: Redis 热点缓存
         try:
             cached = await redis_client.cache_get_json(_cache_key(model_type, nq))
@@ -223,7 +224,7 @@ async def answer(
     }
 
     # 仅单轮结果写缓存（Write-Through: MySQL → Redis）
-    if not conversation_id:
+    if is_single:
         # L2: MySQL 持久化（先写，保证数据不丢）
         if settings.CACHE_PERSIST_ENABLE:
             try:
