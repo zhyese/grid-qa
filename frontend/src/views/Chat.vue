@@ -302,7 +302,7 @@ async function dislike(m) {
 function confLabel(c) { return ({ high: '✓ 高置信', medium: '⚠ 证据有限', refused: '✗ 证据不足' })[c] || '' }
 function confTitle(c) { return ({ high: '检索证据充分，答案可信度高', medium: '检索相关性中等，部分内容建议人工核对', refused: '未找到强相关资料，答案已保守处理' })[c] || '' }
 function confBadge(c) { return ({ high: 'badge-success', medium: 'badge-warning', refused: 'badge-danger' })[c] || 'badge-neutral' }
-function routeLabel(r) { return ({ sparse: '🔤 关键词', dense: '🧠 语义', hybrid: '🔀 混合', sparse_first: '🔤→🔀' })[r] || r }
+function routeLabel(r) { return ({ sparse: '🔤 纯 BM25 匹配', dense: '🧠 向量语义检索', hybrid: '🔀 全链路', sparse_first: '🔤→🔀 关键词优先' })[r] || r }
 function routeBadge(r) { return ({ sparse: 'badge-sparse', dense: 'badge-dense', hybrid: 'badge-neutral', sparse_first: 'badge-warning' })[r] || 'badge-neutral' }
 function srcName(s) { return typeof s === 'string' ? '' : (s.docName || '') }
 function srcText(s) { return typeof s === 'string' ? s : (s.text || '') }
