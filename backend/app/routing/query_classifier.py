@@ -37,7 +37,11 @@ _STANDARD_RE = re.compile(
 # ---- 数值+单位正则 ----
 _NUMERIC_RE = re.compile(
     r"\d+\.?\d*\s*(kV|kA|MW|MVA|Hz|Ω|dB|ppm|r/min|mm²|MPa|μΩ|mΩ|"
-    r"℃|°C|kVAR|kV·A|kW·h|MWh|GWh|A|V|W|mH|μF|nF|pF|kΩ|MΩ)",
+    r"℃|°C|kVAR|kV·A|kW·h|MWh|GWh|A|V|W|mH|μF|nF|pF|kΩ|MΩ|"
+    # 中文单位（电网常用）
+    r"千伏|千安|兆瓦|兆伏安|赫兹|欧姆|兆欧|微欧|毫欧|"
+    r"摄氏度|千乏|千瓦时|兆瓦时|千伏安|安培|伏特|瓦特|"
+    r"毫亨|微法|纳法|皮法|千欧|兆帕|平方毫米)",
     re.IGNORECASE,
 )
 
