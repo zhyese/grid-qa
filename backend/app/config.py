@@ -126,6 +126,7 @@ class Settings(BaseSettings):
     MULTI_QUERY_ENABLE: bool = False # 多查询分解：复杂问题拆子问题并行检索
     SELF_RAG_ENABLE: bool = False    # Self-RAG：LLM 判断是否需检索/证据是否足够
     STANDALONE_REWRITE_ENABLE: bool = True  # 多轮指代消解：把追问改写成带上下文的独立查询
+    ROUTING_ENABLE: bool = True      # ★ 智能路由：查询特征→自动选择检索路径(sparse/dense/hybrid)
 
     # ---------- 安全合规（电网强监管）----------
     SAFETY_FILTER_ENABLE: bool = True   # 入站 prompt injection 防护

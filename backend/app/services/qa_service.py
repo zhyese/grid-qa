@@ -162,7 +162,18 @@ async def answer(
     # 多轮指代消解：检索用改写后的独立查询
     search_q = await _search_query_for_retrieve(db, query, nq, conversation_id, history, model_type)
 
-    contexts = await retrieval_service.mixed_search(db, search_q, topk, tenant=tenant)
+    # 智能路由：根据查询特征选择最优检索路径（Phase A）
+    routing = None
+    if settings.ROUTING_ENABLE:
+        try:
+            from app.routing.routing_service import route_query
+            routing = route_query(search_q)
+        except Exception as e:
+            degraded("routing_dispatch", e)
+
+    contexts = await retrieval_service.mixed_search(
+        db, search_q, topk, tenant=tenant, routing_decision=routing,
+    )
     if not contexts:
         return {
             "answer": "根据现有资料无法确认该问题，请先上传并解析相关运维文档后重试。",
@@ -338,7 +349,18 @@ async def stream_answer(
         history = await conversation_service.get_messages(db, conversation_id, _HISTORY_LIMIT)
     search_q = await _search_query_for_retrieve(db, query, nq, conversation_id, history, model_type)
 
-    contexts = await retrieval_service.mixed_search(db, search_q, topk, tenant=tenant)
+    # 智能路由：根据查询特征选择最优检索路径（Phase A）
+    routing = None
+    if settings.ROUTING_ENABLE:
+        try:
+            from app.routing.routing_service import route_query
+            routing = route_query(search_q)
+        except Exception as e:
+            degraded("routing_dispatch", e)
+
+    contexts = await retrieval_service.mixed_search(
+        db, search_q, topk, tenant=tenant, routing_decision=routing,
+    )
     if not contexts:
         yield {"type": "done", "content": "根据现有资料无法确认该问题，请先上传并解析相关运维文档后重试。"}
         return

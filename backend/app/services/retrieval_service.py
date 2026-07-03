@@ -101,6 +101,7 @@ async def mixed_search(
     db: AsyncSession, query: str, topk: int = 10,
     doc_type: str | None = None, model_type: str | None = None,
     equipment: str | None = None, tenant: str | None = None,
+    routing_decision = None,  # RoutingDecision | None
 ) -> list[dict]:
     _t0 = time.time()
     cand = max(topk * 4, 20)
@@ -108,9 +109,12 @@ async def mixed_search(
     # 0) query 改写（口语→规范）
     q = await query_rewrite.rewrite_query(query, model_type)
 
-    # 0.5) 多查询分解：复杂问题拆子问题，每个独立检索后候选合并（默认关）
+    # 路由调度：根据决策选择检索路径
+    route = routing_decision.route if routing_decision else "hybrid"
+
+    # 0.5) 多查询分解（仅 hybrid 和 dense 路径启用；sparse 跳过）
     queries = [q]
-    if getattr(settings, "MULTI_QUERY_ENABLE", False):
+    if route != "sparse" and getattr(settings, "MULTI_QUERY_ENABLE", False):
         from app.services import multi_query
         try:
             subs = await multi_query.decompose(query, model_type)
@@ -119,27 +123,85 @@ async def mixed_search(
         except Exception as e:
             degraded("multi_query_dispatch", e)
 
-    # 1) 对每个 query 跑 dense + BM25，合并候选（跨查询同 chunk 多次命中→RRF 累加）
+    # 1) 根据路由选择检索策略
     all_dense, all_sparse = [], []
-    for qq in queries:
-        d, s = await _dense_and_sparse(db, qq, cand, model_type)
-        all_dense.extend(d)
-        all_sparse.extend(s)
+    skip_rerank = False
 
-    # 2) RRF 融合
-    fused = rrf.rrf_fuse([all_dense, all_sparse], key_fn=lambda h: h["key"])
-
-    # 3) 重排（取 2*topk 候选供 MMR 选）
-    if settings.RERANK_ENABLE and len(fused) > 1:
+    if route == "sparse":
+        # sparse-only: 仅 BM25，跳过 dense embedding 调用
+        await bm25_service.ensure_built(db)
+        for qq in queries:
+            for s in bm25_service.search(qq, topk=cand):
+                c = bm25_service.get_chunk(s["idx"])
+                if c:
+                    all_sparse.append({
+                        "key": (c["doc_id"], c["chunk_idx"]), "text": c["text"],
+                        "doc_id": c["doc_id"], "doc_name": c["doc_name"],
+                        "chunk_idx": c["chunk_idx"], "score": s.get("score", 0),
+                    })
+        # 高置信 sparse 可跳过 rerank
         try:
-            docs = [h.get("text", "") for h in fused]
-            ranked = await rerank_service.get_reranker().rerank(q, docs, top_n=min(topk * 2, len(fused)))
-            pool = [{**fused[idx], "score": float(score)} for idx, score in ranked]
+            from app.routing.query_classifier import should_skip_rerank as _skip_rerank
+            skip_rerank = _skip_rerank(routing_decision) if routing_decision else False
+        except Exception:
+            skip_rerank = False
+
+    elif route == "dense":
+        # dense-only: 仅双路向量，跳过 BM25
+        for qq in queries:
+            dense_q = qq
+            if getattr(settings, "HYDE_ENABLE", False):
+                from app.services import hyde
+                try:
+                    ht = await hyde.generate_hypothetical(qq, model_type)
+                    if ht:
+                        dense_q = ht
+                except Exception as e:
+                    degraded("hyde_dispatch", e)
+            qvec_cloud, qvec_bge = await asyncio.gather(
+                embedding_service.embed_query(dense_q, settings.EMB_PROVIDER),
+                embedding_service.embed_query(dense_q, "bge"),
+            )
+            dense_cloud, dense_bge = await asyncio.gather(
+                asyncio.to_thread(milvus_client.search, settings.MILVUS_COLLECTION, qvec_cloud, cand),
+                asyncio.to_thread(milvus_client.search, settings.MILVUS_COLLECTION_BGE, qvec_bge, cand),
+            )
+            for src, results in (("dense_cloud", dense_cloud), ("dense_bge", dense_bge)):
+                for d in results:
+                    all_dense.append({
+                        **d, "key": (d.get("doc_id"), d.get("chunk_idx")),
+                    })
+
+    else:
+        # hybrid / sparse_first: 全链路 dense + BM25
+        for qq in queries:
+            d, s = await _dense_and_sparse(db, qq, cand, model_type)
+            all_dense.extend(d)
+            all_sparse.extend(s)
+
+    # 2) RRF 融合 / 单路排序
+    fused = []  # 兼容旧引用
+    if route == "sparse":
+        # BM25 单路：按分数排序取 topk*2
+        pool = sorted(all_sparse, key=lambda x: -float(x.get("score", 0) or 0))[: topk * 2]
+    elif route == "dense":
+        # Dense 单路：按分数排序取 topk*2
+        pool = sorted(all_dense, key=lambda x: -float(x.get("score", 0) or 0))[: topk * 2]
+    else:
+        # hybrid / sparse_first: RRF 融合
+        fused = rrf.rrf_fuse([all_dense, all_sparse], key_fn=lambda h: h["key"])
+        pool = fused[: topk * 2]
+
+    # 3) 重排（高置信 sparse 可跳过，单路 dense/sparse 也可跳过）
+    if settings.RERANK_ENABLE and len(pool) > 1 and not skip_rerank:
+        try:
+            docs = [h.get("text", "") for h in pool]
+            ranked = await rerank_service.get_reranker().rerank(q, docs, top_n=min(topk * 2, len(pool)))
+            pool = [{**pool[idx], "score": float(score)} for idx, score in ranked]
         except Exception as e:
             degraded("rerank", e)
-            pool = fused[: topk * 2]
-    else:
-        pool = fused[: topk * 2]
+            # pool 保持原样，不改变
+    # pool 已经就绪（sparse/dense 单路直接使用，hybrid 已 RRF 融合）
 
     # 4) 元数据过滤：租户隔离 + docType/设备（多租户 + D5）
     doc_ids = {h.get("doc_id") for h in pool if h.get("doc_id")}
