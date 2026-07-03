@@ -680,6 +680,80 @@ docker compose up -d --build      # 10 服务：mysql/minio/redis/etcd/milvus-mi
 
 ---
 
+## 📦 完整部署包（含全部数据，远端开箱即用）
+
+> 导出 MySQL/Redis/Milvus/MinIO/Neo4j/Prometheus/Grafana 全部数据，
+> 与源码一起打包为单个 `tar.gz`，远端 `docker compose up -d --build` 即可运行。
+
+### 打包（本地）
+
+```bash
+# 1. 导出全部 Docker 卷数据到 ./data/
+python export_data.py      # 已在 make_package.py 中自动执行
+
+# 2. 打包源码 + 数据 → grid-qa-deploy-YYYYMMDD-HHMMSS.tar.gz (~45 MB)
+python make_package.py
+```
+
+### 部署（远端 Linux + Docker）
+
+```bash
+# 1. 传到远端
+scp grid-qa-deploy-*.tar.gz user@remote:/opt/
+
+# 2. 解包
+cd /opt && tar xzf grid-qa-deploy-*.tar.gz
+
+# 3. ⚠️ 填写 API Key（必做！）
+cp .env.deploy .env
+vim .env   # 把 <CHANGE_ME> 替换为真实的 API Key
+
+# 4. 一键启动（含全部预填充数据）
+docker compose -f docker-compose.deploy.yml up -d --build
+
+# 5. 验证
+curl http://localhost:8001/health          # 健康检查
+curl http://localhost:8001/api/qa/answer   # 问答接口
+```
+
+### 部署包内容
+
+```
+grid-qa-deploy-*.tar.gz  (~45 MB, 解压 ~970 MB)
+├── data/                          # 全部服务数据
+│   ├── mysql/        (215 MB)     # 用户/文档/对话/反馈/缓存表
+│   ├── neo4j/        (517 MB)     # 知识图谱 2118 节点
+│   ├── etcd/         (123 MB)     # Milvus 元数据
+│   ├── grafana/       (50 MB)     # 监控面板 + 用户
+│   ├── nacos/         (28 MB)     # 配置中心（可选）
+│   ├── prometheus/    (23 MB)     # 指标历史
+│   ├── redis/        (7.6 MB)     # 热点问答缓存 + query 向量
+│   ├── minio/        (4.1 MB)     # 上传的原始文档
+│   └── milvus-minio/ (0.3 MB)     # 60 条向量
+├── backend/                       # 后端源码
+├── frontend/                      # 前端源码
+├── grafana/provisioning/          # 监控面板配置（含缓存监控面板）
+├── kb_seed/                       # 种子知识库
+├── docker-compose.deploy.yml      # ★ 部署编排（bind mount 数据卷）
+├── docker-compose.yml             # 开发版编排（参考）
+├── prometheus.yml                 # Prometheus 采集配置
+├── .env.deploy                    # ★ 环境变量模板（API Key 已剥离，<CHANGE_ME>）
+└── .env.example                   # 本地开发参考
+```
+
+### 敏感信息确认
+
+| 内容 | 状态 |
+|------|------|
+| DeepSeek / 百炼 / 火山 API Key | ❌ 已剥离 → `<CHANGE_ME>` |
+| JWT Secret / Admin 密码 | ❌ 已剥离 → `<CHANGE_ME>` |
+| MySQL / MinIO 内部密码 | ✅ 保留（容器内网，不对外暴露） |
+| 全部业务数据（文档/向量/图谱/对话） | ✅ 完整保留 |
+
+> ⚠️ `.env.deploy` 不含真实 API Key。部署前必须 `cp .env.deploy .env` 并填入真实值，否则大模型调用会失败。
+
+---
+
 ## 🏭 生产部署（多 worker）
 
 开发用 `uvicorn --reload`（单进程）；Linux/Docker 生产用 gunicorn 多 worker 提并发：

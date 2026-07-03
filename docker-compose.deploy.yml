@@ -1,6 +1,11 @@
-# 电网运维 RAG 智能问答系统 - 全栈编排
-# S1: mysql + minio | S5: + etcd + milvus-minio + milvus | S11: + backend + frontend
-# 一键启动: docker compose up -d --build
+# 电网运维 RAG 智能问答系统 - 远端部署版
+# 所有数据预填充到 ./data/ 目录，bind mount 直接挂载
+# 一键启动: docker compose -f docker-compose.deploy.yml up -d --build
+#
+# 与开发版 docker-compose.yml 的区别:
+#   - 所有 named volume → ./data/ 目录 bind mount（数据随包携带）
+#   - Prometheus 增加数据持久化卷
+#   - 端口保持不变
 
 services:
   # ---------- MySQL：结构化元数据 ----------
@@ -15,9 +20,9 @@ services:
       MYSQL_PASSWORD: ${MYSQL_PASSWORD:-grid123456}
       TZ: Asia/Shanghai
     ports:
-      - "3307:3306"   # 宿主机 3307，避开本机 MySQL
+      - "3307:3306"
     volumes:
-      - mysql-data:/var/lib/mysql
+      - ./data/mysql:/var/lib/mysql
     command:
       --character-set-server=utf8mb4
       --collation-server=utf8mb4_unicode_ci
@@ -41,7 +46,7 @@ services:
       - "9000:9000"
       - "9001:9001"
     volumes:
-      - minio-data:/data
+      - ./data/minio:/data
     command: server /data --console-address ":9001"
 
   # ---------- etcd：Milvus 元数据依赖 ----------
@@ -55,7 +60,7 @@ services:
       ETCD_QUOTA_BACKEND_BYTES: "4294967296"
       ETCD_SNAPSHOT_COUNT: "50000"
     volumes:
-      - etcd-data:/etcd
+      - ./data/etcd:/etcd
     command: etcd -advertise-client-urls=http://etcd:2379 -listen-client-urls http://0.0.0.0:2379 --data-dir /etcd
     healthcheck:
       test: ["CMD", "etcdctl", "endpoint", "health"]
@@ -72,7 +77,7 @@ services:
       MINIO_ROOT_USER: minioadmin
       MINIO_ROOT_PASSWORD: minioadmin
     volumes:
-      - milvus-minio-data:/minio_data
+      - ./data/milvus-minio:/minio_data
     command: minio server /minio_data
 
   # ---------- Milvus 2.4 向量库 ----------
@@ -105,7 +110,7 @@ services:
     ports:
       - "6379:6379"
     volumes:
-      - redis-data:/data
+      - ./data/redis:/data
     command: redis-server --appendonly yes --maxmemory 10mb --maxmemory-policy allkeys-lru --maxmemory-samples 10
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
@@ -121,13 +126,12 @@ services:
     environment:
       NEO4J_AUTH: neo4j/${NEO4J_PASSWORD:-neo4j123456}
     ports:
-      - "7474:7474"   # Neo4j Browser
-      - "7687:7687"   # Bolt 协议
+      - "7474:7474"
+      - "7687:7687"
     volumes:
-      - neo4j-data:/data
+      - ./data/neo4j:/data
 
-  # ---------- Nacos：配置中心（可选，CONFIG_SOURCE=nacos 时启用；默认 env 不依赖）----------
-  # 启动: docker compose up -d nacos ；管理台 http://localhost:8848/nacos (默认 nacos/nacos)
+  # ---------- Nacos：配置中心（可选）----------
   nacos:
     image: nacos/nacos-server:v2.4.3
     container_name: grid-nacos
@@ -138,7 +142,7 @@ services:
       - "8848:8848"
       - "9848:9848"
     volumes:
-      - nacos-data:/home/nacos/data
+      - ./data/nacos:/home/nacos/data
 
   # ---------- 后端 ----------
   backend:
@@ -153,13 +157,11 @@ services:
       - neo4j
     env_file: .env
     environment:
-      # 容器内用 service name + 内部端口连接（覆盖 .env 的 localhost）
       DATABASE_URL: mysql+aiomysql://grid:grid123456@mysql:3306/grid_qa?charset=utf8mb4
       REDIS_URL: redis://redis:6379/0
       MINIO_ENDPOINT: minio:9000
       MILVUS_HOST: milvus
       NEO4J_URI: bolt://neo4j:7687
-      # 容器访问外网(云API + bge模型下载)走宿主机代理; 内部服务不走代理
       HTTPS_PROXY: http://host.docker.internal:7897
       HTTP_PROXY: http://host.docker.internal:7897
       NO_PROXY: localhost,127.0.0.1,mysql,minio,milvus,redis,neo4j,prometheus,grafana
@@ -179,7 +181,6 @@ services:
       - "5173:80"
 
   # ---------- Prometheus 指标采集 ----------
-  # 注：采集本地 uvicorn(host.docker.internal:8001)，不依赖 backend 容器
   prometheus:
     image: prom/prometheus:latest
     container_name: grid-prometheus
@@ -188,9 +189,9 @@ services:
       - "9090:9090"
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
-      - prometheus-data:/prometheus
+      - ./data/prometheus:/prometheus
 
-  # ---------- Grafana 可视化仪表盘（好看的开箱监控界面）----------
+  # ---------- Grafana 可视化仪表盘 ----------
   grafana:
     image: grafana/grafana:latest
     container_name: grid-grafana
@@ -201,18 +202,7 @@ services:
       GF_SECURITY_ADMIN_USER: admin
       GF_SECURITY_ADMIN_PASSWORD: admin
     volumes:
-      - grafana-data:/var/lib/grafana
+      - ./data/grafana:/var/lib/grafana
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
     depends_on:
       - prometheus
-
-volumes:
-  mysql-data:
-  minio-data:
-  etcd-data:
-  milvus-minio-data:
-  redis-data:
-  neo4j-data:
-  grafana-data:
-  prometheus-data:
-  nacos-data:
