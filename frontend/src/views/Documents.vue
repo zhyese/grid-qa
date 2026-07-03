@@ -46,6 +46,7 @@
           <select class="select" v-model="filterType" style="width:auto"><option value="">全部类型</option><option v-for="t in types" :key="t">{{ t }}</option></select>
           <select class="select" v-model="filterStatus" style="width:auto"><option value="">全部状态</option><option value="pending">待解析</option><option value="parsed">已解析</option><option value="vectorized">已向量化</option></select>
           <button class="btn btn-ghost btn-sm" @click="batchParse" :disabled="!selected.length">批量解析({{ selected.length }})</button>
+          <button class="btn btn-ghost btn-sm" @click="batchVectorize" :disabled="!selected.length">批量向量化({{ selected.length }})</button>
           <button class="btn btn-danger btn-sm" @click="batchDelete" :disabled="!selected.length">批量删除</button>
         </div>
       </div>
@@ -91,7 +92,7 @@
 
 <script setup>
 import { ref, reactive, computed, onMounted } from 'vue'
-import { listDocs, uploadDocs, parseDocs, vectorize, deleteDoc, getStats } from '../api'
+import { listDocs, uploadDocs, parseDocs, vectorize, vectorizeBatch, deleteDoc, getStats } from '../api'
 import { useAuthStore } from '../stores/auth'
 
 const auth = useAuthStore()
@@ -141,6 +142,17 @@ async function parseDoc(id) { busy[id] = true; try { await parseDocs([id]); awai
 async function vectorizeDoc(id) { busy[id] = true; try { await vectorize(id); await load(); toast('向量化完成') } finally { busy[id] = false } }
 async function removeDoc(id) { if (!confirm('确认删除该文档（含向量/图谱）？')) return; busy[id] = true; try { await deleteDoc(id); await load(); toast('已删除') } finally { busy[id] = false } }
 async function batchParse() { if (!selected.value.length) return; try { await parseDocs(selected.value); await load(); toast(`已提交解析 ${selected.value.length} 份`); selected.value = [] } catch (e) { toast('批量解析失败') } }
+async function batchVectorize() {
+  if (!selected.value.length) return
+  try {
+    const resp = await vectorizeBatch(selected.value)
+    const ok = resp.data?.successList?.length || 0
+    const fail = resp.data?.failList?.length || 0
+    await load()
+    toast(fail ? `向量化完成 ${ok} 份，失败 ${fail} 份（未解析？）` : `已向量化 ${ok} 份`)
+    selected.value = []
+  } catch (e) { toast('批量向量化失败') }
+}
 async function batchDelete() { if (!selected.value.length || !confirm(`删除 ${selected.value.length} 份？`)) return; try { await Promise.all(selected.value.map((id) => deleteDoc(id))); await load(); toast(`已删除 ${selected.value.length} 份`); selected.value = [] } catch (e) { toast('批量删除失败') } }
 async function previewDoc(d) {
   const ext = (d.docName.split('.').pop() || '').toLowerCase()

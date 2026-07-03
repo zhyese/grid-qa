@@ -20,6 +20,7 @@ export const uploadDocs = (form, onProgress) => request.post('/document/upload',
 export const listDocs = (keyword = '') => request.get('/document/list', { params: { keyword } })
 export const parseDocs = (docIds) => request.post('/document/parse', { docIds })
 export const vectorize = (docId) => request.post('/document/vector/generate', { docId })
+export const vectorizeBatch = (docIds) => request.post('/document/vector/batch', { docIds })
 export const deleteDoc = (docId) => request.delete('/document/delete', { params: { docId } })
 export const getStats = () => request.get('/document/stats')
 

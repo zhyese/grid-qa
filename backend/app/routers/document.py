@@ -9,7 +9,7 @@ from app.core.response import success
 from app.db.session import get_db
 from app.dependencies import get_current_user
 from app.models.user import User
-from app.schemas.document import ParseRequest, VectorRequest
+from app.schemas.document import BatchVectorRequest, ParseRequest, VectorRequest
 from app.services.document_service import (
     delete_document,
     get_preview,
@@ -20,6 +20,7 @@ from app.services.document_service import (
     rollback_version,
     upload_documents,
     vectorize_document,
+    vectorize_documents,
 )
 from app.services.log_service import write_log
 
@@ -128,6 +129,23 @@ async def vector_generate(
         f"文档 {body.docId} 生成 {data['vectorCount']} 条向量",
     )
     return success(data, "向量生成存储成功")
+
+
+@router.post("/vector/batch")
+@limiter.limit("10/minute")
+async def vector_batch(
+    request: Request,
+    body: BatchVectorRequest,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """批量向量化：复用单条向量化，单个失败不中断，返回 successList/failList。"""
+    data = await vectorize_documents(db, body.docIds)
+    await write_log(
+        db, user.username, "批量向量生成",
+        f"成功 {len(data['successList'])} 份，失败 {len(data['failList'])} 份",
+    )
+    return success(data, "批量向量生成完成")
 
 
 @router.delete("/delete")

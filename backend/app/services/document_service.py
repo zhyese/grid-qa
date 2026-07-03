@@ -282,6 +282,22 @@ async def vectorize_document(db: AsyncSession, doc_id: str) -> dict:
     }
 
 
+async def vectorize_documents(db: AsyncSession, doc_ids: List[str]) -> dict:
+    """批量向量化：串行复用 vectorize_document，单个失败不中断（successList/failList 风格同 upload_documents）。
+
+    未解析/向量生成失败的文档进 failList 并标注原因，其余正常入向量库。
+    串行而非并发：embedding provider 有并发/限流约束，且与 parse_documents 串行风格一致。
+    """
+    success_list: list = []
+    fail_list: list = []
+    for doc_id in doc_ids:
+        try:
+            success_list.append(await vectorize_document(db, doc_id))
+        except Exception as e:
+            fail_list.append(f"{doc_id}({e})")
+    return {"successList": success_list, "failList": fail_list}
+
+
 async def delete_document(db: AsyncSession, doc_id: str) -> None:
     """联动删除 MinIO 文件 + Milvus 向量 + MySQL(chunks+document)。"""
     doc = await get_document(db, doc_id)

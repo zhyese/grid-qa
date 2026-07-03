@@ -33,6 +33,15 @@ class VectorRequest(BaseModel):
     docId: str
 
 
+class BatchVectorRequest(BaseModel):
+    docIds: List[str]
+
+
+class BatchVectorOut(BaseModel):
+    successList: List[dict] = []
+    failList: List[str] = []
+
+
 class VectorOut(BaseModel):
     docId: str
     vectorCount: int
