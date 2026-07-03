@@ -312,6 +312,7 @@ async def stream_answer(
                 "type": "done", "responseTime": round(time.time() - t0, 3),
                 "hallucinationRate": cached.get("hallucinationRate", 0.0),
                 "conversationId": cid, "cached": True, "cacheLayer": "redis",
+                "route": cached.get("route", "hybrid"),
             }
             return
 
@@ -340,6 +341,7 @@ async def stream_answer(
                         "type": "done", "responseTime": round(time.time() - t0, 3),
                         "hallucinationRate": mysql_cached.get("hallucinationRate", 0.0),
                         "conversationId": cid, "cached": True, "cacheLayer": "mysql",
+                        "route": mysql_cached.get("route", "hybrid"),
                     }
                     return
             except Exception as e:
