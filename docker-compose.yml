@@ -155,6 +155,7 @@ services:
     environment:
       # 容器内用 service name + 内部端口连接（覆盖 .env 的 localhost）
       DATABASE_URL: mysql+aiomysql://grid:grid123456@mysql:3306/grid_qa?charset=utf8mb4
+      REDIS_URL: redis://redis:6379/0
       MINIO_ENDPOINT: minio:9000
       MILVUS_HOST: milvus
       NEO4J_URI: bolt://neo4j:7687
