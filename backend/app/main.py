@@ -42,6 +42,17 @@ async def lifespan(app: FastAPI):
 
     ensure_collections()  # 确保 云 + bge 双 collection
 
+    # 预热本地 bge 模型：首次加载需从 HF 下载(经代理 ~80s)，懒加载会让后端启动后
+    # 首个问答触发该延迟(用户体感“同一问题偶尔 100s”)。提前在启动期加载进内存，
+    # 之后每次 encode 仅 0.02s。离线/无 bge 环境跳过，不阻塞启动。
+    try:
+        from app.providers.embedding.bge_embedding import _get_model
+
+        await asyncio.to_thread(_get_model)
+        print("[bge] 本地模型预热完成")
+    except Exception as e:
+        print(f"[bge] 预热跳过：{e}")
+
     try:
         from app.clients import neo4j_client
         from app.core.obs import degraded
