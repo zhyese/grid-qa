@@ -115,8 +115,10 @@ async def answer(
                 "confidence": "refused", "cragAction": "self_rag_skip",
             }
 
-    # 多轮不走缓存（上下文变化）；单轮命中热点缓存
+    # 多轮不走缓存（上下文变化）；单轮走三级缓存：Redis(L1) → MySQL(L2) → LLM(L3)
+    cache_layer = "llm"  # 默认走 LLM
     if not conversation_id:
+        # L1: Redis 热点缓存
         try:
             cached = await redis_client.cache_get_json(_cache_key(model_type, nq))
         except Exception as e:
@@ -124,13 +126,33 @@ async def answer(
             cached = None
         if cached:
             cached["cached"] = True
+            cached["cacheLayer"] = "redis"
             cached["responseTime"] = round(time.time() - t0, 3)
             try:
                 from app.core import metrics
                 metrics.QA_TOTAL.labels(model_type or settings.LLM_PROVIDER, "true").inc()
+                metrics.CACHE_HIT.labels("redis").inc()
             except Exception:
                 pass
             return cached
+
+        # L2: MySQL 二级缓存（Redis miss，查 MySQL）
+        if settings.CACHE_PERSIST_ENABLE:
+            try:
+                from app.services.cache_persist import cache_get_mysql
+                mysql_cached = await cache_get_mysql(db, model_type, nq)
+                if mysql_cached:
+                    mysql_cached["cached"] = True
+                    mysql_cached["cacheLayer"] = "mysql"
+                    mysql_cached["responseTime"] = round(time.time() - t0, 3)
+                    try:
+                        from app.core import metrics
+                        metrics.QA_TOTAL.labels(model_type or settings.LLM_PROVIDER, "true").inc()
+                    except Exception:
+                        pass
+                    return mysql_cached
+            except Exception as e:
+                degraded("qa_cache_mysql", e)
 
     # 多轮历史（提前获取：供指代消解 + 拼 LLM 上下文，避免重复查）
     history: list[dict] = []
@@ -196,17 +218,28 @@ async def answer(
         "responseTime": round(time.time() - t0, 3),
         "hallucinationRate": _halluc,
         "cached": False,
+        "cacheLayer": "llm",
         "conversationId": conversation_id,
     }
 
-    # 仅单轮结果写缓存
-    try:
-        await redis_client.cache_set_json(_cache_key(model_type, nq), result, settings.QA_CACHE_TTL)
-    except Exception as e:
-        degraded("qa_cache_set", e)
+    # 仅单轮结果写缓存（Write-Through: MySQL → Redis）
+    if not conversation_id:
+        # L2: MySQL 持久化（先写，保证数据不丢）
+        if settings.CACHE_PERSIST_ENABLE:
+            try:
+                from app.services.cache_persist import cache_set_mysql
+                await cache_set_mysql(db, model_type, nq, query, result)
+            except Exception as e:
+                degraded("qa_cache_mysql_set", e)
+        # L1: Redis 热点（后写，MySQL 已成功）
+        try:
+            await redis_client.cache_set_json(_cache_key(model_type, nq), result, settings.QA_CACHE_TTL)
+        except Exception as e:
+            degraded("qa_cache_set", e)
     try:
         from app.core import metrics
         metrics.QA_TOTAL.labels(model_type or settings.LLM_PROVIDER, "false").inc()
+        metrics.CACHE_HIT.labels("llm").inc()
     except Exception:
         pass
     return result
@@ -235,9 +268,11 @@ async def stream_answer(
                    "conversationId": conversation_id or "", "cached": False}
             return
 
-    # 0) 单轮查热点缓存 → 命中则不调 LLM，一次性下发完整答案（cached=true）
+    # 0) 单轮三级缓存：Redis(L1) → MySQL(L2) → LLM(L3)
     #    regen=True（重新生成）跳过缓存读，强制重走 LLM
+    cache_layer = "llm"
     if is_single and not regen:
+        # L1: Redis 热点
         try:
             cached = await redis_client.cache_get_json(_cache_key(model_type, nq))
         except Exception as e:
@@ -256,14 +291,45 @@ async def stream_answer(
             try:
                 from app.core import metrics
                 metrics.QA_TOTAL.labels(_p, "true").inc()
+                metrics.CACHE_HIT.labels("redis").inc()
             except Exception:
                 pass
             yield {
                 "type": "done", "responseTime": round(time.time() - t0, 3),
                 "hallucinationRate": cached.get("hallucinationRate", 0.0),
-                "conversationId": cid, "cached": True,
+                "conversationId": cid, "cached": True, "cacheLayer": "redis",
             }
             return
+
+        # L2: MySQL 二级缓存
+        if settings.CACHE_PERSIST_ENABLE:
+            try:
+                from app.services.cache_persist import cache_get_mysql
+                mysql_cached = await cache_get_mysql(db, model_type, nq)
+                if mysql_cached:
+                    conv = await conversation_service.create_conversation(db, username, query)
+                    cid = conv.id
+                    try:
+                        await conversation_service.save_message(db, cid, "user", query)
+                        await conversation_service.save_message(db, cid, "assistant", mysql_cached.get("answer", ""))
+                    except Exception as e:
+                        degraded("conv_save", e)
+                    yield {"type": "meta", "sources": mysql_cached.get("retrievalSource", []), "conversationId": cid}
+                    yield {"type": "token", "content": mysql_cached.get("answer", "")}
+                    try:
+                        from app.core import metrics
+                        metrics.QA_TOTAL.labels(_p, "true").inc()
+                        metrics.CACHE_HIT.labels("mysql").inc()
+                    except Exception:
+                        pass
+                    yield {
+                        "type": "done", "responseTime": round(time.time() - t0, 3),
+                        "hallucinationRate": mysql_cached.get("hallucinationRate", 0.0),
+                        "conversationId": cid, "cached": True, "cacheLayer": "mysql",
+                    }
+                    return
+            except Exception as e:
+                degraded("qa_cache_mysql_stream", e)
 
     # 多轮历史 + 指代消解
     history: list[dict] = []
@@ -324,32 +390,39 @@ async def stream_answer(
     except Exception as e:
         degraded("conv_save", e)
 
-    # 4) 单轮写热点缓存
+    # 4) 单轮 Write-Through 双写缓存（MySQL → Redis）
     halluc = citation.estimate_hallucination(full, len(contexts))
     try:
         from app.core import metrics
         metrics.HALLUC.observe(halluc)
     except Exception:
         pass
+    cache_data = {
+        "answer": full,
+        "retrievalSource": [{"docName": c.get("docName", ""), "text": c["chunk"][:200]} for c in contexts],
+        "responseTime": round(time.time() - t0, 3),
+        "hallucinationRate": halluc,
+        "cached": False,
+        "cacheLayer": "llm",
+        "conversationId": conversation_id,
+    }
     if is_single:
+        # L2: MySQL 持久化（先写）
+        if settings.CACHE_PERSIST_ENABLE:
+            try:
+                from app.services.cache_persist import cache_set_mysql
+                await cache_set_mysql(db, model_type, nq, query, cache_data)
+            except Exception as e:
+                degraded("qa_cache_mysql_set_stream", e)
+        # L1: Redis 热点（后写）
         try:
-            await redis_client.cache_set_json(
-                _cache_key(model_type, nq),
-                {
-                    "answer": full,
-                    "retrievalSource": [{"docName": c.get("docName", ""), "text": c["chunk"][:200]} for c in contexts],
-                    "responseTime": round(time.time() - t0, 3),
-                    "hallucinationRate": halluc,
-                    "cached": False,
-                    "conversationId": conversation_id,
-                },
-                settings.QA_CACHE_TTL,
-            )
+            await redis_client.cache_set_json(_cache_key(model_type, nq), cache_data, settings.QA_CACHE_TTL)
         except Exception as e:
             degraded("qa_cache_set", e)
     try:
         from app.core import metrics
         metrics.QA_TOTAL.labels(_p, "false").inc()
+        metrics.CACHE_HIT.labels("llm").inc()
     except Exception:
         pass
     yield {
@@ -363,6 +436,7 @@ async def stream_answer(
         "cragGrade": crag_grade,
         "conversationId": conversation_id,
         "cached": False,
+        "cacheLayer": "llm",
     }
 
 

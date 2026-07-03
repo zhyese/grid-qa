@@ -38,6 +38,9 @@ async def answer(
         db, body.query, body.modelType, conversation_id=body.conversationId,
         username=user.username, tenant=user.tenant_id,
     )
+    # X-Cache-Hit 响应头：供 HTTP 层面调试/监控缓存分层命中了哪层
+    layer = data.get("cacheLayer") or data.get("cached") and "redis" or "llm"
+    request.state.cache_layer = layer
     await write_log(db, user.username, "智能问答", f"提问：{body.query[:50]}")
     return success(data, "问答成功")
 

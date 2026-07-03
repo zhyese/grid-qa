@@ -79,7 +79,12 @@ class Settings(BaseSettings):
 
     # ---------- Redis（热点问答缓存）----------
     REDIS_URL: str = "redis://localhost:6379/0"
-    QA_CACHE_TTL: int = 3600
+    REDIS_MAXMEMORY: str = "10mb"       # allkeys-lru 内存上限
+    QA_CACHE_TTL: int = 259200          # 3 天（72h），原 3600 命中率太低
+    # ---------- MySQL 二级缓存（Redis LRU 淘汰持久化）----------
+    CACHE_PERSIST_ENABLE: bool = True     # Write-Through 双写 MySQL
+    CACHE_PERSIST_CLEANUP_HOURS: int = 6  # 应用层清理周期（小时），兜底 MySQL Event Scheduler
+    CACHE_TIERED_TTL_ENABLE: bool = True  # 分层 TTL：手册 7d / 案例 3d / 实时 5min
 
     # ---------- Neo4j（知识图谱：设备-故障-处置 多跳推理）----------
     NEO4J_URI: str = "bolt://localhost:7687"

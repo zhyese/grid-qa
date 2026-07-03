@@ -12,6 +12,7 @@ from app.models.document_version import DocumentVersion  # noqa: F401
 from app.models.feedback import Feedback  # noqa: F401  确保表被注册
 from app.models.kg_triple import KgTriple  # noqa: F401  确保表被注册
 from app.models.operation_log import OperationLog  # noqa: F401  确保表被注册
+from app.models.qa_cache import QaCache  # noqa: F401  确保表被注册
 from app.models.user import User  # noqa: F401
 
 

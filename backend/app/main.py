@@ -76,11 +76,41 @@ async def lifespan(app: FastAPI):
     app.state.component_health_task = asyncio.create_task(
         _refresh_component_health_loop()
     )
+    # 缓存持久化：后台清理 + 指标刷新（Phase 2-3）
+    if getattr(settings, "CACHE_PERSIST_ENABLE", False):
+        try:
+            from app.services.cache_persist import cleanup_loop, metrics_loop
+            app.state.cache_cleanup_task = asyncio.create_task(
+                cleanup_loop(settings.CACHE_PERSIST_CLEANUP_HOURS * 3600)
+            )
+            app.state.cache_metrics_task = asyncio.create_task(metrics_loop())
+            print("[cache] 缓存持久化后台任务已启动")
+        except Exception as e:
+            print(f"[cache] 缓存持久化启动跳过：{e}")
+    # 缓存预热：从 MySQL/golden_qa.json 预载高频问题到 Redis（Phase 3）
+    try:
+        from app.services.cache_warmup import warmup_hot_queries, warmup_from_file
+        from app.db.session import AsyncSessionLocal
+        async with AsyncSessionLocal() as _db:
+            n = await warmup_hot_queries(_db, topk=50)
+            if n:
+                print(f"[cache] 热点预热 {n} 条（来自 qa_cache hit_count Top-50）")
+            m = await warmup_from_file()
+            if m:
+                print(f"[cache] golden 预热 {m} 条")
+    except Exception as e:
+        print(f"[cache] 预热跳过：{e}")
     # ---- 关闭 ----
     yield
     _task = getattr(app.state, "component_health_task", None)
     if _task:
         _task.cancel()
+    _cache_cleanup = getattr(app.state, "cache_cleanup_task", None)
+    if _cache_cleanup:
+        _cache_cleanup.cancel()
+    _cache_metrics = getattr(app.state, "cache_metrics_task", None)
+    if _cache_metrics:
+        _cache_metrics.cancel()
     try:
         from app.clients import neo4j_client
         await neo4j_client.close()
@@ -246,6 +276,10 @@ async def metrics_middleware(request: Request, call_next):
             metrics.ERRORS.labels("http5xx", str(response.status_code)).inc()
     except Exception:
         pass
+    # X-Cache-Hit：从 request.state 读取缓存层，注入响应头（供调试/监控）
+    cache_layer = getattr(request.state, "cache_layer", None)
+    if cache_layer:
+        response.headers["X-Cache-Hit"] = cache_layer
     return response
 
 

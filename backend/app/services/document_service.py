@@ -319,6 +319,12 @@ async def delete_document(db: AsyncSession, doc_id: str) -> None:
     await db.execute(delete(Chunk).where(Chunk.doc_id == doc_id))
     await db.execute(delete(Document).where(Document.id == doc_id))
     await db.commit()
+    # 缓存失效：文档删除后，关联的 QA 缓存标记过期（Phase 3）
+    try:
+        from app.services.cache_persist import cache_invalidate_for_doc_async
+        await cache_invalidate_for_doc_async(doc_id)
+    except Exception:
+        pass
 
 
 async def get_stats(db: AsyncSession) -> dict:

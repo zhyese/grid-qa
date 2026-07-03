@@ -1,0 +1,175 @@
+{
+  "uid": "grid-qa-cache",
+  "title": "电网运维 RAG — 缓存分层监控 (Phase 2-3)",
+  "schemaVersion": 38,
+  "version": 1,
+  "refresh": "10s",
+  "time": {
+    "from": "now-3h",
+    "to": "now"
+  },
+  "tags": ["cache", "rag"],
+  "panels": [
+    {
+      "id": 1,
+      "title": "缓存命中率 (分层堆叠)",
+      "type": "timeseries",
+      "datasource": {"type": "prometheus"},
+      "targets": [
+        {
+          "expr": "sum(rate(grid_cache_hit_total{layer=\"redis\"}[5m]))",
+          "legendFormat": "Redis L1",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(rate(grid_cache_hit_total{layer=\"mysql\"}[5m]))",
+          "legendFormat": "MySQL L2",
+          "refId": "B"
+        },
+        {
+          "expr": "sum(rate(grid_cache_hit_total{layer=\"llm\"}[5m]))",
+          "legendFormat": "LLM L3 (miss)",
+          "refId": "C"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "custom": {"stacking": {"mode": "normal"}},
+          "color": {"mode": "palette-classic"}
+        }
+      },
+      "gridPos": {"x": 0, "y": 0, "w": 12, "h": 8}
+    },
+    {
+      "id": 2,
+      "title": "缓存命中率 % (Gauge)",
+      "type": "gauge",
+      "datasource": {"type": "prometheus"},
+      "targets": [
+        {
+          "expr": "sum(rate(grid_cache_hit_total{layer=~\"redis|mysql\"}[5m])) / sum(rate(grid_cache_hit_total[5m])) * 100",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0, "max": 100,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "red", "value": 0},
+              {"color": "yellow", "value": 40},
+              {"color": "green", "value": 70}
+            ]
+          }
+        }
+      },
+      "gridPos": {"x": 12, "y": 0, "w": 6, "h": 8}
+    },
+    {
+      "id": 3,
+      "title": "MySQL 缓存行数",
+      "type": "stat",
+      "datasource": {"type": "prometheus"},
+      "targets": [
+        {
+          "expr": "grid_cache_mysql_rows",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "green", "value": 0},
+              {"color": "yellow", "value": 5000},
+              {"color": "red", "value": 10000}
+            ]
+          }
+        }
+      },
+      "gridPos": {"x": 18, "y": 0, "w": 6, "h": 8}
+    },
+    {
+      "id": 4,
+      "title": "QA 响应延迟 P50/P95 (缓存 vs LLM)",
+      "type": "timeseries",
+      "datasource": {"type": "prometheus"},
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum(rate(grid_http_latency_seconds_bucket{path=\"/api/qa/answer\"}[5m])) by (le))",
+          "legendFormat": "P50",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(grid_http_latency_seconds_bucket{path=\"/api/qa/answer\"}[5m])) by (le))",
+          "legendFormat": "P95",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {"unit": "s"}
+      },
+      "gridPos": {"x": 0, "y": 8, "w": 12, "h": 8}
+    },
+    {
+      "id": 5,
+      "title": "缓存淘汰 / 清理速率",
+      "type": "timeseries",
+      "datasource": {"type": "prometheus"},
+      "targets": [
+        {
+          "expr": "sum(rate(grid_cache_evicted_total[5m])) by (reason)",
+          "legendFormat": "{{reason}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {"unit": "ops/min"}
+      },
+      "gridPos": {"x": 12, "y": 8, "w": 12, "h": 8}
+    },
+    {
+      "id": 6,
+      "title": "MySQL 缓存写入失败",
+      "type": "stat",
+      "datasource": {"type": "prometheus"},
+      "targets": [
+        {
+          "expr": "sum(increase(grid_cache_mysql_fail_total[1h]))",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "green", "value": 0},
+              {"color": "yellow", "value": 1},
+              {"color": "red", "value": 10}
+            ]
+          }
+        }
+      },
+      "gridPos": {"x": 0, "y": 16, "w": 6, "h": 6}
+    },
+    {
+      "id": 7,
+      "title": "降级事件 (缓存相关)",
+      "type": "timeseries",
+      "datasource": {"type": "prometheus"},
+      "targets": [
+        {
+          "expr": "sum(rate(grid_degraded_total{tag=~\"qa_cache.*\"}[5m])) by (tag)",
+          "legendFormat": "{{tag}}",
+          "refId": "A"
+        }
+      ],
+      "gridPos": {"x": 6, "y": 16, "w": 18, "h": 6}
+    }
+  ]
+}

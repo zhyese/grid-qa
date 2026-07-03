@@ -67,6 +67,11 @@ AGENT_ITERS = Histogram("grid_agent_iters", "诊断 agent 循环深度(轮)",
                         buckets=(1, 2, 3, 4, 5, 6, float("inf")))
 # 告警闭环：Grafana alerting webhook 回调接收到的告警数（按 severity）
 ALERT_RECEIVED = Counter("grid_alert_received_total", "告警接收总数(Grafana回调)", ["severity"])
+# 缓存分层命中（Redis / MySQL / LLM）—— Phase 2 三级缓存可见性
+CACHE_HIT = Counter("grid_cache_hit_total", "缓存命中(分层)", ["layer"])
+CACHE_MYSQL_FAIL = Counter("grid_cache_mysql_fail_total", "MySQL 缓存写入失败次数")
+CACHE_MYSQL_ROWS = Gauge("grid_cache_mysql_rows", "qa_cache 表当前行数")
+CACHE_EVICTED = Counter("grid_cache_evicted_total", "淘汰/清理行数", ["reason"])
 
 
 def init_metric_series() -> None:
@@ -113,6 +118,14 @@ def init_metric_series() -> None:
         # 基础组件健康(先置 0，由后台周期任务刷为真实探活值)
         for _comp in ("mysql", "minio", "milvus", "redis"):
             COMPONENT_HEALTH.labels(_comp).set(0)
+        # 分层缓存命中（预注册 Redis/MySQL/LLM 三个 layer 序列）
+        for _layer in ("redis", "mysql", "llm"):
+            CACHE_HIT.labels(_layer).inc(0)
+        # 缓存淘汰原因
+        for _reason in ("lru", "ttl", "cleanup", "doc_update"):
+            CACHE_EVICTED.labels(_reason).inc(0)
+        # MySQL 缓存行数（初始 0）
+        CACHE_MYSQL_ROWS.set(0)
     except Exception:
         # 预注册失败不影响服务启动
         pass
