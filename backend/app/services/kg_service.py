@@ -160,7 +160,7 @@ async def _extract_from_chunks(provider, chunks_text: list[str]) -> list[dict]:
 
 
 async def extract_triples(db: AsyncSession, doc_id: str, model_type: str | None = None) -> dict:
-    """对某文档分块批量抽取三元组，双写 MySQL + Neo4j（清旧写新）。"""
+    """对某文档分块批量抽取三元组，增量写 MySQL + Neo4j（不清旧，仅追加新条目）。"""
     doc = (await db.execute(select(Document).where(Document.id == doc_id))).scalar_one_or_none()
     if not doc:
         raise BizError("文档不存在", 404)
@@ -174,22 +174,26 @@ async def extract_triples(db: AsyncSession, doc_id: str, model_type: str | None 
     raw = await _extract_from_chunks(provider, [c.content for c in rows])
     triples = _normalize_triples(raw)
 
-    # 清旧：MySQL + Neo4j
-    await db.execute(delete(KgTriple).where(KgTriple.doc_id == doc_id))
-    try:
-        await neo4j_client.delete_by_doc(doc_id)
-    except Exception as e:
-        degraded("kg_neo4j_delete", e)
-    # 写 MySQL（统计/审计来源）
-    for tp in triples:
+    # ★ 增量追加：查已有三元组，只插入新条目（不清旧）
+    existing = (await db.execute(
+        select(KgTriple.subject, KgTriple.relation, KgTriple.object)
+        .where(KgTriple.doc_id == doc_id)
+    )).all()
+    existing_set = {(r[0], r[1], r[2]) for r in existing}
+    new_triples = [t for t in triples if (t["s"], t["r"], t["o"]) not in existing_set]
+
+    # 写 MySQL（仅新增，不删旧）
+    for tp in new_triples:
         db.add(KgTriple(subject=tp["s"], relation=tp["r"], object=tp["o"],
                         doc_id=doc_id, doc_name=doc.doc_name))
     await db.commit()
-    # 写 Neo4j（图查询/多跳推理）
-    try:
-        await neo4j_client.upsert_triples(triples, doc_id, doc.doc_name)
-    except Exception as e:
-        degraded("kg_neo4j_write", e)
+
+    # 写 Neo4j（MERGE 幂等，仅新增边，不去旧）
+    if new_triples:
+        try:
+            await neo4j_client.upsert_triples(new_triples, doc_id, doc.doc_name)
+        except Exception as e:
+            degraded("kg_neo4j_write", e)
 
     try:
         from app.core import metrics
@@ -198,7 +202,8 @@ async def extract_triples(db: AsyncSession, doc_id: str, model_type: str | None 
         metrics.KB_TRIPLES.set(total)
     except Exception:
         pass
-    return {"tripleCount": len(triples), "docName": doc.doc_name, "sample": triples[:30]}
+    return {"tripleCount": len(triples), "newCount": len(new_triples),
+            "docName": doc.doc_name, "sample": triples[:30]}
 
 
 async def _get_graph_mysql(db: AsyncSession, entity: str, limit: int) -> dict:
