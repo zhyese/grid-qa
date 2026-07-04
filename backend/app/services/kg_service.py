@@ -295,4 +295,19 @@ async def get_stats(db: AsyncSession) -> dict:
         "entityTotal": entity_total,
         "relationTotal": rel_total,
         "byDoc": [{"docName": r[0] or "未知", "count": r[1]} for r in by_doc],
+        "hubCount": await _hub_count(),
     }
+
+
+async def _hub_count() -> int:
+    """Neo4j 中有出度的实体数（可作为影响链传播源头的实体数）。"""
+    try:
+        from app.clients.neo4j_client import _get
+        async with _get().session() as s:
+            result = await s.run(
+                "MATCH (n:Entity)-[r:REL]->() RETURN count(DISTINCT n) AS cnt"
+            )
+            rec = await result.single()
+            return rec["cnt"] if rec else 0
+    except Exception:
+        return 0

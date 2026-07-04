@@ -5,7 +5,7 @@
       <div class="stat stat-accent"><div class="stat-val">{{ stats.tripleTotal }}</div><div class="stat-lbl">三元组</div></div>
       <div class="stat stat-accent"><div class="stat-val">{{ stats.entityTotal }}</div><div class="stat-lbl">实体</div></div>
       <div class="stat stat-accent"><div class="stat-val">{{ stats.relationTotal }}</div><div class="stat-lbl">关系类型</div></div>
-      <div class="stat stat-accent"><div class="stat-val">{{ paths.length }}</div><div class="stat-lbl">影响链</div></div>
+      <div class="stat stat-accent"><div class="stat-val">{{ stats?.hubCount ?? 0 }}</div><div class="stat-lbl">可追溯实体</div></div>
     </div>
 
     <div class="tabs">
@@ -138,7 +138,8 @@ async function doExtract() {
 }
 function onResize() { chart && chart.resize() }
 watch(tab, async (t) => { if (t === 'graph') { await nextTick(); chart && chart.resize() } })
-onMounted(async () => { await Promise.all([loadStats(), loadDocs(), loadGraph('')]); window.addEventListener('resize', onResize) })
+async function loadHubs() { try { hubs.value = (await getKgInfluence(15)).data.hubs || [] } catch (e) {} }
+onMounted(async () => { await Promise.all([loadStats(), loadDocs(), loadGraph(''), loadHubs()]); window.addEventListener('resize', onResize) })
 onBeforeUnmount(() => { window.removeEventListener('resize', onResize); chart && chart.dispose() })
 </script>
 
