@@ -116,10 +116,10 @@ async def answer(
                 "confidence": "refused", "cragAction": "self_rag_skip",
             }
 
-    # 多轮不走缓存（上下文变化）；单轮走三级缓存：Redis(L1) → MySQL(L2) → LLM(L3)
+    # 多轮不走缓存（上下文变化）；单轮走三级缓存：Redis(L1) → 语义缓存(L1.5) → MySQL(L2) → LLM(L3)
     cache_layer = "llm"  # 默认走 LLM
     if is_single:
-        # L1: Redis 热点缓存
+        # L1: Redis 热点缓存（精确 key 匹配）
         try:
             cached = await redis_client.cache_get_json(_cache_key(model_type, nq))
         except Exception as e:
@@ -136,6 +136,26 @@ async def answer(
             except Exception:
                 pass
             return cached
+
+        # L1.5: 语义缓存（embedding 相似度匹配）
+        if getattr(settings, "SEMANTIC_CACHE_ENABLE", False):
+            try:
+                from app.rag.semantic_cache import semantic_cache_get
+                sc_data, sc_type, sc_sim = await semantic_cache_get(model_type, nq)
+                if sc_data and sc_type in ("semantic_high", "semantic_medium"):
+                    sc_data["cached"] = True
+                    sc_data["cacheLayer"] = f"semantic_{sc_type}"
+                    sc_data["semanticSimilarity"] = round(sc_sim, 4)
+                    sc_data["responseTime"] = round(time.time() - t0, 3)
+                    try:
+                        from app.core import metrics
+                        metrics.QA_TOTAL.labels(model_type or settings.LLM_PROVIDER, "true").inc()
+                        metrics.CACHE_HIT.labels("semantic").inc()
+                    except Exception:
+                        pass
+                    return sc_data
+            except Exception as e:
+                degraded("semantic_cache_get", e)
 
         # L2: MySQL 二级缓存（Redis miss，查 MySQL）
         if settings.CACHE_PERSIST_ENABLE:
@@ -250,6 +270,13 @@ async def answer(
             await redis_client.cache_set_json(_cache_key(model_type, nq), result, settings.QA_CACHE_TTL)
         except Exception as e:
             degraded("qa_cache_set", e)
+        # L1.5: 语义缓存索引（异步，不阻塞）
+        if getattr(settings, "SEMANTIC_CACHE_ENABLE", False):
+            try:
+                from app.rag.semantic_cache import semantic_cache_set
+                await semantic_cache_set(model_type, nq, _cache_key(model_type, nq))
+            except Exception as e:
+                degraded("semantic_cache_set", e)
     try:
         from app.core import metrics
         metrics.QA_TOTAL.labels(model_type or settings.LLM_PROVIDER, "false").inc()

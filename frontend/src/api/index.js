@@ -46,6 +46,18 @@ export const generateTicket = (task, modelType) => request.post('/domain/ticket'
 export const auditTicket = (ticketText, ticketType, modelType) =>
   request.post('/domain/ticket/audit', { ticketText, ticketType, modelType })
 
+// 两票全生命周期管理
+export const createTicket = (data) => request.post('/domain/ticket/create', data)
+export const listTickets = (params) => request.get('/domain/ticket/list', { params })
+export const getTicket = (id) => request.get(`/domain/ticket/${id}`)
+export const submitTicket = (id) => request.post(`/domain/ticket/${id}/submit`)
+export const reviewTicket = (id, approved, comment) => request.post(`/domain/ticket/${id}/review`, { approved, comment })
+export const issueTicket = (id) => request.post(`/domain/ticket/${id}/issue`)
+export const executeTicket = (id, data) => request.post(`/domain/ticket/${id}/execute`, data)
+export const archiveTicket = (id) => request.post(`/domain/ticket/${id}/archive`)
+export const deleteTicket = (id) => request.delete(`/domain/ticket/${id}`)
+export const getTicketStats = () => request.get('/domain/ticket-stats')
+
 // 流式问答（SSE）：fetch + ReadableStream，支持 JWT header（EventSource 无法带 header）
 // signal：AbortController.signal，用于「停止生成」；regen：跳过缓存重新生成
 export const streamAnswer = async (query, modelType, conversationId, onEvent, signal, regen = false) => {

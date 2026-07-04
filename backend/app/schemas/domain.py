@@ -33,3 +33,37 @@ class DiagnoseAgentRequest(BaseModel):
 class DiagnoseDebateRequest(BaseModel):
     symptom: str                        # 故障症状描述
     modelType: Optional[str] = None
+
+
+# ===== 两票全生命周期 =====
+
+
+class TicketCreateRequest(BaseModel):
+    ticketType: str = "操作票"
+    task: str = ""
+    device: str = ""
+    location: str = ""
+    steps: list[str] = []
+    safety: list[str] = []
+    risks: list[str] = []
+    notes: str = ""
+
+
+class TicketListRequest(BaseModel):
+    status: str = ""
+    ticketType: str = ""
+    creator: str = ""
+    page: int = 1
+    size: int = 20
+
+
+class TicketReviewRequest(BaseModel):
+    approved: bool
+    comment: str = ""
+
+
+class TicketExecuteRequest(BaseModel):
+    executor: str = ""
+    supervisor: str = ""
+    log: str = ""
+    deviation: str = ""
