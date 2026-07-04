@@ -131,116 +131,123 @@ graph TB
 ## 系统架构 竖版
 ```mermaid
 flowchart TD
-    %% 定义样式（new=粉色虚线，标注 v2 新增节点，一眼看增量）
+    %% 竖版全景：①写入→存储→②读取→③领域 四流贯通；★核心卖点 粉色虚线=v2新增
     classDef client fill:#e1f5fe,stroke:#03a9f4,stroke-width:2px;
     classDef process fill:#ffffff,stroke:#ff9800,stroke-width:2px;
     classDef storage fill:#ffffff,stroke:#4caf50,stroke-width:2px;
     classDef llm fill:#ffffff,stroke:#9c27b0,stroke-width:2px;
     classDef new fill:#fce4ec,stroke:#e91e63,stroke-width:2px,stroke-dasharray:5 3;
 
-    User(["用户/前端 Vue3<br/>Chat · 🩺Diagnose · Documents · Admin"]):::client
+    User(["用户 / 前端 Vue3<br/>Chat · 🩺Diagnose · Documents · Admin · 🔬RetrievalDebug"]):::client
 
-    subgraph WriteFlow ["① 文档写入流 (离线知识构建)"]
+    subgraph WriteFlow["① 文档写入流 · 离线知识构建(五库联动)"]
         direction TB
-        Upload["上传 PDF/Word/Excel/图片"]:::process
-        Parse["结构感知分块<br/>表格整体 · 父子两层"]:::new
-        EmbedRoute{"双 Embedding 路由<br/>大走云 / 小走 bge"}:::process
-        EqTag["设备自动打标 equipment_tags"]:::new
-        ExtractKG["后台异步:schema 约束抽取(13关系)<br/>+ 实体归一/去重/噪声过滤"]:::new
+        Upload["上传 PDF/Word/Excel/图片/扫描件<br/>批量≤5 单≤100M · ★同名归档版本管理+回滚 · 租户隔离"]:::process
+        Parse["结构化解析<br/>表格→markdown · Excel台账 · 扫描件OCR(rapidocr) · ★VLM图片语义"]:::new
+        Chunk["结构感知分块<br/>表格整体 · 父子两层(chunk_type/parent_idx/section)"]:::new
+        EqTag["设备自动打标 equipment_tags<br/>全文匹配标准术语→设备维度"]:::new
+        EmbRoute{"★ 双 Embedding 路由<br/>字数&gt;阈值→云 / ≤阈值→bge"}:::process
+        ExtKG["后台异步建图谱<br/>schema约束(13关系)+实体归一+关系收敛+去重+噪声过滤+增量追加"]:::new
     end
 
-    subgraph StorageLayer ["各司其职的存储层"]
+    subgraph StorageLayer["各司其职的存储层"]
         direction TB
         MinIO[("MinIO 原文")]:::storage
-        MySQL[("MySQL Chunks(父子/类型/章节)<br/>三元组 · 设备标签 · 对话 · 反馈<br/>★qa_cache L2冷备")]:::storage
+        MySQL[("MySQL chunks(父子/类型/章节)·三元组·设备标签·对话·反馈<br/>★document_versions · ★qa_cache L2冷备")]:::storage
         MilvusC[("Milvus 云向量 1024维")]:::storage
         MilvusB[("Milvus bge向量 512维")]:::storage
-        Neo4j[("Neo4j 图谱(消歧收敛)")]:::storage
-        Redis[("Redis ★10MB LRU<br/>热点缓存 · query向量")]:::storage
+        Neo4j[("Neo4j 图谱(Entity-[:REL])")]:::storage
+        Redis[("Redis ★10MB LRU<br/>热点缓存 · query向量 · 运行时配置")]:::storage
     end
 
-    subgraph ReadFlow ["② 问答读取流 (在线 RAG · ★路由 · ★三级缓存 · CRAG 自纠错 · 真可信)"]
+    subgraph ReadFlow["② 问答读取流 · 在线RAG(★路由·★三级缓存·CRAG自纠错·真可信)"]
         direction TB
-        Guard["🛡️ prompt injection 告警"]:::new
-        RouterLayer["★ 查询路由层<br/>sparse(BM25) | dense(向量) | hybrid(全链路)"]:::new
-        ThreeCache["★ 三级缓存<br/>Redis L1(1ms) → MySQL L2 → LLM L3"]:::new
-        CheckCache{"命中热点缓存?"}:::process
-        Standalone["standalone 指代消解<br/>+ HyDE / 多查询分解"]:::new
-        Retrieval["混合检索:双路向量 + BM25 → RRF"]:::process
-        Rerank["Rerank 重排"]:::process
-        Parent["parent 召回大块上下文"]:::new
-        CRAG{"CRAG 分级纠错<br/>v1 top1分 / v2 per-doc LLM"}:::new
-        Rewrite["改写 Query 重检"]:::process
-        Refuse["低置信度 refused 拒答"]:::process
-        GenPrompt["融合大块+图谱+置信度 构建 Prompt"]:::process
-        StreamGen["LLM SSE 流式生成"]:::process
-        Safe["脱敏(PII) + ⚠高风险标记"]:::new
-        Faith["异步:真 faithfulness<br/>LLM-judge 覆盖幻觉率"]:::new
+        Guard["🛡️ 入站 prompt injection 告警<br/>+ ★Self-RAG 非运维问题跳过检索直接拒答"]:::new
+        Cache3L["★ 三级缓存(仅单轮·regen跳过)<br/>L1 Redis 1ms → L2 MySQL 1-50ms → L3 LLM全链路"]:::new
+        Route["★ 智能路由 · 6维特征决策树&lt;1ms<br/>标准/超短→sparse · 数值→sparse_first · 故障口语/同义→dense · 默认·低置信→hybrid"]:::new
+        QueryEnh["查询增强<br/>query改写 · 多查询分解 · HyDE假设文档"]:::new
+        Retrieval["混合检索(按路由调度)<br/>sparse:仅BM25 · dense:仅双路向量 · hybrid/sparse_first:双路+BM25"]:::process
+        FuseRRF["RRF融合(k=60) / 单路排序"]:::process
+        RR["Rerank gte-rerank-v2<br/>失败降级回退RRF · 高置信sparse可跳过"]:::process
+        Meta["★ 元数据过滤<br/>租户隔离 + docType + equipment"]:::new
+        MMR["MMR多样性 λ=0.6 选TopK"]:::process
+        Parent["small-to-big 父块召回大上下文"]:::new
+        CRAG{"★ CRAG 分级纠错<br/>v1 top1分 / v2 per-doc LLM逐条"}:::new
+        Rewrite["incorrect→query改写重检索(force)"]:::process
+        Refuse["仍低分→refused 保守拒答(零幻觉)"]:::process
+        Graph["GraphRAG 查Neo4j三元组<br/>jieba关键词→结构化上下文"]:::new
+        GenPrompt["融合 父块+图谱+置信度 构建Prompt<br/>低置信追加『标注不确定』"]:::process
+        StreamGen["LLM SSE 流式生成 · 真温度(rt_temperature)"]:::process
+        Safe["脱敏(PII) + ⚠高风险标记(highRisk badge)"]:::new
+        Faith["异步:真faithfulness /qa/faithfulness<br/>LLM-judge · dislike自动打分"]:::new
     end
 
-    subgraph DomainFlow ["③ 领域增强 (/domain · 复用检索+图谱)"]
+    subgraph DomainFlow["③ 领域增强 /domain(复用检索+图谱)"]
         direction TB
         Diagnose["🩺 故障诊断:多查询→检索→因果链→原因排序"]:::new
-        AgentDiag["🤖 Agentic 深度诊断:function-calling 自主调工具(检索/图谱/案例/两票)≤6轮"]:::new
+        AgentDiag["🤖 Agentic深度诊断:function-calling自主调工具≤6轮"]:::new
         Similar["📚 相似历史案例检索"]:::new
         Ticket["📝 两票辅助生成"]:::new
-        TicketAudit["🔍 两票审核:规则引擎+LLM 双层"]:::new
+        TicketAudit["🔍 两票审核:规则引擎+LLM双层"]:::new
     end
 
-    subgraph CloudModels ["模型服务 Provider"]
+    subgraph CloudModels["模型服务 Provider(openai SDK·三家可切换)"]
         direction TB
         LLM_Chat["LLM DeepSeek / Qwen / Doubao"]:::llm
-        LLM_Embed["云 Embedding 百炼/火山"]:::llm
+        LLM_Embed["云Embedding 百炼/火山 1024维"]:::llm
         LLM_Rerank["Rerank gte-rerank-v2"]:::llm
+        LLM_VLM["VLM Qwen-VL 图片语义"]:::llm
     end
 
-    %% 写入链路
+    %% —— 写入链路 ——
     User --"上传文档"--> Upload
     Upload --> MinIO
+    Upload --> MySQL
     Upload --> Parse
-    Parse --> MySQL
-    Parse --> EqTag
+    Parse --> Chunk
+    Chunk --> MySQL
+    Chunk --> EqTag
     EqTag --> MySQL
-    Parse --> EmbedRoute
-    EmbedRoute --"大文档"--> LLM_Embed
+    Chunk --> EmbRoute
+    EmbRoute --"大文档"--> LLM_Embed
     LLM_Embed --> MilvusC
-    EmbedRoute --"小文档"--> MilvusB
-    Parse -.-> ExtractKG
-    ExtractKG --> Neo4j
-    ExtractKG --> MySQL
+    EmbRoute --"小文档"--> MilvusB
+    EmbRoute -.->|后台异步建图谱| ExtKG
+    ExtKG --> Neo4j
+    ExtKG --> MySQL
+    Parse -.->|扫描件图片| LLM_VLM
 
-    %% 读取链路
+    %% —— 读取链路 ——
     User --"提问 · JWT"--> Guard
-    Guard --> ThreeCache
-    ThreeCache --"L1 Redis命中(1ms)"--> User
-    ThreeCache --"L2 MySQL命中(1-50ms)→回写L1"--> User
-    ThreeCache --"L3 miss→全链路"--> RouterLayer
-    RouterLayer --"sparse:仅BM25"--> Retrieval
-    RouterLayer --"dense:仅向量"--> Retrieval
-    RouterLayer --"hybrid:默认全链路"--> Retrieval
-    Standalone --> Retrieval
-    Retrieval -.-> MilvusC
-    Retrieval -.-> MilvusB
-    Retrieval --> LLM_Rerank
-    LLM_Rerank --> Rerank
-    Rerank --> Parent
-    Parent --> CRAG
-    CRAG --"ambiguous/incorrect"--> Rewrite
-    Rewrite -.-> Retrieval
+    Guard --"非运维→拒答(self_rag_skip)"--> User
+    Guard --> Cache3L
+    Guard -.->|多轮·跳过缓存·先standalone消解| Route
+    Cache3L --"L1 Redis命中(1ms)"--> User
+    Cache3L --"L2 MySQL命中(1-50ms)"--> User
+    Cache3L --"L3 miss"--> Route
+    Route --> QueryEnh
+    QueryEnh --> Retrieval
+    Retrieval -.->|双路向量| MilvusC
+    Retrieval -.->|双路向量| MilvusB
+    Retrieval --> FuseRRF
+    FuseRRF --> RR --> Meta --> MMR --> Parent --> CRAG
+    CRAG --"correct/ambiguous"--> Graph
+    CRAG --"incorrect"--> Rewrite
+    Rewrite -.->|force重检索| QueryEnh
     Rewrite --"仍低分"--> Refuse
-    CRAG --"correct"--> GenPrompt
-    GenPrompt -.-> Neo4j
-    GenPrompt --> LLM_Chat
-    LLM_Chat --> StreamGen
+    Refuse --"拒答(零幻觉)"--> User
+    Graph -.->|jieba查三元组| Neo4j
+    Graph --> GenPrompt
+    GenPrompt --> StreamGen
+    StreamGen -.->|流式调用| LLM_Chat
     StreamGen --> Safe
-    Safe --"⚠highRisk + 引用 + 置信度"--> User
+    Safe --"SSE: ⚠highRisk+引用+置信度+done"--> User
     Safe -.-> Faith
     Faith -.-> User
-    StreamGen --"★Write-Through L2先→L1后"--> MySQL
-    StreamGen --"★写L1缓存(TTL=72h)"--> Redis
-    Refuse --"拒答(零幻觉)"--> User
+    Safe --"★单轮 Write-Through L2先→L1后(TTL=72h)"--> MySQL
+    Safe --"★写L1缓存"--> Redis
 
-    %% 领域增强链路
+    %% —— 领域增强 ——
     User -.->|"诊断/两票/案例/审核"| Diagnose
     Diagnose -.-> Retrieval
     Diagnose -.-> Neo4j
@@ -253,12 +260,13 @@ flowchart TD
     User -.->|"两票审核"| TicketAudit
     TicketAudit --> LLM_Chat
 
-    %% 阶段色块
+    %% —— 阶段色块 ——
     style WriteFlow fill:#fff3e0,stroke:#ff9800
     style StorageLayer fill:#e8f5e9,stroke:#4caf50
     style ReadFlow fill:#fffde7,stroke:#f9a825
     style DomainFlow fill:#fce4ec,stroke:#e91e63
     style CloudModels fill:#ede7f6,stroke:#7e57c2
+
 ```
 
 
@@ -272,48 +280,73 @@ flowchart LR
     classDef llm fill:#ffffff,stroke:#9c27b0,stroke-width:2px
     classDef new fill:#fce4ec,stroke:#e91e63,stroke-width:2px,stroke-dasharray:5 3
 
-    subgraph W["① 写入 · 结构感知分块 + 自动建图谱"]
+    subgraph W["① 写入 · 结构感知分块 + 自动建图谱(五库联动)"]
         direction TB
-        U[上传文件<br/>PDF/Word/Excel/图片]:::io --> P[表格/Excel/OCR 解析]:::process
-        P --> SK[结构感知分块<br/>表格整体·父子]:::new
-        SK --> EQ[设备自动打标]:::new
-        SK --> V[Embedding 路由<br/>大走云/小走bge]:::process
-        V --> VMIL[("Milvus 向量<br/>grid_chunks/_bge")]:::storage
-        SK -.->|后台异步| K[schema 约束抽取<br/>13关系白名单+归一/去重/过滤]:::new
-        K --> KG[("MySQL 三元组<br/>+ Neo4j 图")]:::storage
+        U["上传文件<br/>PDF/Word/Excel/图片/扫描件"]:::io
+        Ver{"同名?<br/>→归档版本+回滚<br/>→租户隔离"}:::new
+        P["表格/Excel/OCR解析<br/>+ VLM图片语义(可选)"]:::process
+        SK["结构感知分块<br/>表格整体·父子两层"]:::new
+        EQ["设备自动打标 equipment_tags"]:::new
+        CLR1["清旧分块"]:::process
+        V{"Embedding路由<br/>字数&gt;阈值→云 / ≤阈值→bge"}:::process
+        CLR2["清旧向量(双collection)"]:::process
+        VMIL[("Milvus grid_chunks(云1024)<br/>grid_chunks_bge(bge512)")]:::storage
+        K["后台异步:schema约束抽取(13关系白名单)<br/>→容错解析→实体归一/关系收敛/去重/噪声过滤<br/>→增量追加(不清旧)"]:::new
+        KG[("MySQL三元组(统计/审计)<br/>+ Neo4j图(MERGE幂等)")]:::storage
+        U --> Ver --> P
+        P --> SK --> EQ --> CLR1
+        SK --> V --> CLR2 --> VMIL
+        EQ -.->|后台fire-and-forget| K
+        K --> KG
     end
 
-    subgraph R["② 读取 · 多策略检索 + CRAG自纠错 + 真可信"]
+    subgraph R["② 读取 · 多策略检索 + CRAG自纠错 + GraphRAG + 真可信"]
         direction TB
-        Q[提问]:::io --> GUARD[🛡️ injection 告警]:::new
-        GUARD --> CC{"热点缓存<br/>命中?"}:::process
-        CC -->|命中| A1[秒回 cached]:::io
-        CC -->|未命中| ST[standalone消解<br/>+HyDE/多查询]:::new
-        ST --> RT[检索<br/>双路向量+BM25→RRF]:::process
-        RT --> RRK[rerank 重排]:::llm
-        RRK --> PE[parent 召回大块]:::new
-        PE --> CG{"★CRAG分级<br/>v1 top1 / v2 per-doc"}:::new
-        CG -->|correct| PF["prompt<br/>大块+图谱"]:::process
-        CG -->|incorrect| RW[改写重检索]:::process
-        RW -.->|仍低分| RF[refused 拒答]:::process
-        PF --> L[LLM 生成<br/>+脱敏/⚠高风险]:::llm
-        L --> A2[引用+图谱N+置信度]:::io
-        A2 -.->|异步| FJ[真faithfulness<br/>LLM-judge]:::new
-        A2 -.->|写缓存| CC
+        Q["提问"]:::io
+        GUARD["🛡️ injection告警<br/>+ Self-RAG非运维拒答"]:::new
+        CC{"★三级缓存 L1/L2/L3<br/>(仅单轮)"}:::new
+        ST["standalone消解<br/>+ query改写·多查询·HyDE"]:::new
+        RT{"★6维路由<br/>sparse/dense/<br/>hybrid/sparse_first"}:::new
+        RT2["检索<br/>双路向量+BM25"]:::process
+        RRF["RRF融合 → rerank<br/>→ 元数据过滤 → MMR"]:::process
+        PE["small-to-big父块召回"]:::new
+        CG{"★CRAG分级<br/>v1 top1 / v2 per-doc"}:::new
+        RW["incorrect→改写重检索"]:::process
+        RF["仍低分→refused拒答"]:::process
+        GC["★GraphRAG<br/>jieba关键词查Neo4j<br/>→结构化上下文"]:::new
+        PF["prompt 父块+图谱+置信度"]:::process
+        L["LLM生成<br/>+脱敏/⚠高风险"]:::llm
+        Done["done: 引用+图谱N+置信度<br/>+highRisk+route"]:::io
+        FJ["异步:真faithfulness<br/>LLM-judge + 相关追问"]:::new
+        WT["★单轮Write-Through<br/>L2先→L1后(TTL=72h)"]:::new
+        Q --> GUARD --> CC
+        CC -->|命中| Done
+        CC -->|未命中| ST --> RT --> RT2 --> RRF --> PE --> CG
+        CG -->|correct/ambiguous| GC
+        CG -->|incorrect| RW
+        RW -.->|force| RT2
+        RW -->|仍低分| RF
+        GC --> PF --> L --> Done
+        Done -.-> WT
+        Done -.-> FJ
     end
 
-    subgraph D["③ 删除 · 五库联动清理"]
+    subgraph D["③ 删除 · 五库联动清理 + 缓存失效"]
         direction TB
-        DEL[删文档]:::io --> CL["MinIO·Milvus双collection<br/>MySQL chunks+三元组+设备标签<br/>Neo4j 边"]:::storage
+        DEL["删文档"]:::io
+        CL["MinIO原文 + Milvus双collection<br/>MySQL(chunks+三元组+document+versions) + Neo4j边"]:::storage
+        CINV["★关联QA缓存失效"]:::new
+        DEL --> CL --> CINV
     end
 
-    %% 闭环：写入产物 → 读取消费（数据真正流转）
-    VMIL -. 检索 .-> RT
-    KG -. 结构化上下文 .-> PF
+    %% 闭环：写入产物 → 读取消费（数据真正流转，不再孤岛）
+    VMIL -.->|检索| RT2
+    KG -.->|图谱结构化上下文| GC
 
     style W fill:#fff3e0,stroke:#ff9800
     style R fill:#fffde7,stroke:#f9a825
     style D fill:#eceff1,stroke:#607d8b
+
 ```
 
 ### 单次问答数据流时序（含 CRAG 自纠错）
@@ -321,92 +354,100 @@ flowchart LR
 ```mermaid
 sequenceDiagram
     autonumber
-    %% 注：本序列为智能问答(/qa/answer)固定 RAG 管线；🤖深度诊断(/domain/diagnose-agent)是独立 function-calling agent 流，见架构图③领域
+    %% 智能问答 /qa/answer(stream)固定RAG管线；🤖深度诊断是独立function-calling agent流，见架构图③
     participant FE as 前端
-    participant BE as 后端 /qa/answer<br/>(stream_answer)
-    participant Router as ★智能路由
-    participant Redis as ★Redis L1<br/>10MB LRU
-    participant MySQL as ★MySQL L2<br/>qa_cache
-    participant Milvus as Milvus(云+bge 双路)
-    participant Neo4j as Neo4j 图谱
+    participant BE as 后端 stream_answer
+    participant Route as ★智能路由
+    participant Milvus as Milvus(云+bge双路)
+    participant Neo4j as Neo4j图谱
+    participant Redis as ★Redis L1(10MB LRU)
+    participant MySQL as ★MySQL L2(qa_cache)
     participant LLM as LLM(DS/Qwen/Doubao)
 
-    FE->>BE: ① 提问 + JWT
+    FE->>BE: 提问 + JWT
 
     rect rgb(255, 243, 224)
-        Note right of BE: 🟠 ★ 三级缓存查询
-        BE->>BE: 🛡️ injection 告警 + 术语归一化
-        BE->>Redis: ② L1 查热点(仅单轮)
+        Note right of BE: 🟠 护栏 + ★三级缓存查询(仅单轮·regen跳过)
+        BE->>BE: term归一化 + 🛡️ injection告警
+        opt SELF_RAG_ENABLE
+            BE->>LLM: 判定是否运维问题
+            LLM-->>BE: 非运维 → 拒答(self_rag_skip)，跳过检索
+        end
+        BE->>Redis: L1 查热点
     end
 
     alt L1 命中(1ms)
         Redis-->>BE: 缓存答案
-        BE-->>FE: 秒回(cacheLayer=redis)
+        BE->>MySQL: 建会话 + 存消息(user/assistant)
+        BE-->>FE: meta/token/done 秒回(cacheLayer=redis)
     else L1 miss
-        BE->>MySQL: ③ L2 查qa_cache(MD5)
+        BE->>MySQL: L2 查 qa_cache(MD5)
         alt L2 命中(1-50ms)
             MySQL-->>BE: 缓存答案
-            BE->>Redis: async 回写L1
+            BE->>MySQL: 建会话 + 存消息
             BE-->>FE: 秒回(cacheLayer=mysql)
         else L2 miss
 
         rect rgb(255, 248, 220)
-            Note right of BE: 🟡 ★ 智能路由 + 检索增强
-            BE->>Router: ④ 特征提取+决策树(<1ms)
-            Router-->>BE: sparse|dense|hybrid
+            Note right of BE: 🟡 ★路由 + 查询增强 + 检索
             opt 多轮
-                BE->>LLM: ⑤ standalone 指代消解
+                BE->>LLM: standalone 指代消解(仅影响检索)
             end
-            opt 开启
-                BE->>LLM: HyDE 假设文档 / 多查询分解
+            BE->>Route: 6维特征决策树(<1ms)
+            Route-->>BE: sparse|dense|hybrid|sparse_first(低置信→hybrid)
+            opt hybrid/dense
+                BE->>LLM: query改写 + 多查询分解 + HyDE
             end
-            alt sparse路由: 仅BM25(~15ms)
-            else dense路由: 仅双路向量(~25ms)
-            else hybrid: 全链路
-                par ⑥ 双路并行检索
+            alt sparse: 仅BM25(高置信可跳rerank)
+            else dense: 仅双路向量
+            else hybrid/sparse_first: 全链路
+                par 双路并行检索
                     BE->>Milvus: 云向量 TopK
                 and
-                    BE->>Milvus: bge 向量 TopK
+                    BE->>Milvus: bge向量 TopK
                 end
-                BE->>BE: + BM25 → RRF 融合
+                BE->>Milvus: BM25
+                BE->>BE: RRF融合(k=60)
             end
-            opt skip_rerank=false
-                BE->>LLM: ⑦ rerank 重排
+            opt RERANK_ENABLE 且 未跳过
+                BE->>LLM: rerank重排(失败降级回退RRF)
             end
-            BE->>MySQL: ⑧ parent 召回大块上下文
+            BE->>MySQL: 元数据过滤(租户/docType/设备) → MMR → small-to-big父块
         end
 
         rect rgb(255, 228, 225)
-            Note right of BE: 🔴 CRAG 自纠错
-            BE->>BE: ⑨ ★ 分级(v1 top1分 / v2 per-doc LLM)
+            Note right of BE: 🔴 ★CRAG自纠错
+            BE->>BE: 分级(CRAG_PERDOC→LLM逐条 / 否则v1 top1分)
             alt incorrect(低相关)
-                BE->>LLM: 改写 query 重检索
-                BE->>BE: 再分级 → 仍低 = refused
+                BE->>LLM: 改写query force重检索
+                BE->>BE: 再分级 → 仍低 = refused(零幻觉)
             end
         end
 
-        BE->>Neo4j: ⑩ graph_context 因果三元组
+        BE->>Neo4j: GraphRAG: jieba关键词查因果三元组
 
         rect rgb(230, 245, 230)
-            Note right of BE: 🟢 SSE 流式生成
-            BE-->>FE: ⑪ meta(引用来源 + conversationId)
-            BE->>LLM: ⑩ prompt(大块+图谱+置信度)
-            loop 逐 token
+            Note right of BE: 🟢 SSE流式生成(meta/token/done)
+            BE-->>FE: meta(引用来源 + conversationId)
+            BE->>LLM: prompt(父块+图谱+置信度) 流式
+            loop 逐token
                 LLM-->>BE: token
                 BE-->>FE: token(打字机)
             end
         end
 
         rect rgb(243, 230, 255)
-            Note right of BE: 🟣 Write-Through 双写 + done
-            BE->>MySQL: ⑫ L2先写(qa_cache ON DUPLICATE KEY)
+            Note right of BE: 🟣 持久化 + ★Write-Through双写 + done
+            BE->>MySQL: 存对话消息(user + assistant)
+            BE->>MySQL: L2先写(qa_cache ON DUPLICATE KEY)
             BE->>Redis: L1后写(单轮·TTL=72h)
-            BE->>MySQL: ⑬ 存对话消息
-            BE-->>FE: ⑭ done(confidence·cacheLayer·⚠highRisk·引用)
+            BE-->>FE: done(confidence·cragAction·cragGrade·highRisk·graphCount·route·routeReason·cacheLayer·modelType)
         end
 
-        Note over FE,BE: ⑮ 答案渲染后异步：FE 拉真 faithfulness(LLM-judge) + 相关追问
+        Note over FE,BE: 答案渲染后异步: FE拉真faithfulness(/qa/faithfulness·LLM-judge) + 相关追问(/qa/related)；dislike自动打judge分
+        end
     end
+
 ```
 
 ---
