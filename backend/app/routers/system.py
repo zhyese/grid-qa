@@ -243,3 +243,14 @@ async def routing_config_get(
         "abTestRatio": router_config.ab_test_ratio,
         "hybridRoutes": list(router_config.hybrid_routes),
     }, "查询成功")
+
+
+@router.get("/knowledge/quality")
+async def knowledge_quality(
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+):
+    """P3-⑬ 知识库质量分 & 盲区诊断。"""
+    from app.services.knowledge_quality_service import score_knowledge_quality
+    report = await score_knowledge_quality(db)
+    return success(report, "查询成功")

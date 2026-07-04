@@ -208,6 +208,17 @@ async def list_feedbacks(
     return success(data, "查询成功")
 
 
+@router.post("/evidence-trace")
+async def evidence_trace(
+    body: FaithfulnessRequest,
+    user: User = Depends(get_current_user),
+):
+    """P4-⑮ 证据溯源：对答案做句级引用标注，返回每句话对应哪些资料。"""
+    from app.rag.citation import evidence_trace as _trace
+    trace = _trace(body.answer or "")
+    return success(trace, "分析完成")
+
+
 @router.get("/feedback-stats")
 async def feedback_stats(
     db: AsyncSession = Depends(get_db),

@@ -180,3 +180,10 @@ export const getEvalTrends = (days = 7) => request.get('/system/eval/trends', { 
 
 // P2-⑧ 路由配置 & A/B 测试
 export const getRoutingConfig = () => request.get('/system/routing/config')
+
+// P3-⑬ 知识库质量
+export const getKnowledgeQuality = () => request.get('/system/knowledge/quality')
+
+// P4-⑮ 证据溯源
+export const getEvidenceTrace = (answer, sources, modelType) =>
+  request.post('/qa/evidence-trace', { answer, sources, modelType })
