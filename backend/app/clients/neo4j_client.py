@@ -57,7 +57,7 @@ async def delete_by_doc(doc_id: str) -> None:
         await s.run("MATCH (:Entity)-[r:REL {doc_id: $doc_id}]->() DELETE r", doc_id=doc_id)
 
 
-async def get_neighbors(entity: str = "", limit: int = 300) -> dict:
+async def get_neighbors(entity: str = "", limit: int = 800) -> dict:
     """按实体模糊查邻居子图（echarts force：nodes + links）。"""
     async with _get().session() as s:
         if entity:

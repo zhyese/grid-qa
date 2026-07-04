@@ -101,7 +101,7 @@ async function loadDocs() { try { docs.value = (await listDocs()).data.list || [
 async function loadGraph(kw = '') {
   try {
     if (chart) { chart.dispose(); chart = null }
-    graph.value = (await getKgGraph(kw, 300)).data
+    graph.value = (await getKgGraph(kw, 800)).data
     await nextTick()
     if (tab.value === 'graph' && graphEl.value) render()
   } catch (e) { graph.value = { nodes: [], links: [], categories: [], total: 0 } }
