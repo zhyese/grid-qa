@@ -31,8 +31,8 @@
         </select>
         <button class="btn btn-primary" @click="doExtract" :disabled="!selDoc || extracting">{{ extracting ? '抽取中…(LLM 分块)' : '抽取三元组' }}</button>
       </div>
-      <div ref="graphEl" class="graph" v-show="graph.nodes.length"></div>
-      <div v-if="!graph.nodes.length" class="empty">暂无图谱数据，请在上方选择文档并抽取三元组</div>
+      <div ref="graphEl" class="graph" v-if="graph.nodes.length"></div>
+      <div v-else class="empty">暂无图谱数据，请在上方选择文档并抽取三元组</div>
     </div>
 
     <!-- 多跳影响链 -->
@@ -99,11 +99,16 @@ function show(msg) { toast.value = msg; clearTimeout(toastTimer); toastTimer = s
 async function loadStats() { try { stats.value = (await getKgStats()).data } catch (e) {} }
 async function loadDocs() { try { docs.value = (await listDocs()).data.list || [] } catch (e) {} }
 async function loadGraph(kw = '') {
-  try { graph.value = (await getKgGraph(kw, 300)).data; await nextTick(); if (tab.value === 'graph') render() } catch (e) {}
+  try {
+    if (chart) { chart.dispose(); chart = null }
+    graph.value = (await getKgGraph(kw, 300)).data
+    await nextTick()
+    if (tab.value === 'graph' && graphEl.value) render()
+  } catch (e) { graph.value = { nodes: [], links: [], categories: [], total: 0 } }
 }
 function render() {
-  if (!graphEl.value) return
-  if (!chart) chart = echarts.init(graphEl.value)
+  if (!graphEl.value || !graph.value.nodes.length) return
+  chart = echarts.init(graphEl.value)
   const cats = graph.value.categories?.length ? graph.value.categories : [{ name: '实体' }, { name: '属性/关系' }]
   chart.setOption({
     tooltip: { formatter: (p) => p.dataType === 'edge' ? `${p.data.source} —${p.data.value}→ ${p.data.target}` : p.data.name },
@@ -115,7 +120,7 @@ function render() {
       emphasis: { focus: 'adjacency', lineStyle: { width: 3 } },
       force: { repulsion: 220, edgeLength: [60, 150], gravity: 0.08 } }],
   })
-  chart.resize()
+  setTimeout(() => chart && chart.resize(), 100)
 }
 function searchGraph() { loadGraph(entity.value.trim()) }
 function resetGraph() { entity.value = ''; loadGraph('') }
