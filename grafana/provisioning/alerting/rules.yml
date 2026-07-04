@@ -107,3 +107,78 @@ groups:
         labels:
           severity: warning
         isPaused: false
+
+      # 5) 电网危险操作关键词命中（接地/放电/带电/短路 等 critical 级别，任意命中即告警）
+      - uid: grid-hazard-critical
+        title: 电网危险操作(critical)关键词命中
+        condition: A
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: prometheus
+            model:
+              expr: sum(increase(grid_safety_keyword_total{category=~"接地安全|放电|带电作业|短路"}[5m])) > 0
+              instant: true
+              range: false
+              refId: A
+        noDataState: OK
+        execErrState: Error
+        for: 0s
+        annotations:
+          summary: "5 分钟内 critical 类危险操作命中 {{ $value }} 次"
+          description: "检测到接地/放电/带电作业/短路等关键危险操作关键词，需关注查询者意图"
+        labels:
+          severity: critical
+        isPaused: false
+
+      # 6) 电网危险操作关键词命中（误操作/倒闸/安全措施 等 warning 级别，>=3 次告警）
+      - uid: grid-hazard-warning
+        title: 电网危险操作(warning)关键词命中
+        condition: A
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: prometheus
+            model:
+              expr: sum(increase(grid_safety_keyword_total{category=~"误操作|倒闸操作|安全措施"}[5m])) >= 3
+              instant: true
+              range: false
+              refId: A
+        noDataState: OK
+        execErrState: Error
+        for: 2m
+        annotations:
+          summary: "5 分钟内 warning 类危险操作命中 {{ $value }} 次"
+          description: "检测到误操作/倒闸操作/安全措施违规等关键词，可能反映操作风险意识不足"
+        labels:
+          severity: warning
+        isPaused: false
+
+      # 7) 设备异常关键词激增（设备工况恶化信号，>=5 次）
+      - uid: grid-hazard-device
+        title: 设备异常关键词激增
+        condition: A
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: prometheus
+            model:
+              expr: sum(increase(grid_safety_keyword_total{category="设备异常"}[10m])) >= 5
+              instant: true
+              range: false
+              refId: A
+        noDataState: OK
+        execErrState: Error
+        for: 3m
+        annotations:
+          summary: "10 分钟内设备异常关键词命中 {{ $value }} 次"
+          description: "设备异常类查询激增可能反映集中故障/巡视发现批量问题"
+        labels:
+          severity: info
+        isPaused: false

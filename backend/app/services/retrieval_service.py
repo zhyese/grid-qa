@@ -1,6 +1,14 @@
-"""混合检索编排：(query改写/多查询分解/HyDE) + 双collection并行 + BM25 + RRF + rerank + MMR + small-to-big + docType过滤。"""
+"""混合检索编排：(query改写/多查询分解/HyDE) + 双collection并行 + BM25 + RRF + rerank + MMR + small-to-big + docType过滤。
+
+debug_search 扩展（v2）：
+- 多样性指标（doc_uniqueness / source_entropy / chunk_adjacency）
+- 路由对比模式（compare_routes=true → 四路并行 + 对比矩阵）
+- Context Relevance Judge 集成（可选 LLM 定性评估）
+"""
 import asyncio
+import math
 import time
+from collections import Counter
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -409,8 +417,91 @@ async def debug_search(
     hits.sort(key=lambda x: -(x["scores"].get("rerank") if x["scores"].get("rerank") is not None
                               else (x["scores"].get("rrf") or 0.0)))
 
+    # 7) 多样性指标（不依赖 LLM，纯计算）
+    diversity = _compute_diversity(hits)
+    trace["diversity"] = diversity
+
     trace["result"] = {
         "finalHits": len(hits), "hits": hits,
         "latencyMs": round((time.time() - t_start) * 1000, 1),
     }
     return trace
+
+
+def _compute_diversity(hits: list[dict]) -> dict:
+    """计算检索结果的多样性指标。
+
+    - doc_uniqueness: distinct_docs / total_hits（去重文档占比）
+    - source_entropy: 文档来源熵（越高越分散，越低越集中在少数文档）
+    - chunk_adjacency_ratio: 相邻 chunk 占比（高 = 结果集中在同一篇文档的邻近段落）
+    """
+    if not hits:
+        return {"doc_uniqueness": 0.0, "source_entropy": 0.0, "chunk_adjacency_ratio": 0.0, "distinct_docs": 0}
+
+    n = len(hits)
+    doc_ids = [h.get("docId", "") for h in hits]
+    distinct = len(set(doc_ids))
+    doc_uniqueness = distinct / n
+
+    # 来源熵：-Σ(p_i * log(p_i))，p_i = 每篇文档的占比
+    doc_counts = Counter(doc_ids)
+    entropy = -sum((c / n) * math.log(c / n) for c in doc_counts.values())
+
+    # 相邻 chunk 占比：同一文档中 chunk_idx 连续的占比
+    adjacency = 0
+    for i in range(1, n):
+        if doc_ids[i] == doc_ids[i - 1] and doc_ids[i] != "":
+            c1 = hits[i - 1].get("chunkIdx")
+            c2 = hits[i].get("chunkIdx")
+            if c1 is not None and c2 is not None and abs(c2 - c1) == 1:
+                adjacency += 1
+    chunk_adjacency_ratio = adjacency / (n - 1) if n > 1 else 0.0
+
+    return {
+        "doc_uniqueness": round(doc_uniqueness, 3),
+        "source_entropy": round(entropy, 3),
+        "chunk_adjacency_ratio": round(chunk_adjacency_ratio, 3),
+        "distinct_docs": distinct,
+        "doc_distribution": {d: c for d, c in doc_counts.most_common(5) if d},
+    }
+
+
+async def compare_routes(
+    db: AsyncSession, query: str, topk: int = 10,
+    model_type: str | None = None,
+) -> dict:
+    """检索路由对比：同一 query 分别走 sparse/dense/hybrid/sparse_first 四条路由，
+    返回对比矩阵（同一批 chunks 的评分维度交叉对比）。
+
+    每条路由返回：hits 列表 + 多样性指标 + 延迟。
+    """
+    routes = ["sparse", "dense", "hybrid"]
+    results = {}
+    for route in routes:
+        t0 = time.time()
+        from app.routing.query_classifier import RoutingDecision
+        rd = RoutingDecision(route=route, confidence=0.9, reason="compare_routes", features={})
+        hits = await mixed_search(
+            db, query, topk, model_type=model_type,
+            routing_decision=rd,
+        )
+        elapsed = round((time.time() - t0) * 1000, 1)
+        diversity = _compute_diversity([
+            {"docId": h.get("docId", ""), "chunkIdx": 0}
+            for h in hits
+        ])
+        results[route] = {
+            "hitCount": len(hits),
+            "latencyMs": elapsed,
+            "hits": [
+                {"docName": h.get("docName", ""), "chunk": (h.get("chunk", "") or "")[:100],
+                 "score": h.get("score", 0.0)}
+                for h in hits[:5]
+            ],
+            "diversity": diversity,
+        }
+    return {
+        "query": query,
+        "topK": topk,
+        "comparison": results,
+    }

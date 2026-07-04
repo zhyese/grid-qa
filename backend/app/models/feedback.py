@@ -19,4 +19,6 @@ class Feedback(Base):
     reason: Mapped[str] = mapped_column(String(256), default="")  # 用户反馈理由/纠错标注
     judge_supported: Mapped[float | None] = mapped_column(Float, default=None)  # LLM-judge 支撑率
     judge_halluc: Mapped[float | None] = mapped_column(Float, default=None)       # LLM-judge 幻觉率
+    retrieval_quality: Mapped[str | None] = mapped_column(String(16), default=None)  # good | partial | poor（检索质量评估）
+    retrieval_sources: Mapped[str | None] = mapped_column(Text, default=None)  # 检索命中文档列表（用于追溯：docName 用逗号分隔）
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())

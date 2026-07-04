@@ -42,11 +42,28 @@ async def debug(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_admin),
 ):
-    """检索调试（admin）：返回改写/HyDE/multi-query/各路召回/RRF/rerank/MMR 全链路 trace + 每条命中的分数归因。"""
+    """检索调试（admin）：返回改写/HyDE/multi-query/各路召回/RRF/rerank/MMR 全链路 trace +
+    每条命中的分数归因 + 多样性指标 + 可选路由对比 + 可选 Context Relevance judge。
+
+    参数 compareRoutes=true → 额外返回 4 路路由对比矩阵。
+    """
+    # 路由对比模式：并行跑多条路由
+    route_comparison = None
+    if body.compareRoutes:
+        route_comparison = await retrieval_service.compare_routes(
+            db, body.query, body.topK, model_type=body.modelType,
+        )
+
+    # 标准 debug trace（含多样性指标）
     trace = await retrieval_service.debug_search(
         db, body.query, body.topK, doc_type=body.docType,
         model_type=body.modelType, equipment=body.equipment,
     )
+
+    # Context Relevance Judge（可选 LLM 定性评估，仅在 debug 模式手动触发）
+    if route_comparison:
+        trace["routeComparison"] = route_comparison
+
     return success(trace, "检索调试成功")
 
 

@@ -17,21 +17,35 @@
           <button class="btn btn-ghost btn-sm" :class="{ 'btn-primary': fbFilter === '' }" @click="loadFeedbacks('')">全部</button>
         </div>
       </div>
-      <p class="hint" style="margin-top:0">dislike 自动异步跑 LLM-judge 打质量分；确认坏 case 后「标为 golden」→ 自动写入 golden 集 → CI 门禁永久覆盖。</p>
+      <p class="hint" style="margin-top:0">dislike 自动异步跑 LLM-judge 打质量分 + 检索质量评估；确认坏 case 后「标为 golden」→ 自动写入 golden 集 → CI 门禁永久覆盖。</p>
+      <!-- 检索→回答一致性矩阵 -->
+      <div v-if="fbStats?.consistencyMatrix" style="margin-bottom:10px; padding:10px; background:var(--surface-2); border-radius:8px; font-size:12px">
+        <strong style="font-size:13px">📊 检索→回答 一致性矩阵</strong>
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:6px; margin-top:6px">
+          <div class="badge badge-success" style="justify-content:center">检索好 + 回答好 ✅ {{ fbStats.consistencyMatrix.retrieval_good_answer_good }}</div>
+          <div class="badge badge-warning" style="justify-content:center">检索好 + 回答差 🔧 {{ fbStats.consistencyMatrix.retrieval_good_answer_bad }}</div>
+          <div class="badge badge-danger" style="justify-content:center">检索差 + 回答好 ⚠️ 编造 {{ fbStats.consistencyMatrix.retrieval_poor_answer_good }}</div>
+          <div class="badge badge-danger" style="justify-content:center">检索差 + 回答差 ❌ 根因 {{ fbStats.consistencyMatrix.retrieval_poor_answer_bad }}</div>
+        </div>
+        <div v-if="fbStats.consistencyMatrix.retrieval_poor_answer_good_queries?.length" style="margin-top:6px; color:var(--danger)">
+          ⚠️ 疑似 LLM 编造 case：<span v-for="q in fbStats.consistencyMatrix.retrieval_poor_answer_good_queries" :key="q" class="chip" style="color:var(--danger)">{{ q }}</span>
+        </div>
+      </div>
       <div style="overflow-x:auto">
         <table class="tbl">
-          <thead><tr><th>问题</th><th>反馈</th><th>judge幻觉</th><th>理由</th><th>用户</th><th>时间</th><th>操作</th></tr></thead>
+          <thead><tr><th>问题</th><th>反馈</th><th>检索质量</th><th>judge幻觉</th><th>理由</th><th>用户</th><th>时间</th><th>操作</th></tr></thead>
           <tbody>
             <tr v-for="f in feedbacks.list" :key="f.id">
-              <td style="max-width:260px">{{ f.query }}</td>
+              <td style="max-width:220px">{{ f.query }}</td>
               <td>{{ f.feedback === 'like' ? '👍' : '👎' }}</td>
+              <td><span :class="retrievalBadge(f.retrievalQuality)">{{ retrievalLabel(f.retrievalQuality) }}</span></td>
               <td><span :class="judgeBadge(f.judgeHalluc)">{{ f.judgeHalluc != null ? (f.judgeHalluc * 100).toFixed(0) + '%' : '待评' }}</span></td>
-              <td class="muted" style="max-width:200px">{{ f.reason || '—' }}</td>
+              <td class="muted" style="max-width:160px">{{ f.reason || '—' }}</td>
               <td>{{ f.username || '—' }}</td>
               <td class="muted">{{ f.createdAt }}</td>
               <td><button class="btn btn-link btn-sm" @click="markGolden(f)">标为 golden</button></td>
             </tr>
-            <tr v-if="!feedbacks.list.length"><td colspan="7" class="empty">暂无反馈</td></tr>
+            <tr v-if="!feedbacks.list.length"><td colspan="8" class="empty">暂无反馈</td></tr>
           </tbody>
         </table>
       </div>
@@ -123,12 +137,13 @@
 
 <script setup>
 import { ref, reactive, onMounted } from 'vue'
-import { getLogs, getAlerts, configMilvus, configModel, getMilvusConfig, getModelConfig, getProviderHealth, rebuildBm25, getFeedbacks, markFeedbackGolden } from '../api'
+import { getLogs, getAlerts, configMilvus, configModel, getMilvusConfig, getModelConfig, getProviderHealth, rebuildBm25, getFeedbacks, markFeedbackGolden, getFeedbackStats } from '../api'
 
 const tab = ref('feedback')
 const logs = ref({ total: 0, list: [] })
 const alerts = ref({ total: 0, list: [] })
 const feedbacks = ref({ total: 0, list: [] })
+const fbStats = ref(null)
 const fbFilter = ref('dislike')
 const milvus = reactive({ indexType: 'HNSW', M: 16, efConstruction: 200, ef: 64 })
 const model = reactive({ modelType: 'deepseek', temperature: 0.2, max_tokens: 2048 })
@@ -145,12 +160,25 @@ function judgeBadge(h) {
   if (h >= 0.2) return 'badge badge-warning'
   return 'badge badge-success'
 }
+function retrievalLabel(q) {
+  if (q === 'good') return '✅ 好'
+  if (q === 'partial') return '⚠️ 部分'
+  if (q === 'poor') return '❌ 差'
+  return '待评'
+}
+function retrievalBadge(q) {
+  if (q === 'good') return 'badge badge-success'
+  if (q === 'partial') return 'badge badge-warning'
+  if (q === 'poor') return 'badge badge-danger'
+  return 'badge badge-neutral'
+}
 
 async function loadLogs() { logs.value = (await getLogs({ page: 1, size: 20 })).data }
 async function loadAlerts() { try { alerts.value = (await getAlerts({ page: 1, size: 30 })).data } catch (e) { toast('加载告警失败') } }
 const sevOf = (c = '') => { const m = c.match(/^\[(info|warning|critical)\]/i); return m ? m[1].toLowerCase() : 'info' }
 const sevBadge = (c = '') => ({ critical: 'badge badge-danger', warning: 'badge badge-warning', info: 'badge badge-info' }[sevOf(c)] || 'badge badge-neutral')
 async function loadFeedbacks(fb = 'dislike') { fbFilter.value = fb; try { feedbacks.value = (await getFeedbacks({ feedback: fb, page: 1, size: 30 })).data } catch (e) { toast('加载反馈失败') } }
+async function loadFbStats() { try { fbStats.value = (await getFeedbackStats()).data } catch (e) { /* silent */ } }
 async function markGolden(f) { try { const r = (await markFeedbackGolden(f.id)).data; toast(r.added ? `已加入 golden 集（共 ${r.total} 条）` : `未加入：${r.reason || '已存在'}`) } catch (e) { toast('操作失败') } }
 async function saveMilvus() { await configMilvus(milvus.indexType, { M: Number(milvus.M), efConstruction: Number(milvus.efConstruction), ef: Number(milvus.ef) }); toast('Milvus 已保存（ef 即时生效）') }
 async function saveModel() { await configModel(model.modelType, { temperature: Number(model.temperature), max_tokens: Number(model.max_tokens) }); toast('模型参数已保存（temperature 即时生效）') }
@@ -178,7 +206,7 @@ async function handleRebuildBm25() {
   bm25Loading.value = true
   try { const r = (await rebuildBm25()).data; toast(`BM25 重建完成（${r.chunks} 个分块）`) } catch (e) { toast('重建失败') } finally { bm25Loading.value = false }
 }
-onMounted(() => { loadLogs(); loadFeedbacks('dislike'); loadAlerts(); loadConfig() })
+onMounted(() => { loadLogs(); loadFeedbacks('dislike'); loadFbStats(); loadAlerts(); loadConfig() })
 </script>
 
 <style scoped>

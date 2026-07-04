@@ -58,6 +58,8 @@ CRAG_ACTION = Counter("grid_crag_action_total", "CRAG 纠错动作", ["action"])
 COMPONENT_HEALTH = Gauge("grid_component_health", "基础组件健康状态(1=up/0=down)", ["component"])
 # 安全合规：prompt injection 命中 + 答案脱敏次数（D4，电网强监管可见性）
 SAFETY_BLOCK = Counter("grid_safety_block_total", "安全事件(prompt injection/敏感信息脱敏)", ["kind"])
+# 电网危险操作关键词命中（按类别：接地安全/放电/带电作业/短路/误操作/...）
+SAFETY_KEYWORD = Counter("grid_safety_keyword_total", "电网危险操作关键词命中", ["category"])
 # 领域增强：故障诊断 / 两票生成 / 相似案例 调用次数（D1/D2/D3）
 DOMAIN_CALLS = Counter("grid_domain_calls_total", "领域增强调用", ["feature"])
 # 两票智能审核结果分布（pass/warn/fail）
@@ -116,6 +118,10 @@ def init_metric_series() -> None:
             TICKET_AUDIT.labels(_res).inc(0)
         # 安全拦截
         SAFETY_BLOCK.labels("injection").inc(0)
+        SAFETY_BLOCK.labels("deidentify").inc(0)
+        # 电网危险操作关键词（8 类）
+        for _hcat in ("接地安全", "放电", "带电作业", "短路", "误操作", "倒闸操作", "安全措施", "设备异常"):
+            SAFETY_KEYWORD.labels(_hcat).inc(0)
         # 告警回调（Grafana severity 维度）
         for _sev in ("info", "warning", "critical"):
             ALERT_RECEIVED.labels(_sev).inc(0)

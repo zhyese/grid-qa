@@ -161,6 +161,7 @@ async def feedback(
         db, conversation_id=body.conversationId or "", query=body.query,
         answer=body.answer, feedback=body.feedback, username=user.username,
         reason=body.reason or "",
+        retrieval_sources=body.retrievalSources or "",
     )
     return success(None, "感谢反馈")
 

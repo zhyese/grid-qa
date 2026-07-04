@@ -22,6 +22,7 @@
           <label class="field-label">设备标签（可选）</label>
           <input class="input" v-model="equipment" placeholder="如：主变压器" />
         </div>
+        <label class="checkbox-label"><input type="checkbox" v-model="compareRoutes" /> 路由对比</label>
         <button class="btn btn-primary" :disabled="loading || !query.trim()" @click="run">
           {{ loading ? '调试中...' : '调试检索' }}
         </button>
@@ -64,6 +65,40 @@
             </div>
           </div>
         </div>
+      </div>
+
+      <!-- 多样性指标 + 路由对比 -->
+      <div v-if="trace.diversity || trace.routeComparison" class="card">
+        <!-- 多样性 -->
+        <template v-if="trace.diversity">
+          <h3 class="section-title">📊 多样性指标</h3>
+          <div class="row">
+            <span class="badge badge-info">去重文档: {{ trace.diversity.distinct_docs }} / {{ trace.result.finalHits }} ({{ (trace.diversity.doc_uniqueness * 100).toFixed(0) }}%)</span>
+            <span class="badge" :class="trace.diversity.source_entropy > 0.8 ? 'badge-success' : 'badge-warning'">来源熵: {{ trace.diversity.source_entropy.toFixed(2) }}</span>
+            <span class="badge" :class="trace.diversity.chunk_adjacency_ratio < 0.3 ? 'badge-success' : 'badge-warning'">相邻chunk: {{ (trace.diversity.chunk_adjacency_ratio * 100).toFixed(0) }}%</span>
+          </div>
+          <div v-if="trace.diversity.doc_distribution" style="font-size:12px;color:var(--text-muted);margin-top:6px">
+            文档分布：
+            <span v-for="(cnt, doc) in trace.diversity.doc_distribution" :key="doc" class="chip">{{ doc }} ×{{ cnt }}</span>
+          </div>
+        </template>
+        <!-- 路由对比 -->
+        <template v-if="trace.routeComparison">
+          <h3 class="section-title" style="margin-top:14px">🔀 路由对比</h3>
+          <table class="tbl" style="font-size:12px">
+            <thead><tr><th>路由</th><th>命中</th><th>延迟</th><th>去重文档</th><th>来源熵</th><th>Top-1</th></tr></thead>
+            <tbody>
+              <tr v-for="(v, route) in trace.routeComparison.comparison" :key="route">
+                <td><strong>{{ route }}</strong></td>
+                <td>{{ v.hitCount }}</td>
+                <td>{{ v.latencyMs }}ms</td>
+                <td>{{ v.diversity?.distinct_docs || '-' }} ({{ v.diversity ? (v.diversity.doc_uniqueness * 100).toFixed(0) : '-' }}%)</td>
+                <td>{{ v.diversity?.source_entropy?.toFixed(2) || '-' }}</td>
+                <td style="max-width:200px">{{ v.hits?.[0]?.docName || '—' }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </template>
       </div>
 
       <!-- 最终命中 + 分数归因 -->
@@ -112,6 +147,7 @@ const query = ref('')
 const topK = ref(5)
 const docType = ref('')
 const equipment = ref('')
+const compareRoutes = ref(false)
 const loading = ref(false)
 const error = ref('')
 const trace = ref(null)
@@ -158,6 +194,7 @@ async function run() {
     const res = await debugRetrieval(query.value.trim(), topK.value, {
       docType: docType.value.trim() || undefined,
       equipment: equipment.value.trim() || undefined,
+      compareRoutes: compareRoutes.value || undefined,
     })
     if (res.code !== 200) { error.value = res.message || '调试失败'; return }
     trace.value = res.data
@@ -184,4 +221,5 @@ html.dark .step-dot { background: var(--primary-soft-2); }
 .score-fill { position: absolute; left: 0; top: 0; bottom: 0; background: linear-gradient(90deg, var(--primary), var(--accent)); opacity: .85; }
 .score-bar span { position: relative; font-size: 11px; padding-left: 6px; color: var(--text); font-weight: 600; }
 code { font-size: 12px; background: var(--surface-2); padding: 1px 5px; border-radius: 4px; color: var(--text); }
+.checkbox-label { display: flex; align-items: center; gap: 6px; font-size: 13px; white-space: nowrap; cursor: pointer; }
 </style>

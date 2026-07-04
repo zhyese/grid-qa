@@ -29,6 +29,7 @@ class FeedbackRequest(BaseModel):
     feedback: str            # like | dislike
     conversationId: Optional[str] = None
     reason: Optional[str] = None          # 用户纠错理由/标注（沉淀坏 case）
+    retrievalSources: Optional[str] = None  # 检索命中的文档名（逗号分隔，用于检索质量评估）
 
 
 class FaithfulnessRequest(BaseModel):

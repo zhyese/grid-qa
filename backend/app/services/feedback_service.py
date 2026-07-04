@@ -21,10 +21,12 @@ _bg_tasks: set = set()  # 持有后台 task 引用，防 GC
 async def record_feedback(
     db: AsyncSession, *, conversation_id: str, query: str,
     answer: str, feedback: str, username: str, reason: str = "",
+    retrieval_sources: str = "",  # 检索命中的文档名列表（逗号分隔）
 ) -> None:
     fb = Feedback(
         conversation_id=conversation_id or "", query=query, answer=answer,
         feedback=feedback, username=username, reason=(reason or "")[:256],
+        retrieval_sources=(retrieval_sources or "")[:2000],
     )
     db.add(fb)
     await db.commit()
@@ -33,34 +35,55 @@ async def record_feedback(
         metrics.FEEDBACK.labels(feedback).inc()
     except Exception:
         pass
-    # dislike 自动异步打 judge 分（坏 case 沉淀质量信号，不阻塞反馈接口）
+    # dislike 自动异步打 judge 分 + 检索质量评估（坏 case 沉淀，不阻塞反馈接口）
     if feedback == "dislike" and getattr(settings, "ONLINE_FAITHFULNESS_ENABLE", False):
         try:
-            _t = asyncio.create_task(_judge_bg(fb.id, query, answer))
+            _t = asyncio.create_task(_judge_bg(fb.id, query, answer, retrieval_sources))
             _bg_tasks.add(_t)
             _t.add_done_callback(_bg_tasks.discard)
         except Exception as e:
             degraded("feedback_judge_dispatch", e)
 
 
-async def _judge_bg(feedback_id: str, query: str, answer: str) -> None:
-    """后台对 dislike 答案跑 LLM-judge，回填 judge_supported/judge_halluc。"""
+async def _judge_bg(feedback_id: str, query: str, answer: str, retrieval_sources: str = "") -> None:
+    """后台对 dislike 答案跑 LLM-judge + 检索质量评估，回填 judge_supported/judge_halluc/retrieval_quality。"""
     from app.db.session import AsyncSessionLocal
     from app.rag import judge
 
+    judge_res = None
+    retrieval_label = None
     try:
-        res = await judge.judge_hallucination(answer, [query], settings.LLM_PROVIDER)
+        judge_res = await judge.judge_hallucination(answer, [query], settings.LLM_PROVIDER)
     except Exception as e:
         degraded("feedback_judge", e)
-        return
+
+    # 有检索来源时，额外评估检索质量
+    if retrieval_sources:
+        try:
+            sources_list = [s.strip() for s in retrieval_sources.split(",") if s.strip()]
+            if sources_list:
+                ctx_res = await judge.judge_context_relevance(query, sources_list, settings.LLM_PROVIDER)
+                score = ctx_res.get("relevance_score", 0.0)
+                if score >= 0.7:
+                    retrieval_label = "good"
+                elif score >= 0.4:
+                    retrieval_label = "partial"
+                else:
+                    retrieval_label = "poor"
+        except Exception as e:
+            degraded("feedback_retrieval_judge", e)
+
     try:
         async with AsyncSessionLocal() as db:
             row = (await db.execute(
                 select(Feedback).where(Feedback.id == feedback_id)
             )).scalar_one_or_none()
             if row:
-                row.judge_supported = res.get("supported_ratio")
-                row.judge_halluc = res.get("hallucination")
+                if judge_res:
+                    row.judge_supported = judge_res.get("supported_ratio")
+                    row.judge_halluc = judge_res.get("hallucination")
+                if retrieval_label:
+                    row.retrieval_quality = retrieval_label
                 await db.commit()
     except Exception as e:
         degraded("feedback_judge_write", e)
@@ -88,6 +111,8 @@ async def list_feedbacks(
                 "id": r.id, "query": r.query, "answer": (r.answer or "")[:300],
                 "feedback": r.feedback, "reason": r.reason or "",
                 "judgeSupported": r.judge_supported, "judgeHalluc": r.judge_halluc,
+                "retrievalQuality": r.retrieval_quality,
+                "retrievalSources": (r.retrieval_sources or "")[:500],
                 "username": r.username,
                 "createdAt": r.created_at.strftime("%Y-%m-%d %H:%M:%S") if r.created_at else "",
             }
@@ -147,10 +172,49 @@ async def feedback_stats(db: AsyncSession) -> dict:
     avg_halluc = (await db.execute(
         select(func.avg(Feedback.judge_halluc)).where(Feedback.feedback == "dislike")
     )).scalar()
+    # 检索→回答一致性矩阵（2×2：检索好坏 vs 回答好坏）
+    cross_rows = (await db.execute(
+        select(Feedback.retrieval_quality, Feedback.judge_halluc)
+        .where(Feedback.feedback == "dislike")
+        .where(Feedback.retrieval_quality.isnot(None))
+        .where(Feedback.judge_halluc.isnot(None))
+    )).all()
+    # 矩阵：{"good_retrieval_good_answer": N, "good_retrieval_bad_answer": N,
+    #         "poor_retrieval_good_answer": N, "poor_retrieval_bad_answer": N}
+    matrix = {
+        "retrieval_good_answer_good": 0,    # ✅ 正常
+        "retrieval_good_answer_bad": 0,     # 🔧 生成问题
+        "retrieval_poor_answer_good": 0,    # ⚠️ LLM 编造（危险）
+        "retrieval_poor_answer_bad": 0,     # ❌ 检索根因
+        "retrieval_poor_answer_good_queries": [],  # 编造 case 具体 query
+    }
+    for rq, hall in cross_rows:
+        if rq == "good":
+            if hall is not None and hall < 0.3:
+                matrix["retrieval_good_answer_good"] += 1
+            else:
+                matrix["retrieval_good_answer_bad"] += 1
+        elif rq in ("poor", "partial"):
+            if hall is not None and hall < 0.3:
+                matrix["retrieval_poor_answer_good"] += 1
+            else:
+                matrix["retrieval_poor_answer_bad"] += 1
+    # 拉出"检索差但回答好"的具体 query（疑似 LLM 编造）
+    if matrix["retrieval_poor_answer_good"] > 0:
+        fudge_rows = (await db.execute(
+            select(Feedback.query).where(
+                Feedback.feedback == "dislike",
+                Feedback.retrieval_quality.in_(["poor", "partial"]),
+                Feedback.judge_halluc < 0.3,
+            ).limit(10)
+        )).scalars().all()
+        matrix["retrieval_poor_answer_good_queries"] = list(fudge_rows)[:10]
+
     return {
         "total": total, "like": fb_map.get("like", 0), "dislike": fb_map.get("dislike", 0),
         "dislikeRate": round(fb_map.get("dislike", 0) / total, 3) if total else 0,
         "topDevices": [{"device": d, "count": c} for d, c in top_devices],
         "topBadCases": [{"query": (q or "")[:60], "count": c} for q, c in top_bad],
         "avgHallucination": round(avg_halluc, 3) if avg_halluc is not None else None,
+        "consistencyMatrix": matrix,
     }
