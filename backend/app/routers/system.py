@@ -161,3 +161,28 @@ async def alerts(
     """告警列表（操作日志中 operate_type=告警），管理员。"""
     data = await query_logs(db, page, size, operate_type="告警")
     return success(data, "查询成功")
+
+
+# ===== 反馈驱动优化闭环 =====
+
+
+@router.get("/optimizer/report")
+async def optimizer_report(
+    admin: User = Depends(require_admin),
+):
+    """获取反馈驱动优化建议报告（缓存文件，非实时）。"""
+    from app.services.feedback_optimizer_service import get_optimization_report
+    report = await get_optimization_report()
+    return success(report, "查询成功")
+
+
+@router.post("/optimizer/generate")
+async def optimizer_generate(
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+):
+    """实时生成反馈驱动优化建议报告（分析 dislike 模式 → 知识盲区 → 缓存建议）。"""
+    from app.services.feedback_optimizer_service import generate_optimization_report
+    report = await generate_optimization_report(db)
+    await write_log(db, admin.username, "生成优化报告", f"分析：{report['totalDislike']}次dislike → {report['suggestionCount']}条建议")
+    return success(report, "生成成功")

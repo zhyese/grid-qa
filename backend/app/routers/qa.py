@@ -1,4 +1,5 @@
 """问答接口：智能问答(普通/流式/多轮) / 对话历史 / 反馈 / 术语归一化。"""
+import asyncio
 import json
 
 from fastapi import APIRouter, Depends, Request, WebSocket, WebSocketDisconnect
@@ -24,6 +25,9 @@ from app.services import conversation_service, feedback_service, qa_service, ter
 from app.services.log_service import write_log
 
 router = APIRouter(prefix="/qa", tags=["检索与问答"])
+
+# 持有后台异步任务引用，防 GC 回收
+_bg_tasks: set = set()
 
 
 @router.post("/answer")
@@ -156,13 +160,20 @@ async def feedback(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """问答反馈（👍/👎），沉淀坏 case；dislike 自动异步打 judge 分。"""
+    """问答反馈（👍/👎），沉淀坏 case；dislike 自动异步打 judge 分 + 缓存失效。"""
     await feedback_service.record_feedback(
         db, conversation_id=body.conversationId or "", query=body.query,
         answer=body.answer, feedback=body.feedback, username=user.username,
         reason=body.reason or "",
         retrieval_sources=body.retrievalSources or "",
     )
+    # dislike 时异步失效缓存（防止坏答案继续喂给其他用户）
+    if body.feedback == "dislike" and body.query:
+        try:
+            from app.services.feedback_optimizer_service import invalidate_cache_on_dislike
+            _bg_tasks.add(asyncio.create_task(invalidate_cache_on_dislike(db, body.query)))
+        except Exception:
+            pass
     return success(None, "感谢反馈")
 
 

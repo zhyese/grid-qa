@@ -39,6 +39,17 @@
           <div class="bad-item" v-for="(b, i) in fb.topBadCases" :key="i"><span class="badge badge-danger">{{ b.count }}</span><span>{{ b.query }}</span></div>
         </div>
       </div>
+      <div class="card" v-if="fb.coverageGaps?.length">
+        <div class="card-header"><h3 class="card-title">🕳️ 知识盲区报告 <span class="hint">高频坏case设备 × 知识库覆盖交叉</span></h3></div>
+        <div class="gap-list">
+          <div class="gap-item" v-for="(g, i) in fb.coverageGaps" :key="i" :class="{ 'gap-missing': !g.covered }">
+            <span class="gap-device">{{ g.device }}</span>
+            <span class="badge" :class="g.covered ? 'badge-success' : 'badge-danger'">{{ g.covered ? '已覆盖' : '缺口' }}</span>
+            <span class="gap-count">坏case × {{ g.dislikeCount }}</span>
+            <span class="gap-tip" v-if="!g.covered">{{ g.suggestion }}</span>
+          </div>
+        </div>
+      </div>
     </template>
   </div>
   <div v-else class="loading">加载中...</div>
@@ -116,5 +127,12 @@ onMounted(load)
 .fb-lbl { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
 .bad-list { display: flex; flex-direction: column; gap: 8px; }
 .bad-item { display: flex; align-items: center; gap: 10px; background: var(--surface-2); padding: 9px 12px; border-radius: var(--radius-sm); font-size: 13px; color: var(--text-muted); }
+.gap-list { display: flex; flex-direction: column; gap: 8px; }
+.gap-item { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-radius: var(--radius-sm); background: var(--surface-2); font-size: 13px; }
+.gap-item.gap-missing { background: var(--danger-soft); border-left: 3px solid var(--danger); }
+.gap-device { font-weight: 600; color: var(--text); min-width: 80px; }
+.gap-count { color: var(--text-muted); font-size: 12px; }
+.gap-tip { color: var(--danger); font-size: 12px; flex: 1; }
+.badge-success { background: var(--success-soft); color: var(--success); }
 @media (max-width: 900px) { .stat-grid.cols-4 { grid-template-columns: repeat(2, 1fr) } .chart-row { grid-template-columns: 1fr } }
 </style>

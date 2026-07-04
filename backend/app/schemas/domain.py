@@ -28,3 +28,8 @@ class TicketAuditRequest(BaseModel):
 class DiagnoseAgentRequest(BaseModel):
     symptom: str                        # 故障症状描述
     modelType: Optional[str] = None
+
+
+class DiagnoseDebateRequest(BaseModel):
+    symptom: str                        # 故障症状描述
+    modelType: Optional[str] = None

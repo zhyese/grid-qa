@@ -2,6 +2,7 @@
   <div>
     <div class="tabs">
       <button class="tab" :class="{ active: tab === 'diagnose' }" @click="tab = 'diagnose'">🩺 故障诊断推理</button>
+      <button class="tab" :class="{ active: tab === 'debate' }" @click="tab = 'debate'">🗣️ 辩论诊断(Multi-Agent)</button>
       <button class="tab" :class="{ active: tab === 'case' }" @click="tab = 'case'">📚 相似案例</button>
       <button class="tab" :class="{ active: tab === 'ticket' }" @click="tab = 'ticket'">📝 两票生成</button>
       <button class="tab" :class="{ active: tab === 'audit' }" @click="tab = 'audit'">🔍 两票审核</button>
@@ -42,6 +43,67 @@
           </div>
         </div>
         <sources-list :sources="diag.sources" />
+      </div>
+    </div>
+
+    <!-- 辩论诊断 -->
+    <div class="card" v-show="tab === 'debate'">
+      <div class="row" style="margin-bottom: 14px">
+        <input class="input" v-model="debateSymptom" placeholder="描述故障症状，3位专家从规程/图谱/案例视角独立诊断后辩论" @keyup.enter="doDebate" style="flex:1;min-width:260px" />
+        <select class="select" v-model="modelType" style="max-width:140px"><option value="">默认模型</option><option value="deepseek">DeepSeek</option><option value="qwen">通义千问</option><option value="doubao">豆包</option></select>
+        <button class="btn btn-primary" @click="doDebate" :disabled="debateLoading || !debateSymptom.trim()">{{ debateLoading ? '辩论诊断中…' : '开始辩论诊断' }}</button>
+      </div>
+      <div v-if="debate">
+        <div v-if="debate.degraded" class="warning-tip">⚠ 辩论流程降级：{{ debate.degradeReason }}</div>
+        <!-- 三方专家观点 -->
+        <div v-if="debate.debate?.opinions?.length" class="debate-opinions">
+          <div class="src-head">三位专家独立诊断意见
+            <span class="hint">· 共{{ debate.debate.rounds }}轮 · {{ debate.latencyMs }}ms</span>
+            <span v-if="debate.debate.neededDebate" class="badge badge-warning" style="margin-left:8px">有分歧·已辩论</span>
+          </div>
+          <div class="opinion-grid">
+            <div class="opinion-card" v-for="(op, i) in debate.debate.opinions" :key="i" :class="'agent-' + i">
+              <div class="opinion-header">{{ ['📋 规程专家','🧠 图谱专家','📚 案例专家'][i] || op.agent }}</div>
+              <div class="opinion-summary">{{ op.summary }}</div>
+              <div class="cause" v-for="(c, j) in (op.causes || [])" :key="j" style="margin:4px 0;padding:6px 8px">
+                <span class="lk" :class="'lk-' + (c.likelihood || '中')" style="width:24px;height:24px;font-size:11px">{{ {高:'高',中:'中',低:'低'}[c.likelihood] || '中' }}</span>
+                <div class="cause-body">
+                  <div class="cause-name" style="font-size:12px">{{ c.name }}</div>
+                  <div class="cause-line" v-if="c.evidence" style="font-size:11px">{{ c.evidence.slice(0,120) }}</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <!-- 终裁结果 -->
+        <div class="summary" v-if="debate.diagnosis?.summary" style="margin-top:12px">
+          <b>⚖ 终裁结论：</b>{{ debate.diagnosis.summary }}
+        </div>
+        <div class="src-head" v-if="debate.diagnosis?.causes?.length" style="margin-top:10px">终裁可能原因排序</div>
+        <div class="cause" v-for="(c, i) in (debate.diagnosis?.causes || [])" :key="'final-' + i">
+          <span class="lk" :class="'lk-' + (c.likelihood || '中')">{{ {高:'高',中:'中',低:'低'}[c.likelihood] || '中' }}</span>
+          <div class="cause-body">
+            <div class="cause-name">{{ c.name }}
+              <span class="hint" v-if="c.sourceConsensus"> · [{{ {consensus:'三方一致','regulation':'规程主导','graph':'图谱主导','case':'案例主导','pending':'待确认'}[c.sourceConsensus] || c.sourceConsensus }}]</span>
+            </div>
+            <div class="cause-line" v-if="c.evidence"><b>综合证据：</b>{{ c.evidence }}</div>
+            <div class="cause-line" v-if="c.handling"><b>处置：</b>{{ c.handling }}</div>
+          </div>
+        </div>
+        <!-- 分歧记录 -->
+        <div v-if="debate.debate?.disagreements?.length" style="margin-top:12px;padding-top:10px;border-top:1px dashed var(--border)">
+          <div class="src-head">辩论分歧记录</div>
+          <div class="dispute" v-for="(d, i) in debate.debate.disagreements" :key="i">
+            <div class="dispute-issue"><b>分歧点：</b>{{ d.issue }}</div>
+            <div class="dispute-views">
+              <div class="dv" v-if="d.regulationView"><span class="dv-label">规程：</span>{{ d.regulationView.slice(0,100) }}</div>
+              <div class="dv" v-if="d.graphView"><span class="dv-label">图谱：</span>{{ d.graphView.slice(0,100) }}</div>
+              <div class="dv" v-if="d.caseView"><span class="dv-label">案例：</span>{{ d.caseView.slice(0,100) }}</div>
+            </div>
+            <div class="dispute-resolve" v-if="d.resolution"><b>裁决：</b>{{ d.resolution }}</div>
+          </div>
+        </div>
+        <div class="risks" v-if="debate.diagnosis?.risks?.length" style="margin-top:10px"><b>⚠ 最终风险提示：</b><span class="badge badge-danger" v-for="r in debate.diagnosis.risks" :key="r" style="margin:2px">{{ r }}</span></div>
       </div>
     </div>
 
@@ -107,7 +169,7 @@
 
 <script setup>
 import { ref, h } from 'vue'
-import { diagnose, similarCase, generateTicket, auditTicket, diagnoseAgent } from '../api'
+import { diagnose, similarCase, generateTicket, auditTicket, diagnoseAgent, diagnoseDebate } from '../api'
 
 const SourcesList = {
   props: ['sources'],
@@ -138,6 +200,13 @@ async function doDiagnose() {
       diag.value = (await diagnose(symptom.value, modelType.value || null)).data
     }
   } catch (e) { show('诊断失败') } finally { loading.value = false }
+}
+const debateSymptom = ref(''); const debateLoading = ref(false); const debate = ref(null)
+async function doDebate() {
+  if (!debateSymptom.value.trim()) return
+  debateLoading.value = true; debate.value = null
+  try { debate.value = (await diagnoseDebate(debateSymptom.value, modelType.value || null)).data }
+  catch (e) { show('辩论诊断失败') } finally { debateLoading.value = false }
 }
 const caseSymptom = ref(''); const caseLoading = ref(false); const cases = ref(null)
 async function doCase() {
@@ -194,4 +263,15 @@ html.dark .dim-tag { background: var(--primary-soft-2) }
 .trace-thought { font-size: 12px; color: var(--text); font-style: italic; margin-bottom: 2px; }
 .trace-tool { font-size: 12px; color: var(--primary); font-weight: 600; }
 .trace-result { font-size: 12px; color: var(--text-muted); margin-top: 2px; line-height: 1.5; white-space: pre-wrap; }
+.opinion-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 10px; margin-bottom: 10px; }
+.opinion-card { background: var(--surface-2); padding: 10px; border-radius: var(--radius); }
+.agent-0 { border-top: 3px solid var(--primary, #007aff); }
+.agent-1 { border-top: 3px solid var(--success, #34c759); }
+.agent-2 { border-top: 3px solid var(--warning, #ff9500); }
+.opinion-header { font-weight: 700; font-size: 13px; margin-bottom: 6px; }
+.opinion-summary { font-size: 12px; color: var(--text-muted); margin-bottom: 6px; }
+.dispute { background: var(--surface-2); padding: 8px 10px; border-radius: var(--radius-sm); margin-bottom: 6px; }
+.dispute-issue { font-size: 13px; margin-bottom: 4px; }
+.dispute-views { display: flex; flex-direction: column; gap: 2px; font-size: 12px; color: var(--text-muted); margin-bottom: 4px; }
+.dv-label { font-weight: 600; color: var(--text); }
 </style>

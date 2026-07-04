@@ -40,6 +40,7 @@ export const debugRetrieval = (query, topK, params = {}) =>
 // 领域增强：故障诊断(D1) / 相似案例(D2) / 两票生成(D3)
 export const diagnose = (symptom, modelType) => request.post('/domain/diagnose', { symptom, modelType })
 export const diagnoseAgent = (symptom, modelType) => request.post('/domain/diagnose-agent', { symptom, modelType })
+export const diagnoseDebate = (symptom, modelType) => request.post('/domain/diagnose-debate', { symptom, modelType })
 export const similarCase = (symptom, modelType) => request.post('/domain/similar-case', { symptom, modelType })
 export const generateTicket = (task, modelType) => request.post('/domain/ticket', { task, modelType })
 export const auditTicket = (ticketText, ticketType, modelType) =>

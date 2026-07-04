@@ -113,6 +113,7 @@ def init_metric_series() -> None:
         DOMAIN_CALLS.labels("similar_case").inc(0)
         DOMAIN_CALLS.labels("safety_block").inc(0)
         DOMAIN_CALLS.labels("diagnose_agent").inc(0)
+        DOMAIN_CALLS.labels("debate_diagnose").inc(0)
         # 两票审核结果（预注册 0 值，消除面板 No data 盲区）
         for _res in ("pass", "warn", "fail"):
             TICKET_AUDIT.labels(_res).inc(0)

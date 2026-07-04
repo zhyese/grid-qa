@@ -99,6 +99,7 @@ class Settings(BaseSettings):
     # ---------- 检索质量 ----------
     MMR_ENABLE: bool = True          # MMR 多样性重排
     MMR_LAMBDA: float = 0.6          # 相关性 vs 多样性 权衡
+    RAPTOR_ENABLE: bool = False      # RAPTOR 层次化摘要检索（多粒度融合，默认关）
     QUERY_REWRITE_ENABLE: bool = False  # LLM 改写 query（增延迟，默认关）
     BGE_MODEL: str = "BAAI/bge-small-zh-v1.5"   # 可换 bge-large-zh-v1.5(1024维,效果更好)
     BGE_DIM: int = 512

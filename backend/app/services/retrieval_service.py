@@ -238,6 +238,31 @@ async def mixed_search(
     if settings.SMALL_TO_BIG_ENABLE:
         pool = await _expand_parents(db, pool)
 
+    # 7) RAPTOR 层次化摘要检索（融合摘要层命中）
+    if getattr(settings, "RAPTOR_ENABLE", False):
+        try:
+            from app.rag.raptor import retrieve_with_raptor
+            raptor_hits = await retrieve_with_raptor(
+                db, q, topk=topk, tenant=tenant, routing_decision=routing_decision,
+            )
+            if raptor_hits:
+                # RRF 融合：原文 pool + 摘要层 hits
+                seen_keys = {(h.get("docId", ""), h.get("section", "")) for h in pool}
+                raptor_fresh = [h for h in raptor_hits
+                                if (h.get("docId", ""), h.get("section", "")) not in seen_keys]
+                # 给摘要一个中等 RRF 常数，不压过原文分
+                rrf_k = 30
+                all_items = []
+                for h in pool:
+                    all_items.append({"key": id(h), "score": float(h.get("score", 0) or 0), "item": h})
+                for h in raptor_fresh:
+                    all_items.append({"key": id(h), "score": float(h.get("score", 0) or 0) * 0.8, "item": h})
+                from app.rag import rrf as _rrf
+                fused_raptor = _rrf.rrf_fuse([all_items], key_fn=lambda x: x["key"])[:topk]
+                pool = [x["item"] for x in fused_raptor]
+        except Exception as e:
+            degraded("raptor_retrieve", e)
+
     try:
         from app.core import metrics
         metrics.RETRIEVAL_LATENCY.observe(time.time() - _t0)

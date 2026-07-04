@@ -7,7 +7,8 @@ from app.core.response import success
 from app.db.session import get_db
 from app.dependencies import get_current_user, require_admin
 from app.models.user import User
-from app.schemas.domain import DiagnoseAgentRequest, DiagnoseRequest, SimilarCaseRequest, TicketAuditRequest, TicketRequest
+from app.schemas.domain import DiagnoseAgentRequest, DiagnoseDebateRequest, DiagnoseRequest, SimilarCaseRequest, TicketAuditRequest, TicketRequest
+from app.services import debate_agent_service
 from app.services import diagnose_agent_service
 from app.services import domain_service
 from app.services import ticket_audit_service
@@ -83,3 +84,17 @@ async def diagnose_agent(
     data = await diagnose_agent_service.diagnose_agent(db, body.symptom, body.modelType)
     await write_log(db, user.username, "深度诊断", f"症状：{body.symptom[:40]}")
     return success(data, "深度诊断完成")
+
+
+@router.post("/diagnose-debate")
+@limiter.limit("4/minute")
+async def diagnose_debate(
+    request: Request,
+    body: DiagnoseDebateRequest,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Multi-Agent 辩论式诊断：3角色（规程/图谱/案例）独立诊断→辩论→终裁，返回专家意见+裁决过程。"""
+    data = await debate_agent_service.debate_diagnose(db, body.symptom, body.modelType)
+    await write_log(db, user.username, "辩论诊断", f"症状：{body.symptom[:40]}")
+    return success(data, "辩论诊断完成")

@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.core.obs import degraded
+from app.models.document import Document
 from app.models.feedback import Feedback
 
 _GOLDEN_PATH = Path(__file__).resolve().parent.parent.parent / "data" / "golden_qa.json"
@@ -210,6 +211,29 @@ async def feedback_stats(db: AsyncSession) -> dict:
         )).scalars().all()
         matrix["retrieval_poor_answer_good_queries"] = list(fudge_rows)[:10]
 
+    # 知识盲区：高频 dislike 设备词 × 已上传文档覆盖情况交叉
+    coverage_gaps: list[dict] = []
+    if top_devices:
+        doc_tags_rows = (await db.execute(
+            select(Document.doc_name, Document.equipment_tags, Document.doc_type)
+            .where(Document.equipment_tags.isnot(None), Document.equipment_tags != "")
+        )).all()
+        # 所有文档覆盖的设备词集合
+        covered: set[str] = set()
+        for _, tags, _ in doc_tags_rows:
+            for t in (tags or "").split(","):
+                t = t.strip()
+                if t:
+                    covered.add(t)
+        for device, cnt in top_devices:
+            is_covered = any(device in c or c in device for c in covered)
+            coverage_gaps.append({
+                "device": device,
+                "dislikeCount": cnt,
+                "covered": is_covered,
+                "suggestion": "" if is_covered else f"建议上传【{device}】相关运维规程或故障案例",
+            })
+
     return {
         "total": total, "like": fb_map.get("like", 0), "dislike": fb_map.get("dislike", 0),
         "dislikeRate": round(fb_map.get("dislike", 0) / total, 3) if total else 0,
@@ -217,4 +241,5 @@ async def feedback_stats(db: AsyncSession) -> dict:
         "topBadCases": [{"query": (q or "")[:60], "count": c} for q, c in top_bad],
         "avgHallucination": round(avg_halluc, 3) if avg_halluc is not None else None,
         "consistencyMatrix": matrix,
+        "coverageGaps": coverage_gaps,
     }

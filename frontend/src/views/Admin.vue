@@ -5,6 +5,7 @@
       <button class="tab" :class="{ active: tab === 'log' }" @click="tab = 'log'">📋 操作日志</button>
       <button class="tab" :class="{ active: tab === 'alert' }" @click="loadAlerts(); tab = 'alert'">🚨 告警 <span v-if="alerts.total" class="badge badge-danger">{{ alerts.total }}</span></button>
       <button class="tab" :class="{ active: tab === 'config' }" @click="tab = 'config'">⚙️ 系统配置</button>
+      <button class="tab" :class="{ active: tab === 'optimizer' }" @click="loadOptimizer(); tab = 'optimizer'">📈 优化建议</button>
     </div>
 
     <!-- 反馈管理 -->
@@ -130,14 +131,41 @@
         <div class="card-header"><h3 class="card-title">BM25 索引</h3><button class="btn btn-ghost btn-sm" :disabled="bm25Loading" @click="handleRebuildBm25">{{ bm25Loading ? '重建中...' : '🔄 全量重建' }}</button></div>
         <p class="hint" style="margin-top:0">新文档默认增量进内存；进程重启/异常后点此兜底全量重建。</p>
       </div>
-    </div>
-    <div class="toast" v-if="toastMsg">{{ toastMsg }}</div>
+
+      <!-- 优化建议 -->
+      <div class="card" v-show="tab === 'optimizer'">
+        <div class="card-header">
+          <h3 class="card-title">📈 反馈驱动优化建议</h3>
+          <button class="btn btn-primary btn-sm" :disabled="optLoading" @click="generateOptimizer">{{ optLoading ? '分析中…' : '🔄 重新分析' }}</button>
+        </div>
+        <p class="hint" style="margin-top:0">基于用户反馈自动分析知识盲区、缓存策略和检索质量，生成可执行优化建议。</p>
+        <div v-if="optimizer" style="margin-top:8px">
+          <div class="opt-meta" style="margin-bottom:8px; font-size:12px; color:var(--text-muted)">
+            分析时间：{{ optimizer.generatedAt || '未生成' }} · 总 dislike {{ optimizer.totalDislike }} · 近7天 {{ optimizer.recentDislike }}
+          </div>
+          <div v-if="!optimizer.suggestions?.length" class="empty">暂无优化建议（数据积累中）</div>
+          <div class="opt-card" v-for="(s, i) in optimizer.suggestions" :key="i" :class="'sev-' + s.severity">
+            <div class="opt-header">
+              <span class="badge" :class="severityBadge(s.severity)">{{ {high:'高优',medium:'中优',low:'低优'}[s.severity] || s.severity }}</span>
+              <span class="opt-type">{{ typeLabel(s.type) }}</span>
+              <strong class="opt-title">{{ s.title }}</strong>
+            </div>
+            <div class="opt-detail">{{ s.detail }}</div>
+            <div class="opt-actions" v-if="s.actions?.length">
+              <div class="opt-action" v-for="(a, j) in s.actions" :key="j">{{ a }}</div>
+            </div>
+          </div>
+        </div>
+        <div v-else class="hint" style="margin-top:12px">点「重新分析」生成优化建议报告。</div>
+      </div>
+      <div class="toast" v-if="toastMsg">{{ toastMsg }}</div>
   </div>
 </template>
 
 <script setup>
 import { ref, reactive, onMounted } from 'vue'
 import { getLogs, getAlerts, configMilvus, configModel, getMilvusConfig, getModelConfig, getProviderHealth, rebuildBm25, getFeedbacks, markFeedbackGolden, getFeedbackStats } from '../api'
+import request from '../api/request'
 
 const tab = ref('feedback')
 const logs = ref({ total: 0, list: [] })
@@ -206,10 +234,42 @@ async function handleRebuildBm25() {
   bm25Loading.value = true
   try { const r = (await rebuildBm25()).data; toast(`BM25 重建完成（${r.chunks} 个分块）`) } catch (e) { toast('重建失败') } finally { bm25Loading.value = false }
 }
+const optimizer = ref(null)
+const optLoading = ref(false)
+async function loadOptimizer() {
+  optLoading.value = true
+  try {
+    const r = await request.get('/system/optimizer/report')
+    optimizer.value = r.data || null
+  } catch (e) { /* silent */ } finally { optLoading.value = false }
+}
+async function generateOptimizer() {
+  optLoading.value = true
+  try {
+    const r = await request.post('/system/optimizer/generate')
+    optimizer.value = r.data || null
+    toast('优化建议已生成')
+  } catch (e) { toast('生成失败') } finally { optLoading.value = false }
+}
+function typeLabel(t) {
+  return { retrieval: '检索优化', knowledge_gap: '知识盲区', cache: '缓存策略', trend: '趋势预警' }[t] || t
+}
+function severityBadge(s) {
+  return { high: 'badge badge-danger', medium: 'badge badge-warning', low: 'badge badge-info' }[s] || 'badge badge-neutral'
+}
 onMounted(() => { loadLogs(); loadFeedbacks('dislike'); loadFbStats(); loadAlerts(); loadConfig() })
 </script>
 
 <style scoped>
 .config-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 @media (max-width: 768px) { .config-grid { grid-template-columns: 1fr } }
+.opt-card { background: var(--surface-2); padding: 10px 12px; border-radius: var(--radius-sm); margin-bottom: 8px; border-left: 3px solid var(--border); }
+.opt-card.sev-high { border-left-color: var(--danger); }
+.opt-card.sev-medium { border-left-color: var(--warning); }
+.opt-card.sev-low { border-left-color: var(--info); }
+.opt-header { display: flex; align-items: center; gap: 6px; font-size: 13px; margin-bottom: 4px; flex-wrap: wrap; }
+.opt-type { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+.opt-detail { font-size: 12px; color: var(--text); margin-bottom: 4px; line-height: 1.5; }
+.opt-actions { display: flex; flex-direction: column; gap: 2px; }
+.opt-action { font-size: 12px; color: var(--text-muted); padding-left: 8px; border-left: 2px solid var(--border); margin: 1px 0; }
 </style>
