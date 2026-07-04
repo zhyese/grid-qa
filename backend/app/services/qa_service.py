@@ -456,6 +456,7 @@ async def stream_answer(
         "type": "done",
         "responseTime": round(time.time() - t0, 3),
         "hallucinationRate": halluc,
+        "modelType": _p,  # 实际调用的 LLM（前端据此展示 🤖 模型 badge；缓存命中时不带此字段）
         "graphCount": len(graph),
         "highRisk": safety.extract_high_risk(full),
         "confidence": confidence,
