@@ -77,6 +77,7 @@ const navItems = computed(() => {
     { to: '/documents', icon: '📄', label: '知识库' },
     { to: '/dashboard', icon: '📊', label: '统计看板' },
     { to: '/kg', icon: '🧠', label: '知识图谱' },
+    { to: '/kg-3d', icon: '🌐', label: '3D图谱' },
     { to: '/ticket', icon: '📋', label: '两票管理' },
   ]
   if (auth.role === 'admin') {
