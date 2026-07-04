@@ -67,3 +67,11 @@ class TicketExecuteRequest(BaseModel):
     supervisor: str = ""
     log: str = ""
     deviation: str = ""
+
+
+# ===== 复杂问题分解 =====
+
+
+class QueryPlanRequest(BaseModel):
+    question: str
+    modelType: Optional[str] = None

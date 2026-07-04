@@ -155,3 +155,28 @@ export const batchDeleteMessages = (ids) =>
 export const renameConversation = (id, title) => request.put(`/qa/conversations/${id}`, { title })
 export const getHistory = (conversationId) =>
   request.get('/qa/history', { params: { conversationId } })
+
+// 两票全生命周期管理
+export const createTicket = (data) => request.post('/domain/ticket/create', data)
+export const listTickets = (params) => request.get('/domain/ticket/list', { params })
+export const getTicket = (id) => request.get(`/domain/ticket/${id}`)
+export const submitTicket = (id) => request.post(`/domain/ticket/${id}/submit`)
+export const reviewTicket = (id, approved, comment) => request.post(`/domain/ticket/${id}/review`, { approved, comment })
+export const issueTicket = (id) => request.post(`/domain/ticket/${id}/issue`)
+export const executeTicket = (id, data) => request.post(`/domain/ticket/${id}/execute`, data)
+export const archiveTicket = (id) => request.post(`/domain/ticket/${id}/archive`)
+export const deleteTicket = (id) => request.delete(`/domain/ticket/${id}`)
+export const getTicketStats = () => request.get('/domain/ticket-stats')
+
+// P2-⑦ 成本追踪
+export const getCostReport = (period) => request.get('/system/cost/report', { params: { period } })
+export const checkQuota = () => request.get('/system/cost/quota')
+
+// P2-⑨ 复杂问题分解
+export const queryPlan = (question, modelType) => request.post('/domain/query-plan', { question, modelType })
+
+// P2-⑩ 在线评测
+export const getEvalTrends = (days = 7) => request.get('/system/eval/trends', { params: { days } })
+
+// P2-⑧ 路由配置 & A/B 测试
+export const getRoutingConfig = () => request.get('/system/routing/config')

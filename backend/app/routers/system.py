@@ -186,3 +186,60 @@ async def optimizer_generate(
     report = await generate_optimization_report(db)
     await write_log(db, admin.username, "生成优化报告", f"分析：{report['totalDislike']}次dislike → {report['suggestionCount']}条建议")
     return success(report, "生成成功")
+
+
+# ===== P2-⑦ LLM 成本追踪 =====
+
+
+@router.get("/cost/report")
+async def cost_report(
+    period: str = "today",
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+):
+    """LLM 成本报告：今日/本月 token 消耗 + 模型分布 + 用户排行。"""
+    from app.services.cost_tracker_service import get_cost_report
+    report = await get_cost_report(db, period)
+    return success(report, "查询成功")
+
+
+@router.get("/cost/quota")
+async def cost_quota(
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """查询当前用户配额使用情况。"""
+    from app.services.cost_tracker_service import check_quota
+    result = await check_quota(user.username, user.tenant_id)
+    return success(result, "查询成功")
+
+
+# ===== P2-⑩ 在线质量评测 =====
+
+
+@router.get("/eval/trends")
+async def eval_trends(
+    days: int = 7,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+):
+    """检索质量分数趋势（近 N 天）。"""
+    from app.services.online_eval_service import get_quality_trends
+    trends = await get_quality_trends(db, days)
+    return success(trends, "查询成功")
+
+
+@router.get("/routing/config")
+async def routing_config_get(
+    admin: User = Depends(require_admin),
+):
+    """查看路由配置 & A/B 测试状态。"""
+    from app.routing.config import router_config
+    return success({
+        "enabled": router_config.enabled,
+        "sparseMaxLen": router_config.sparse_max_len,
+        "denseMinLen": router_config.dense_min_len,
+        "minConfidence": router_config.min_confidence,
+        "abTestRatio": router_config.ab_test_ratio,
+        "hybridRoutes": list(router_config.hybrid_routes),
+    }, "查询成功")

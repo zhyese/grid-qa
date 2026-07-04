@@ -7,7 +7,7 @@ from app.core.response import success
 from app.db.session import get_db
 from app.dependencies import get_current_user, require_admin
 from app.models.user import User
-from app.schemas.domain import DiagnoseAgentRequest, DiagnoseDebateRequest, DiagnoseRequest, SimilarCaseRequest, TicketAuditRequest, TicketRequest
+from app.schemas.domain import DiagnoseAgentRequest, DiagnoseDebateRequest, DiagnoseRequest, QueryPlanRequest, SimilarCaseRequest, TicketAuditRequest, TicketRequest
 from app.services import debate_agent_service
 from app.services import diagnose_agent_service
 from app.services import domain_service
@@ -253,3 +253,18 @@ async def ticket_stats(
     """两票统计看板。"""
     data = await ticket_lifecycle_service.get_ticket_stats(db, tenant=user.tenant_id)
     return success(data, "查询成功")
+
+
+@router.post("/query-plan")
+@limiter.limit("10/minute")
+async def query_plan(
+    request: Request,
+    body: QueryPlanRequest,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """复杂问题分解：问题→子查询DAG→并行检索→综合答案（多步推理/对比/条件判断）。"""
+    from app.services.query_plan_service import plan_and_answer
+    data = await plan_and_answer(db, body.question, body.modelType)
+    await write_log(db, user.username, "复杂问题分解", f"问题：{body.question[:40]}")
+    return success(data, "回答成功")
