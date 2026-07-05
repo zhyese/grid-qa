@@ -228,6 +228,11 @@ async def answer(
     _llm0 = time.time()
     ans = await get_llm_provider(model_type).chat(messages, temperature=config_service.rt_temperature())
     ans = safety.safe_answer(ans)  # 答案脱敏（PII_MASK_ENABLE 开启时，D4）
+    # 证据溯源：无角标句子向量相似度自动补标（激活 citation 死代码进主链路）
+    if getattr(settings, "CITATION_AUTO_ENABLE", True):
+        ans, _trace = await citation.auto_cite(ans, contexts)
+    else:
+        _trace = citation.evidence_trace(ans)
     try:
         from app.core import metrics
         _p = model_type or settings.LLM_PROVIDER
@@ -251,7 +256,13 @@ async def answer(
         pass
     result = {
         "answer": ans,
-        "retrievalSource": [{"docName": c.get("docName", ""), "text": c["chunk"][:200]} for c in contexts],
+        "retrievalSource": [{
+            "docId": c.get("docId", ""), "docName": c.get("docName", ""),
+            "docType": c.get("docType", ""), "chunkIdx": c.get("chunkIdx"),
+            "chunk": c.get("chunk", ""), "score": c.get("score", 0.0),
+            "sources": c.get("sources", []),
+        } for c in contexts],
+        "evidenceTrace": _trace,
         "graphCount": len(graph),
         "highRisk": safety.extract_high_risk(ans),
         "confidence": confidence,
