@@ -28,7 +28,29 @@ def _to_item(h: dict) -> dict:
         "score": h.get("score", 0.0),
         "docId": h.get("doc_id", ""),
         "docName": h.get("doc_name", ""),
+        "docType": h.get("doc_type", ""),
+        "chunkIdx": h.get("chunk_idx"),
+        "sources": h.get("srcs", []),
     }
+
+
+def _aggregate_srcs(dense_hits: list[dict], sparse_hits: list[dict]) -> dict:
+    """key → 排序后的检索来源列表（dense_cloud/dense_bge/bm25 并集）。
+
+    rrf_fuse 只保留首遇 key 的 hit 字段，sources 必须独立聚合、fuse 后回填。
+    """
+    src_map: dict = {}
+    for h in dense_hits or []:
+        k = h.get("key")
+        if k is None:
+            continue
+        src_map.setdefault(k, set()).update(h.get("srcs", ["dense"]))
+    for h in sparse_hits or []:
+        k = h.get("key")
+        if k is None:
+            continue
+        src_map.setdefault(k, set()).add("bm25")
+    return {k: sorted(v) for k, v in src_map.items()}
 
 
 async def _expand_parents(db: AsyncSession, pool: list[dict]) -> list[dict]:
