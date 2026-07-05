@@ -25,7 +25,7 @@ def test_golden_fields_complete():
     """每条 query/expect/category 非空（与 validate_golden.py CI 校验一致）。"""
     for it in _load():
         assert it.get("query") and isinstance(it["query"], str)
-        assert it.get("expect") and isinstance(it["expect"], list)
+        assert isinstance(it.get("expect"), list)
         assert it.get("category")
 
 

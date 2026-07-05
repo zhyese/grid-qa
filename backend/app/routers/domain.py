@@ -7,7 +7,11 @@ from app.core.response import success
 from app.db.session import get_db
 from app.dependencies import get_current_user, require_admin
 from app.models.user import User
-from app.schemas.domain import DiagnoseAgentRequest, DiagnoseDebateRequest, DiagnoseRequest, QueryPlanRequest, SimilarCaseRequest, TicketAuditRequest, TicketRequest
+from app.schemas.domain import (
+    DiagnoseAgentRequest, DiagnoseDebateRequest, DiagnoseRequest,
+    QueryPlanRequest, SimilarCaseRequest,
+    TicketAuditRequest, TicketCreateRequest, TicketExecuteRequest, TicketListRequest, TicketRequest, TicketReviewRequest,
+)
 from app.services import debate_agent_service
 from app.services import diagnose_agent_service
 from app.services import domain_service

@@ -11,6 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.config import settings
+from app.core.obs import degraded
 from app.core.response import BizError, error, success
 
 
@@ -36,11 +37,17 @@ async def lifespan(app: FastAPI):
 
     from app.clients.minio_client import init_bucket
 
-    await init_bucket()  # 确保 MinIO bucket
+    try:
+        await init_bucket()  # 确保 MinIO bucket
+    except Exception as e:
+        degraded("minio_init_bucket", e, "MinIO 未启动？跳过 bucket 初始化")
 
     from app.clients.milvus_client import ensure_collections
 
-    ensure_collections()  # 确保 云 + bge 双 collection
+    try:
+        ensure_collections()  # 确保 云 + bge 双 collection
+    except Exception as e:
+        degraded("milvus_ensure_collections", e, "Milvus 未启动？跳过 collection 初始化")
 
     # 预热本地 bge 模型：首次加载需从 HF 下载(经代理 ~80s)，懒加载会让后端启动后
     # 首个问答触发该延迟(用户体感“同一问题偶尔 100s”)。提前在启动期加载进内存，
@@ -55,7 +62,6 @@ async def lifespan(app: FastAPI):
 
     try:
         from app.clients import neo4j_client
-        from app.core.obs import degraded
         await neo4j_client.ensure_constraint()  # Neo4j 知识图谱索引（未启用则跳过）
     except Exception as e:
         degraded("neo4j_init", e, "Neo4j 未启动?跳过")

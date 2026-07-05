@@ -22,6 +22,9 @@ import app.models.document  # noqa: E402,F401
 import app.models.chunk  # noqa: E402,F401
 import app.models.conversation  # noqa: E402,F401
 import app.models.operation_log  # noqa: E402,F401
+import app.models.feedback  # noqa: E402,F401
+import app.models.qa_cache  # noqa: E402,F401
+import app.models.ticket  # noqa: E402,F401  两票全生命周期
 
 config = context.config
 # 从 settings 注入同步 DB URL（aiomysql→pymysql）
