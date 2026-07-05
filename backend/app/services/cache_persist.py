@@ -64,7 +64,7 @@ async def cache_get_mysql(
 
     try:
         from app.core import metrics
-        metrics.CACHE_HIT.labels("mysql").inc()
+        metrics.cache_hit_inc("mysql")
     except Exception:
         pass
 

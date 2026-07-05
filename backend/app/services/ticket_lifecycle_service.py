@@ -45,6 +45,7 @@ async def create_ticket(
     )
     db.add(ticket)
     await db.commit()
+    await db.refresh(ticket)   # 显式回填 server_default 字段，避免 _ticket_to_dict 触发 lazy load → MissingGreenlet
     return _ticket_to_dict(ticket)
 
 
@@ -94,6 +95,7 @@ async def update_ticket_content(
             else:
                 setattr(t, k, v)
     await db.commit()
+    await db.refresh(t)
     return _ticket_to_dict(t)
 
 
@@ -121,6 +123,7 @@ async def submit_for_review(db: AsyncSession, ticket_id: str) -> dict:
     except Exception as e:
         degraded("ticket_submit_audit", e)
     await db.commit()
+    await db.refresh(t)
     return _ticket_to_dict(t)
 
 
@@ -142,6 +145,7 @@ async def review_ticket(
     t.reviewer = reviewer or t.reviewer
     t.reviewed_at = _now()
     await db.commit()
+    await db.refresh(t)
     return _ticket_to_dict(t)
 
 
@@ -156,6 +160,7 @@ async def issue_ticket(db: AsyncSession, ticket_id: str, issuer: str = "") -> di
     t.issuer = issuer or t.issuer
     t.issued_at = _now()
     await db.commit()
+    await db.refresh(t)
     return _ticket_to_dict(t)
 
 
@@ -173,6 +178,7 @@ async def start_execution(
     t.supervisor = supervisor or t.supervisor
     t.executed_at = _now()
     await db.commit()
+    await db.refresh(t)
     return _ticket_to_dict(t)
 
 
@@ -192,6 +198,7 @@ async def complete_execution(
     if deviation:
         t.deviation = deviation[:1000]
     await db.commit()
+    await db.refresh(t)
     return _ticket_to_dict(t)
 
 
@@ -205,6 +212,7 @@ async def archive_ticket(db: AsyncSession, ticket_id: str) -> dict:
     t.status = TicketStatus.ARCHIVED
     t.archived_at = _now()
     await db.commit()
+    await db.refresh(t)
     return _ticket_to_dict(t)
 
 

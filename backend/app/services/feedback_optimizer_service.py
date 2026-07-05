@@ -2,10 +2,12 @@
 
 扩展现有 feedback_service 的被动收集为主动优化回路：
 - bad case 模式发现 → 自动生成优化建议
-- 查询改写效果追踪 → 判断改写是否改善了回答质量
-- 缓存自动失效 → dislike 命中缓存的答案时自动清理
-- 热点问题 Cache TTL 自动调优 → 高频好问答延长 TTL
+- 缓存自动失效 → dislike 命中缓存的答案时自动清理（Redis L1 + MySQL L2）
+- 热点问题 Cache TTL 自动调优 → 高频坏答案进黑名单禁缓存 / 高频好答案延长 TTL
 - 知识盲区自动通知 → 连续 N 次 dislike 同一设备 → 生成上报建议
+
+注：查询改写效果追踪由 CRAG 指标(grid_crag_action_total{action=rewritten/refused})覆盖，
+不再单独维护 track_rewrite_effectiveness（原函数零调用且需额外检索成本算 recall A/B，ROI 低）。
 """
 import json
 from collections import Counter, defaultdict
@@ -15,6 +17,7 @@ from pathlib import Path
 from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.core.obs import degraded
 from app.models.feedback import Feedback
 from app.models.qa_cache import QaCache
@@ -25,62 +28,51 @@ _OPTIMIZER_REPORT_PATH = Path(__file__).resolve().parent.parent.parent / "data" 
 # ========== 1. 缓存自动失效 ==========
 
 async def invalidate_cache_on_dislike(db: AsyncSession, query: str) -> int:
-    """dislike 命中时，失效相关缓存条目（query 前缀匹配软删）。
+    """dislike 命中时，失效该问题的全部缓存（Redis L1 + MySQL L2）。
 
-    防止坏答案被缓存继续喂给其他用户。
+    底层逻辑：缓存 key = qa:{model}:{normalized_query}，MySQL 用 query_hash(MD5) 精确匹配。
+    故按归一化后的 query 精确失效——既补上 Redis L1（旧版只软删 MySQL，坏答案仍在 Redis 继续命中），
+    又改掉旧版 `query.like(prefix%)` 前缀匹配的误删/漏删（raw query 与缓存存的 normalized_query 不对齐）。
+    返回失效条数（MySQL 软删 + Redis 物理删）。
     """
     try:
-        # 模糊匹配 query 前缀相似的缓存
-        stmt = select(QaCache).where(
-            QaCache.is_deleted == 0,
-            QaCache.query.like(f"{query[:20]}%"),
-        ).limit(50)
-        rows = (await db.execute(stmt)).scalars().all()
-        n = 0
+        from app.services.term_service import normalize as _normalize
+        from app.clients import redis_client
+        nq = _normalize(query or "")
+        if not nq:
+            return 0
+
+        # MySQL L2：按归一化 query 精确软删（覆盖所有 model_type）
+        rows = (await db.execute(
+            select(QaCache).where(
+                QaCache.is_deleted == 0,
+                QaCache.query_normalized == nq,
+            ).limit(50)
+        )).scalars().all()
+        mysql_n = 0
         for r in rows:
             r.is_deleted = 1
-            n += 1
-        if n:
+            mysql_n += 1
+        if mysql_n:
             await db.commit()
-        return n
+
+        # Redis L1：SCAN 匹配 qa:*:{nq} 物理删（覆盖所有 model_type）
+        redis_n = 0
+        try:
+            r = redis_client.get_redis()
+            async for key in r.scan_iter(match=f"qa:*:{nq}", count=200):
+                await r.delete(key)
+                redis_n += 1
+        except Exception as e:
+            degraded("optimizer_cache_invalidate_redis", e)
+
+        return mysql_n + redis_n
     except Exception as e:
         degraded("optimizer_cache_invalidate", e)
         return 0
 
 
-# ========== 2. 查询改写效果追踪 ==========
-
-async def track_rewrite_effectiveness(
-    db: AsyncSession, original_query: str, rewritten_query: str,
-    original_recall: float, rewritten_recall: float,
-    original_answer_ok: bool, rewritten_answer_ok: bool,
-) -> None:
-    """记录一次查询改写效果，后续统计改写是否提升了检索和回答质量。
-
-    存入 feedback 表扩展字段或单独日志。
-    """
-    try:
-        from app.models.operation_log import OperationLog
-        log = OperationLog(
-            username="system",
-            action="rewrite_track",
-            detail=json.dumps({
-                "original": original_query[:100],
-                "rewritten": rewritten_query[:100],
-                "originalRecall": original_recall,
-                "rewrittenRecall": rewritten_recall,
-                "improved": rewritten_recall > original_recall,
-                "answerImproved": rewritten_answer_ok and not original_answer_ok,
-                "ts": datetime.now().isoformat(),
-            }, ensure_ascii=False)[:1000],
-        )
-        db.add(log)
-        await db.commit()
-    except Exception as e:
-        degraded("optimizer_rewrite_track", e)
-
-
-# ========== 3. 优化建议生成 ==========
+# ========== 2. 优化建议生成 ==========
 
 async def generate_optimization_report(db: AsyncSession) -> dict:
     """综合分析反馈数据，生成可执行优化建议报告。"""
@@ -144,50 +136,97 @@ async def generate_optimization_report(db: AsyncSession) -> dict:
                 "actions": [f"建议上传【{device}】相关运维规程、故障案例或操作手册"],
             })
 
-    # 3c. 缓存命中率建议（基于缓存 vs LLM 比例）
+    # 3c. 缓存命中率建议（基于进程内真实命中率，非硬编码）
+    # 底层逻辑：prometheus Counter 进程内不可读，metrics.cache_hit_inc() 维护了
+    # 进程内分层 mirror，这里读真实命中率——样本足够(≥10)且低于阈值(20%)才建议。
+    cache_rate = 0.0
+    cache_snap: dict = {}
     try:
         from app.core import metrics
-        # 缓存命中率低于 20% 时建议做缓存预热
-        suggestions.append({
-            "type": "cache",
-            "severity": "medium",
-            "title": "缓存策略建议",
-            "detail": "当前缓存命中率可通过预热高频问题提升，建议检查 cache_warmup 是否配置了 golden 预热文件",
-            "actions": [
-                "1) 确保 backend/data/golden_qa.json 有 ≥30 条问答对",
-                "2) 检查 Redis 内存（当前 10MB LRU）是否需要扩容",
-                "3) 考虑开启 Semantic Cache（见 P1-④）提升模糊匹配命中率",
-            ],
-        })
-    except Exception:
-        pass
+        cache_rate = metrics.cache_hit_rate()
+        cache_snap = metrics.cache_hit_snapshot()
+        total_req = sum(cache_snap.values())
+        if total_req >= settings.OPTIMIZER_MIN_SAMPLE and cache_rate < settings.OPTIMIZER_CACHE_HIT_FLOOR:
+            suggestions.append({
+                "type": "cache",
+                "severity": "high" if cache_rate < 0.10 else "medium",
+                "title": f"缓存命中率偏低（{cache_rate * 100:.0f}%）",
+                "detail": f"近 {total_req} 次问答中缓存命中仅 {cache_rate * 100:.0f}%（分层 {cache_snap}），大量请求直达 LLM 浪费成本",
+                "actions": [
+                    "1) 确认 cache_warmup 已用 golden_qa.json 预热高频问题",
+                    "2) 检查 Redis 容量是否需扩容（LRU 淘汰过快会压低命中）",
+                    "3) 考虑开启 Semantic Cache 提升模糊匹配命中率",
+                ],
+            })
+    except Exception as e:
+        degraded("optimizer_cache_rate", e)
 
-    # 3d. 趋势判断：近期 dislike 是否上升
-    seven_days_ago = datetime.now() - timedelta(days=7)
+    # 3d. 趋势判断：本周 vs 上周 dislike 环比（比单一近期占比更能反映"上升"）
+    now = datetime.now()
+    this_week_start = now - timedelta(days=7)
+    last_week_start = now - timedelta(days=14)
     recent_dislike = (await db.execute(
         select(func.count()).where(
             Feedback.feedback == "dislike",
-            Feedback.created_at >= seven_days_ago,
+            Feedback.created_at >= this_week_start,
+        )
+    )).scalar() or 0
+    last_week_dislike = (await db.execute(
+        select(func.count()).where(
+            Feedback.feedback == "dislike",
+            Feedback.created_at >= last_week_start,
+            Feedback.created_at < this_week_start,
         )
     )).scalar() or 0
     total_dislike = (await db.execute(
         select(func.count()).where(Feedback.feedback == "dislike")
     )).scalar() or 0
-    if recent_dislike > 0 and total_dislike > 0:
-        recent_ratio = recent_dislike / max(total_dislike, 1) * 100
-        if recent_ratio > 30:
+    if recent_dislike > 0:
+        if last_week_dislike == 0:
             suggestions.append({
                 "type": "trend",
                 "severity": "high",
-                "title": "近期失分率偏高",
-                "detail": f"近7天 dislike 占比 {recent_ratio:.0f}%（{recent_dislike}/{total_dislike}）",
-                "actions": ["建议检查近期是否有文档变更导致检索质量下降", "检查是否有新的未覆盖设备类型上线"],
+                "title": "本周新增失分",
+                "detail": f"近7天新增 {recent_dislike} 次 dislike（上周 0 次），疑似新设备上线或文档变更引入",
+                "actions": ["排查近 7 天文档变更是否影响检索", "检查是否有新设备类型未覆盖"],
             })
+        else:
+            wow = recent_dislike / last_week_dislike
+            if wow >= settings.OPTIMIZER_TREND_RATIO:
+                suggestions.append({
+                    "type": "trend",
+                    "severity": "high",
+                    "title": f"失分环比上升（×{wow:.1f}）",
+                    "detail": f"本周 dislike {recent_dislike} 次 vs 上周 {last_week_dislike} 次，环比上升 {((wow - 1) * 100):.0f}%",
+                    "actions": ["检查近期文档变更是否降低检索质量", "检查新设备类型覆盖情况"],
+                })
+
+    # 3e. LLM 编造检测：检索差但回答"看着好"(judge_halluc 低) = 疑似脱离证据编造（最危险类）
+    try:
+        fudge_rows = (await db.execute(
+            select(Feedback.query).where(
+                Feedback.feedback == "dislike",
+                Feedback.retrieval_quality.in_(["poor", "partial"]),
+                Feedback.judge_halluc < 0.3,
+            ).order_by(Feedback.created_at.desc()).limit(10)
+        )).scalars().all()
+        if fudge_rows:
+            suggestions.append({
+                "type": "hallucination",
+                "severity": "high",
+                "title": f"疑似 LLM 编造（{len(fudge_rows)} 例）",
+                "detail": "以下问题检索证据不足但回答自信度高，存在 LLM 脱离检索结果编造答案的风险（高危，最该优先处理）",
+                "actions": [f"「{(q or '')[:50]}」→ 补充相关文档，或强化 prompt 要求必须引用检索证据" for q in fudge_rows[:5]],
+            })
+    except Exception as e:
+        degraded("optimizer_hallucination_detect", e)
 
     report = {
         "generatedAt": datetime.now().isoformat(),
         "totalDislike": total_dislike,
         "recentDislike": recent_dislike,
+        "cacheHitRate": cache_rate,
+        "cacheStats": cache_snap,
         "suggestions": suggestions,
         "suggestionCount": len(suggestions),
     }
@@ -206,33 +245,57 @@ async def get_optimization_report() -> dict:
             return json.loads(_OPTIMIZER_REPORT_PATH.read_text(encoding="utf-8"))
         except Exception:
             pass
-    return {"generatedAt": None, "totalDislike": 0, "suggestions": [], "suggestionCount": 0}
+    return {"generatedAt": None, "totalDislike": 0, "recentDislike": 0,
+            "cacheHitRate": 0.0, "cacheStats": {}, "suggestions": [], "suggestionCount": 0}
 
 
-# ========== 4. 缓存 TTL 自动调优 ==========
+# ========== 3. 缓存 TTL 自动调优 + 黑名单 ==========
+
+_BLACKLIST_KEY = "qa:cache:blacklist"
+
+
+async def is_query_blacklisted(nq: str) -> bool:
+    """该归一化 query 是否在缓存黑名单（高频坏答案，禁止缓存命中，强制重走 LLM）。"""
+    try:
+        from app.clients import redis_client
+        return bool(await redis_client.get_redis().sismember(_BLACKLIST_KEY, nq))
+    except Exception:
+        return False
+
 
 async def auto_tune_cache_ttl(db: AsyncSession) -> dict:
-    """基于反馈模式自动调优各类型问题的缓存 TTL。
+    """基于反馈模式自动调优缓存策略（兑现原 dead code 的承诺）。
 
-    好问答（like > dislike * 3）→ 延长 TTL
-    坏问答（dislike > 0）→ 缩短 TTL 或黑名单
+    - 高频坏答案（dislike≥3）→ 归一化 query 写入 Redis 黑名单 set，QA 层 is_query_blacklisted 拦截
+    - 高频好答案（like≥5）→ 标为 TTL 延长候选（分析展示）
     """
-    tune_results = {"extended": [], "shortened": [], "blacklisted": []}
+    from app.services.term_service import normalize as _normalize
+    tune_results = {"extended": [], "blacklisted": [], "appliedBlacklist": 0}
 
-    # 找高频 dislike 问题 → 缓存黑名单
+    # 高频 dislike → 缓存黑名单（归一化后写 Redis set，与缓存 key 对齐）
     bad_queries = (await db.execute(
         select(Feedback.query, func.count()).where(Feedback.feedback == "dislike")
         .group_by(Feedback.query).order_by(func.count().desc()).limit(20)
     )).all()
-    blacklist = [q for q, cnt in bad_queries if cnt >= 3]
+    blacklist_raw = [q for q, cnt in bad_queries if cnt >= 3]
+    blacklist_nq = sorted({_normalize(q or "") for q in blacklist_raw if q})
+    applied = 0
+    if blacklist_nq:
+        try:
+            from app.clients import redis_client
+            await redis_client.get_redis().sadd(_BLACKLIST_KEY, *blacklist_nq)
+            applied = len(blacklist_nq)
+        except Exception as e:
+            degraded("optimizer_blacklist_write", e)
 
-    # 找高频 like 问题 → TTL 延长候选
+    # 高频 like → TTL 延长候选
     good_queries = (await db.execute(
         select(Feedback.query, func.count()).where(Feedback.feedback == "like")
         .group_by(Feedback.query).order_by(func.count().desc()).limit(20)
     )).all()
-    extend = [{"query": q[:60], "count": cnt} for q, cnt in good_queries if cnt >= 5]
+    extend = [{"query": (q or "")[:60], "count": cnt} for q, cnt in good_queries if cnt >= 5]
 
-    tune_results["blacklisted"] = [q[:60] for q in blacklist]
+    tune_results["blacklisted"] = [q[:60] for q in blacklist_nq]
     tune_results["extended"] = extend
+    tune_results["appliedBlacklist"] = applied
     return tune_results

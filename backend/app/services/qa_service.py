@@ -20,6 +20,15 @@ def _cache_key(model_type: str | None, query: str) -> str:
     return f"qa:{model_type or 'default'}:{query}"
 
 
+async def _is_blacklisted(nq: str) -> bool:
+    """缓存黑名单检查（高频坏答案禁缓存命中，由反馈驱动 auto_tune_cache_ttl 写入 Redis set）。"""
+    try:
+        from app.services.feedback_optimizer_service import is_query_blacklisted
+        return await is_query_blacklisted(nq)
+    except Exception:
+        return False
+
+
 async def _crag_correct(
     db: AsyncSession, nq: str, contexts: list[dict],
     model_type: str | None, topk: int, tenant: str = "default",
@@ -118,7 +127,7 @@ async def answer(
 
     # 多轮不走缓存（上下文变化）；单轮走三级缓存：Redis(L1) → 语义缓存(L1.5) → MySQL(L2) → LLM(L3)
     cache_layer = "llm"  # 默认走 LLM
-    if is_single:
+    if is_single and not await _is_blacklisted(nq):
         # L1: Redis 热点缓存（精确 key 匹配）
         try:
             cached = await redis_client.cache_get_json(_cache_key(model_type, nq))
@@ -132,7 +141,7 @@ async def answer(
             try:
                 from app.core import metrics
                 metrics.QA_TOTAL.labels(model_type or settings.LLM_PROVIDER, "true").inc()
-                metrics.CACHE_HIT.labels("redis").inc()
+                metrics.cache_hit_inc("redis")
             except Exception:
                 pass
             return cached
@@ -149,7 +158,7 @@ async def answer(
                     try:
                         from app.core import metrics
                         metrics.QA_TOTAL.labels(model_type or settings.LLM_PROVIDER, "true").inc()
-                        metrics.CACHE_HIT.labels("mysql").inc()
+                        metrics.cache_hit_inc("mysql")
                     except Exception:
                         pass
                     return mysql_cached
@@ -169,7 +178,7 @@ async def answer(
                     try:
                         from app.core import metrics
                         metrics.QA_TOTAL.labels(model_type or settings.LLM_PROVIDER, "true").inc()
-                        metrics.CACHE_HIT.labels("semantic").inc()
+                        metrics.cache_hit_inc("semantic")
                     except Exception:
                         pass
                     return sc_data
@@ -257,8 +266,8 @@ async def answer(
         "conversationId": conversation_id,
     }
 
-    # 仅单轮结果写缓存（Write-Through: MySQL → Redis）
-    if is_single:
+    # 仅单轮结果写缓存（Write-Through: MySQL → Redis）；黑名单 query 不写缓存
+    if is_single and not await _is_blacklisted(nq):
         # L2: MySQL 持久化（先写，保证数据不丢）
         if settings.CACHE_PERSIST_ENABLE:
             try:
@@ -281,7 +290,22 @@ async def answer(
     try:
         from app.core import metrics
         metrics.QA_TOTAL.labels(model_type or settings.LLM_PROVIDER, "false").inc()
-        metrics.CACHE_HIT.labels("llm").inc()
+        metrics.cache_hit_inc("llm")
+    except Exception:
+        pass
+    # 成本追踪（记录 token 用量 → 成本报告数据来源；估算 input/output token）
+    try:
+        import asyncio
+        from app.services.cost_tracker_service import record_token_usage
+        asyncio.ensure_future(record_token_usage(db, username, tenant, model_type or settings.LLM_PROVIDER, len(str(messages)) // 2, len(ans) // 2))
+    except Exception:
+        pass
+    # 在线质量评测采样（异步跑 LLM Judge，不阻塞响应；评测趋势数据来源）
+    try:
+        import asyncio
+        from app.services.online_eval_service import should_sample, eval_quality
+        if should_sample():
+            asyncio.ensure_future(eval_quality(db, query, ans, contexts, model_type))
     except Exception:
         pass
     return result
@@ -313,7 +337,7 @@ async def stream_answer(
     # 0) 单轮三级缓存：Redis(L1) → MySQL(L2) → LLM(L3)
     #    regen=True（重新生成）跳过缓存读，强制重走 LLM
     cache_layer = "llm"
-    if is_single and not regen:
+    if is_single and not regen and not await _is_blacklisted(nq):
         # L1: Redis 热点
         try:
             cached = await redis_client.cache_get_json(_cache_key(model_type, nq))
@@ -333,7 +357,7 @@ async def stream_answer(
             try:
                 from app.core import metrics
                 metrics.QA_TOTAL.labels(_p, "true").inc()
-                metrics.CACHE_HIT.labels("redis").inc()
+                metrics.cache_hit_inc("redis")
             except Exception:
                 pass
             yield {
@@ -362,7 +386,7 @@ async def stream_answer(
                     try:
                         from app.core import metrics
                         metrics.QA_TOTAL.labels(_p, "true").inc()
-                        metrics.CACHE_HIT.labels("mysql").inc()
+                        metrics.cache_hit_inc("mysql")
                     except Exception:
                         pass
                     yield {
@@ -393,7 +417,7 @@ async def stream_answer(
                     try:
                         from app.core import metrics
                         metrics.QA_TOTAL.labels(_p, "true").inc()
-                        metrics.CACHE_HIT.labels("semantic").inc()
+                        metrics.cache_hit_inc("semantic")
                     except Exception:
                         pass
                     yield {
@@ -472,6 +496,21 @@ async def stream_answer(
 
     # 3) 持久化完整答案
     full = "".join(parts)
+    # 成本追踪（记录 token 用量 → 成本报告数据来源；估算 input/output token）
+    try:
+        import asyncio
+        from app.services.cost_tracker_service import record_token_usage
+        asyncio.ensure_future(record_token_usage(db, username, tenant, model_type or settings.LLM_PROVIDER, len(str(messages)) // 2, len(full) // 2))
+    except Exception:
+        pass
+    # 在线质量评测采样（异步跑 LLM Judge，不阻塞流式；评测趋势数据来源）
+    try:
+        import asyncio
+        from app.services.online_eval_service import should_sample, eval_quality
+        if should_sample():
+            asyncio.ensure_future(eval_quality(db, query, full, contexts, model_type))
+    except Exception:
+        pass
     try:
         await conversation_service.save_message(db, conversation_id, "user", query)
         await conversation_service.save_message(db, conversation_id, "assistant", full)
@@ -494,7 +533,7 @@ async def stream_answer(
         "cacheLayer": "llm",
         "conversationId": conversation_id,
     }
-    if is_single:
+    if is_single and not await _is_blacklisted(nq):
         # L2: MySQL 持久化（先写）
         if settings.CACHE_PERSIST_ENABLE:
             try:
@@ -517,7 +556,7 @@ async def stream_answer(
     try:
         from app.core import metrics
         metrics.QA_TOTAL.labels(_p, "false").inc()
-        metrics.CACHE_HIT.labels("llm").inc()
+        metrics.cache_hit_inc("llm")
     except Exception:
         pass
     yield {

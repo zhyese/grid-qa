@@ -141,12 +141,20 @@
       <div class="card" v-show="tab === 'optimizer'">
         <div class="card-header">
           <h3 class="card-title">📈 反馈驱动优化建议</h3>
-          <button class="btn btn-primary btn-sm" :disabled="optLoading" @click="generateOptimizer">{{ optLoading ? '分析中…' : '🔄 重新分析' }}</button>
+          <div style="display:flex; gap:6px">
+            <button class="btn btn-primary btn-sm" :disabled="optLoading" @click="generateOptimizer">{{ optLoading ? '分析中…' : '🔄 重新分析' }}</button>
+            <button class="btn btn-ghost btn-sm" :disabled="tuneLoading" @click="tuneCache">{{ tuneLoading ? '调优中…' : '🎚️ 缓存调优' }}</button>
+          </div>
         </div>
         <p class="hint" style="margin-top:0">基于用户反馈自动分析知识盲区、缓存策略和检索质量，生成可执行优化建议。</p>
         <div v-if="optimizer" style="margin-top:8px">
           <div class="opt-meta" style="margin-bottom:8px; font-size:12px; color:var(--text-muted)">
-            分析时间：{{ optimizer.generatedAt || '未生成' }} · 总 dislike {{ optimizer.totalDislike }} · 近7天 {{ optimizer.recentDislike }}
+            分析时间：{{ optimizer.generatedAt || '未生成' }} · 总 dislike {{ optimizer.totalDislike }} · 近7天 {{ optimizer.recentDislike }} · 缓存命中率 {{ optimizer.cacheHitRate != null ? (optimizer.cacheHitRate * 100).toFixed(0) + '%' : '—' }}
+          </div>
+          <div v-if="tuneResult" class="opt-card" style="margin-bottom:10px; border-left-color:var(--accent)">
+            <div class="opt-header"><span class="badge badge-info">缓存调优</span><strong class="opt-title">已应用黑名单 {{ tuneResult.appliedBlacklist }} 条</strong></div>
+            <div v-if="tuneResult.blacklisted?.length" class="opt-detail">🚫 高频坏答案禁缓存：{{ tuneResult.blacklisted.join('、') }}</div>
+            <div v-if="tuneResult.extended?.length" class="opt-detail">⏱️ TTL 延长候选：{{ tuneResult.extended.map(e => e.query).join('、') }}</div>
           </div>
           <div v-if="!optimizer.suggestions?.length" class="empty">暂无优化建议（数据积累中）</div>
           <div class="opt-card" v-for="(s, i) in optimizer.suggestions" :key="i" :class="'sev-' + s.severity">
@@ -190,20 +198,38 @@
       <div class="card" v-show="tab === 'quality'">
         <div class="card-header"><h3 class="card-title">📚 知识库质量</h3><button class="btn btn-ghost btn-sm" @click="loadQuality">🔄 刷新</button></div>
         <div v-if="quality">
-          <div class="stats-grid" style="margin-bottom:10px">
-            <div class="stat stat-accent"><div class="stat-val">{{ quality.overallGrade || '?' }}</div><div class="stat-lbl">综合评级</div></div>
-            <div class="stat stat-accent"><div class="stat-val">{{ (quality.qualityScore * 100).toFixed(0) }}%</div><div class="stat-lbl">分块质量</div></div>
-            <div class="stat stat-accent"><div class="stat-val">{{ (quality.coverageRate * 100).toFixed(0) }}%</div><div class="stat-lbl">向量化覆盖</div></div>
+          <div class="stats-grid" style="margin-bottom:14px;grid-template-columns:repeat(5,1fr)">
+            <div class="stat stat-accent"><div class="stat-val" :style="{ color: gradeColor(quality.overallGrade) }">{{ quality.overallGrade || '?' }}</div><div class="stat-lbl">综合评级</div></div>
+            <div class="stat stat-accent"><div class="stat-val">{{ ((quality.qualityScore||0)*100).toFixed(0) }}%</div><div class="stat-lbl">分块质量</div></div>
+            <div class="stat stat-accent"><div class="stat-val">{{ ((quality.coverageRate||0)*100).toFixed(0) }}%</div><div class="stat-lbl">向量化覆盖</div></div>
+            <div class="stat stat-accent"><div class="stat-val">{{ quality.docCount }}</div><div class="stat-lbl">文档总数</div></div>
+            <div class="stat stat-accent"><div class="stat-val">{{ quality.chunkCount }}</div><div class="stat-lbl">分块总数</div></div>
           </div>
-          <div class="cause" style="justify-content:space-between"><span>文档数</span><span>{{ quality.docCount }}</span></div>
-          <div class="cause" style="justify-content:space-between"><span>分块数</span><span>{{ quality.chunkCount }}</span></div>
-          <div class="cause" style="justify-content:space-between"><span>重复率</span><span>{{ (quality.dupRate * 100).toFixed(1) }}%</span></div>
-          <div class="cause" style="justify-content:space-between"><span>过短分块</span><span>{{ quality.tooShortChunks }}</span></div>
-          <div class="cause" style="justify-content:space-between"><span>过长分块</span><span>{{ quality.tooLongChunks }}</span></div>
-          <div v-if="quality.docTypeDistribution" class="src-head" style="margin-top:8px">文档类型分布</div>
-          <div class="cause" v-for="(c, t) in quality.docTypeDistribution" :key="t" style="justify-content:space-between"><span>{{ t }}</span><span>{{ c }} 份</span></div>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px">
+            <div>
+              <div class="src-head">文档类型分布</div>
+              <div ref="qualityPieEl" style="height:260px"></div>
+            </div>
+            <div>
+              <div class="src-head">分块质量</div>
+              <div ref="qualityPieScoreEl" style="height:260px"></div>
+            </div>
+            <div>
+              <div class="src-head">向量化覆盖</div>
+              <div ref="qualityPieCovEl" style="height:260px"></div>
+            </div>
+          </div>
+          <div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:8px">
+            <span class="hint">重复率 {{ ((quality.dupRate||0)*100).toFixed(1) }}%</span>
+            <span class="hint">过短块 {{ quality.tooShortChunks }}</span>
+            <span class="hint">过长块 {{ quality.tooLongChunks }}</span>
+          </div>
           <div v-if="quality.gaps?.length" class="src-head" style="margin-top:8px;color:var(--warning)">⚠ 知识盲区</div>
           <div class="cause" v-for="g in quality.gaps" :key="g.term"><span>{{ g.suggestion }}</span></div>
+          <div style="margin-top:16px">
+            <div class="src-head">质量三维度对比（横向柱图 %）</div>
+            <div ref="qualityBarEl" style="height:240px"></div>
+          </div>
         </div>
         <div v-else class="hint" style="margin-top:8px">加载中...</div>
       </div>
@@ -212,21 +238,15 @@
       <div class="card" v-show="tab === 'eval'">
         <div class="card-header"><h3 class="card-title">📊 检索质量评测趋势</h3><button class="btn btn-ghost btn-sm" @click="loadEval">🔄 刷新</button></div>
         <div v-if="evalTrend">
-          <div class="stats-grid" style="margin-bottom:10px">
-            <div class="stat stat-accent"><div class="stat-val">{{ (evalTrend.latestOverall * 100 || 0).toFixed(1) }}%</div><div class="stat-lbl">综合评分</div></div>
+          <div class="stats-grid" style="margin-bottom:14px;grid-template-columns:repeat(4,1fr)">
+            <div class="stat stat-accent"><div class="stat-val">{{ ((evalTrend.latestOverall||0)*100).toFixed(1) }}%</div><div class="stat-lbl">最新综合</div></div>
+            <div class="stat stat-accent"><div class="stat-val">{{ evalAvg() }}</div><div class="stat-lbl">区间均分</div></div>
+            <div class="stat stat-accent"><div class="stat-val">{{ evalTrend.trends?.length || 0 }}</div><div class="stat-lbl">采样天数</div></div>
+            <div class="stat stat-accent"><div class="stat-val">{{ evalSamples() }}</div><div class="stat-lbl">采样总数</div></div>
           </div>
-          <div class="src-head">近 {{ evalTrend.days }} 天趋势</div>
-          <div class="cause" v-for="t in evalTrend.trends" :key="t.date" style="flex-direction:column;align-items:flex-start">
-            <div style="display:flex;justify-content:space-between;width:100%">
-              <span><b>{{ t.date }}</b></span><span>{{ t.samples }} 条</span>
-            </div>
-            <div style="display:flex;gap:8px;font-size:12px;margin-top:2px">
-              <span>综合:{{ (t.overall * 100).toFixed(0) }}%</span>
-              <span>相关性:{{ (t.relevance * 100).toFixed(0) }}%</span>
-              <span>忠实度:{{ (t.faithfulness * 100).toFixed(0) }}%</span>
-            </div>
-          </div>
-          <div v-if="!evalTrend.trends?.length" class="empty">暂无评测数据（需要用户问答触发采样）</div>
+          <div class="src-head">近 {{ evalTrend.days }} 天质量趋势（综合 / 相关性 / 忠实度）</div>
+          <div ref="evalLineEl" style="height:340px"></div>
+          <div v-if="!evalTrend.trends?.length" class="empty" style="margin-top:8px">暂无评测数据（需用户问答触发采样跑 LLM Judge 后才有趋势）</div>
         </div>
         <div v-else class="hint" style="margin-top:8px">加载中...</div>
       </div>
@@ -251,9 +271,15 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, onMounted, nextTick } from 'vue'
+import * as echarts from 'echarts/core'
+import { PieChart, BarChart } from 'echarts/charts'
+import { TooltipComponent, LegendComponent, GridComponent } from 'echarts/components'
+import { CanvasRenderer } from 'echarts/renderers'
 import { getLogs, getAlerts, configMilvus, configModel, getMilvusConfig, getModelConfig, getProviderHealth, rebuildBm25, getFeedbacks, markFeedbackGolden, getFeedbackStats } from '../api'
 import request from '../api/request'
+
+echarts.use([PieChart, BarChart, TooltipComponent, LegendComponent, GridComponent, CanvasRenderer])
 
 const tab = ref('feedback')
 const logs = ref({ total: 0, list: [] })
@@ -339,16 +365,109 @@ async function generateOptimizer() {
     toast('优化建议已生成')
   } catch (e) { toast('生成失败') } finally { optLoading.value = false }
 }
+const tuneResult = ref(null)
+const tuneLoading = ref(false)
+async function tuneCache() {
+  tuneLoading.value = true
+  try {
+    const r = await request.post('/system/optimizer/tune-cache')
+    tuneResult.value = r.data || null
+    toast(`已应用黑名单 ${(r.data || {}).appliedBlacklist || 0} 条`)
+  } catch (e) { toast('调优失败') } finally { tuneLoading.value = false }
+}
 function typeLabel(t) {
-  return { retrieval: '检索优化', knowledge_gap: '知识盲区', cache: '缓存策略', trend: '趋势预警' }[t] || t
+  return { retrieval: '检索优化', knowledge_gap: '知识盲区', cache: '缓存策略', trend: '趋势预警', hallucination: '编造风险' }[t] || t
 }
 function severityBadge(s) {
   return { high: 'badge badge-danger', medium: 'badge badge-warning', low: 'badge badge-info' }[s] || 'badge badge-neutral'
 }
-const costReport = ref(null); const quality = ref(null); const evalTrend = ref(null); const abConfig = ref(null)
+const costReport = ref(null); const quality = ref(null); const evalTrend = ref(null); const abConfig = ref(null); const qualityPieEl = ref(null); const qualityPieScoreEl = ref(null); const qualityPieCovEl = ref(null); const qualityBarEl = ref(null); const evalLineEl = ref(null)
 async function loadCostReport() { try { costReport.value = (await request.get('/system/cost/report', { params: { period: 'today' } })).data } catch (e) { toast('加载失败') } }
-async function loadQuality() { try { quality.value = (await request.get('/system/knowledge/quality')).data } catch (e) { toast('加载失败') } }
-async function loadEval() { try { evalTrend.value = (await request.get('/system/eval/trends', { params: { days: 7 } })).data } catch (e) { toast('加载失败') } }
+async function loadQuality() {
+  try {
+    quality.value = (await request.get('/system/knowledge/quality')).data
+    await nextTick(); renderQualityCharts()
+  } catch (e) { toast('加载失败') }
+}
+function gradeColor(g) { return ({ S: '#ffd700', A: '#f59e0b', B: '#10b981', C: '#ef4444', D: '#6b7280' })[g] || '#94a3b8' }
+function renderQualityCharts() {
+  if (!quality.value) return
+  const q = quality.value
+  if (qualityPieEl.value) {
+    echarts.init(qualityPieEl.value).setOption({
+      tooltip: { trigger: 'item', formatter: '{b}: {c} 份 ({d}%)' },
+      legend: { bottom: 0, textStyle: { color: '#94a3b8' } },
+      color: ['#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6', '#06b6d4'],
+      series: [{ type: 'pie', radius: ['40%', '68%'], center: ['50%', '45%'],
+        data: Object.entries(q.docTypeDistribution || {}).map(([name, value]) => ({ name, value })),
+        label: { color: '#cbd5e1', formatter: '{b}\n{c} 份' },
+        itemStyle: { borderColor: '#1e293b', borderWidth: 2 },
+        emphasis: { scale: true, scaleSize: 8, itemStyle: { shadowBlur: 14, shadowColor: 'rgba(0,0,0,.4)' } },
+      }],
+    })
+  }
+  const pie2 = (el, val, title, color) => {
+    if (!el.value) return
+    echarts.init(el.value).setOption({
+      tooltip: { trigger: 'item', formatter: '{b}: {c}%' },
+      series: [{ type: 'pie', radius: ['60%', '80%'], center: ['50%', '50%'],
+        data: [{ name: title, value: val, itemStyle: { color } }, { name: '未达成', value: 100 - val, itemStyle: { color: 'rgba(148,163,184,.16)' } }],
+        label: { show: true, position: 'center', formatter: `{a|${val}%}\n{b|${title}}`,
+          rich: { a: { fontSize: 24, color: '#e2e8f0', fontWeight: 700, lineHeight: 30 }, b: { fontSize: 12, color: '#94a3b8' } } },
+        emphasis: { scale: true, scaleSize: 12, itemStyle: { shadowBlur: 18, shadowColor: 'rgba(0,0,0,.5)' } },
+      }],
+    })
+  }
+  pie2(qualityPieScoreEl, Math.round((q.qualityScore || 0) * 100), '分块质量', '#10b981')
+  pie2(qualityPieCovEl, Math.round((q.coverageRate || 0) * 100), '向量化覆盖', '#3b82f6')
+  if (qualityBarEl.value) {
+    echarts.init(qualityBarEl.value).setOption({
+      tooltip: { formatter: '{b}: {c}%' },
+      grid: { left: 72, right: 40, top: 16, bottom: 28 },
+      xAxis: { type: 'value', max: 100, axisLabel: { color: '#94a3b8', formatter: '{value}%' }, splitLine: { lineStyle: { color: 'rgba(148,163,184,.15)' } } },
+      yAxis: { type: 'category', data: ['向量化覆盖', '分块质量', '去重率'], axisLabel: { color: '#cbd5e1' }, axisLine: { lineStyle: { color: 'rgba(148,163,184,.3)' } } },
+      series: [{ type: 'bar', barWidth: 16,
+        data: [
+          { value: Math.round((q.coverageRate || 0) * 100), itemStyle: { color: '#3b82f6' } },
+          { value: Math.round((q.qualityScore || 0) * 100), itemStyle: { color: '#10b981' } },
+          { value: Math.round((1 - (q.dupRate || 0)) * 100), itemStyle: { color: '#f59e0b' } },
+        ],
+        label: { show: true, position: 'right', formatter: '{c}%', color: '#cbd5e1' },
+        emphasis: { focus: 'self', itemStyle: { shadowBlur: 12, shadowColor: 'rgba(255,255,255,.4)' } },
+      }],
+    })
+  }
+}
+async function loadEval() {
+  try {
+    evalTrend.value = (await request.get('/system/eval/trends', { params: { days: 7 } })).data
+    await nextTick(); renderEvalChart()
+  } catch (e) { toast('加载失败') }
+}
+function evalSamples() { return (evalTrend.value?.trends || []).reduce((s, x) => s + (x.samples || 0), 0) }
+function evalAvg() {
+  const t = evalTrend.value?.trends || []
+  if (!t.length) return '-'
+  return (t.reduce((s, x) => s + (x.overall || 0), 0) / t.length * 100).toFixed(1) + '%'
+}
+function renderEvalChart() {
+  const t = evalTrend.value
+  if (!t || !evalLineEl.value) return
+  const arr = t.trends || []
+  const pct = (xs) => xs.map(x => Math.round((x || 0) * 100))
+  echarts.init(evalLineEl.value).setOption({
+    tooltip: { trigger: 'axis', formatter: (p) => p.map(i => `${i.marker}${i.seriesName}: ${i.value}%`).join('<br/>') },
+    legend: { bottom: 0, textStyle: { color: '#94a3b8' } },
+    grid: { left: 44, right: 24, top: 24, bottom: 40 },
+    xAxis: { type: 'category', data: arr.map(x => x.date), boundaryGap: false, axisLabel: { color: '#94a3b8' }, axisLine: { lineStyle: { color: 'rgba(148,163,184,.3)' } } },
+    yAxis: { type: 'value', max: 100, axisLabel: { color: '#94a3b8', formatter: '{value}%' }, splitLine: { lineStyle: { color: 'rgba(148,163,184,.15)' } } },
+    series: [
+      { name: '综合', type: 'line', smooth: true, symbol: 'circle', symbolSize: 6, data: pct(arr.map(x => x.overall)), itemStyle: { color: '#3b82f6' }, areaStyle: { opacity: 0.15 } },
+      { name: '相关性', type: 'line', smooth: true, symbol: 'circle', symbolSize: 6, data: pct(arr.map(x => x.relevance)), itemStyle: { color: '#10b981' } },
+      { name: '忠实度', type: 'line', smooth: true, symbol: 'circle', symbolSize: 6, data: pct(arr.map(x => x.faithfulness)), itemStyle: { color: '#f59e0b' } },
+    ],
+  })
+}
 async function loadABTest() { try { abConfig.value = (await request.get('/system/routing/config')).data } catch (e) { toast('加载失败') } }
 onMounted(() => { loadLogs(); loadFeedbacks('dislike'); loadFbStats(); loadAlerts(); loadConfig() })
 </script>

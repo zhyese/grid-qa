@@ -319,11 +319,11 @@ async function resendEdit(m) {
   await runStream(q, { cid: currentConvId.value })
 }
 
-async function like(m) { if (m.fb) return; try { await sendFeedback(m.query, m.content, 'like', m.conversationId); m.fb = 'like' } catch (e) {} }
+async function like(m) { if (m.fb) return; try { await sendFeedback(m.query, m.content, 'like', m.conversationId, '', m.sources); m.fb = 'like' } catch (e) {} }
 async function dislike(m) {
   if (m.fb) return
   const reason = window.prompt('感谢反馈，请简述答案哪里有问题（可选，用于优化）：') || ''
-  try { await sendFeedback(m.query, m.content, 'dislike', m.conversationId, reason); m.fb = 'dislike' } catch (e) {}
+  try { await sendFeedback(m.query, m.content, 'dislike', m.conversationId, reason, m.sources); m.fb = 'dislike' } catch (e) {}
 }
 
 function confLabel(c) { return ({ high: '✓ 高置信', medium: '⚠ 证据有限', refused: '✗ 证据不足' })[c] || '' }

@@ -21,7 +21,11 @@ def get_embedding_provider(provider: str | None = None) -> EmbeddingProvider:
 
 
 def get_llm_provider(provider: str | None = None) -> LLMProvider:
-    p = provider or settings.LLM_PROVIDER
+    # provider 为空或占位值(default/auto) → 回落到配置的 LLM_PROVIDER
+    # 底层逻辑：缓存 key 以 model_type 原值存（如 qa:default:*），但 provider 工厂
+    # 只认真实 provider 名(deepseek/qwen/doubao)；seed/旧缓存用 default 存的 key 命中时
+    # 不触发 LLM，一旦 miss 重算旧版会 500。此处统一把占位值映射到真实 provider。
+    p = provider if provider and provider not in ("default", "auto") else settings.LLM_PROVIDER
     if p == "deepseek":
         from app.providers.llm.deepseek_llm import DeepSeekLLM
         return DeepSeekLLM()

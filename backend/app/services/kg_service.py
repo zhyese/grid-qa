@@ -188,8 +188,12 @@ async def extract_triples(db: AsyncSession, doc_id: str, model_type: str | None 
                         doc_id=doc_id, doc_name=doc.doc_name))
     await db.commit()
 
-    # 写 Neo4j（MERGE 幂等，仅新增边，不去旧）
+    # 写 Neo4j（MERGE 幂等，仅新增边，不去旧；同时推断并落 Entity.type 供 3D 着色）
     if new_triples:
+        from app.clients.neo4j_client import _infer_type
+        for tp in new_triples:
+            tp["s_type"] = _infer_type(tp["s"], tp["r"], as_subject=True)
+            tp["o_type"] = _infer_type(tp["o"], tp["r"], as_subject=False)
         try:
             await neo4j_client.upsert_triples(new_triples, doc_id, doc.doc_name)
         except Exception as e:

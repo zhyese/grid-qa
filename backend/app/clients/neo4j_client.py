@@ -10,6 +10,25 @@ from app.config import settings
 
 _driver = None
 
+_FAULT_KW = ("故障", "异常", "过热", "漏气", "失效", "短路", "断路", "跳闸", "损坏", "磨损", "老化", "泄漏", "振动", "噪声")
+_ACTION_KW = ("处置", "处理", "维修", "更换", "操作", "步骤", "方法", "检查", "巡视", "隔离", "送电", "停电", "检修", "试验", "测试", "分析", "检测", "监测", "预防", "校验")
+
+
+def _infer_type(name: str, relation: str = "", as_subject: bool = True) -> str:
+    """从实体名/关系推断语义类型：Fault/Action/Equipment（3D 着色用；存量无 type 数据也兜底）。"""
+    if not name:
+        return "Equipment"
+    if any(k in name for k in _FAULT_KW):
+        return "Fault"
+    if any(k in name for k in _ACTION_KW):
+        return "Action"
+    if not as_subject and relation:
+        if any(k in relation for k in ("故障", "异常", "现象", "表现", "发生")):
+            return "Fault"
+        if any(k in relation for k in ("处置", "处理", "方法", "步骤", "操作", "维修")):
+            return "Action"
+    return "Equipment"
+
 
 def _get():
     global _driver
@@ -34,7 +53,7 @@ async def ensure_constraint():
 
 
 async def upsert_triples(triples: list[dict], doc_id: str, doc_name: str) -> int:
-    """批量 MERGE 写入三元组（幂等，重复抽取不产生重复边）。"""
+    """批量 MERGE 写入三元组（幂等，重复抽取不产生重复边）。同时落 Entity.type 供 3D 着色。"""
     if not triples:
         return 0
     async with _get().session() as s:
@@ -42,11 +61,17 @@ async def upsert_triples(triples: list[dict], doc_id: str, doc_name: str) -> int
             await s.run(
                 """
                 MERGE (a:Entity {name: $s})
+                  ON CREATE SET a.type = $s_type
+                  ON MATCH SET a.type = coalesce(a.type, $s_type)
                 MERGE (b:Entity {name: $o})
+                  ON CREATE SET b.type = $o_type
+                  ON MATCH SET b.type = coalesce(b.type, $o_type)
                 MERGE (a)-[r:REL {type: $r}]->(b)
                   ON CREATE SET r.doc_id = $doc_id, r.doc_name = $doc_name
                 """,
-                s=t["s"], r=t["r"], o=t["o"], doc_id=doc_id, doc_name=doc_name,
+                s=t["s"], r=t["r"], o=t["o"],
+                s_type=t.get("s_type", "Equipment"), o_type=t.get("o_type", "Equipment"),
+                doc_id=doc_id, doc_name=doc_name,
             )
     return len(triples)
 
@@ -58,32 +83,52 @@ async def delete_by_doc(doc_id: str) -> None:
 
 
 async def get_neighbors(entity: str = "", limit: int = 800) -> dict:
-    """按实体模糊查邻居子图（echarts force：nodes + links）。"""
+    """按实体模糊查邻居子图（nodes + links）。节点带 type/outDegree（3D 着色与大小用）。"""
     async with _get().session() as s:
         if entity:
             result = await s.run(
                 """
                 MATCH (n:Entity)-[r:REL]-(m:Entity)
                 WHERE n.name CONTAINS $entity
-                RETURN n.name AS s, r.type AS rel, m.name AS o LIMIT $limit
+                RETURN n.name AS s, n.type AS s_type, r.type AS rel,
+                       m.name AS o, m.type AS o_type LIMIT $limit
                 """,
                 entity=entity, limit=limit,
             )
         else:
             result = await s.run(
                 "MATCH (a:Entity)-[r:REL]->(b:Entity) "
-                "RETURN a.name AS s, r.type AS rel, b.name AS o LIMIT $limit",
+                "RETURN a.name AS s, a.type AS s_type, r.type AS rel, "
+                "b.name AS o, b.type AS o_type LIMIT $limit",
                 limit=limit,
             )
         rows = [rec async for rec in result]
+    # 批量算涉及节点的出度（一次查询，避免 N+1）
+    names = {row["s"] for row in rows if row["s"]} | {row["o"] for row in rows if row["o"]}
+    deg: dict[str, int] = {}
+    if names:
+        async with _get().session() as s:
+            res = await s.run(
+                "UNWIND $names AS nm "
+                "OPTIONAL MATCH (n:Entity {name: nm})-[r:REL]->() "
+                "RETURN nm, count(r) AS d",
+                names=list(names),
+            )
+            deg = {rec["nm"]: rec["d"] for rec in [r async for r in res]}
     nodes: dict[str, dict] = {}
     links: list[dict] = []
     for row in rows:
         s_, o_ = row["s"], row["o"]
         if s_ and s_ not in nodes:
-            nodes[s_] = {"id": s_, "name": s_, "category": 0, "symbolSize": 36}
+            t = row.get("s_type") or _infer_type(s_, row.get("rel", ""), True)
+            d = deg.get(s_, 0)
+            nodes[s_] = {"id": s_, "name": s_, "type": t, "category": 0,
+                         "outDegree": d, "symbolSize": 28 + min(20, d * 2)}
         if o_ and o_ not in nodes:
-            nodes[o_] = {"id": o_, "name": o_, "category": 1, "symbolSize": 28}
+            t = row.get("o_type") or _infer_type(o_, row.get("rel", ""), False)
+            d = deg.get(o_, 0)
+            nodes[o_] = {"id": o_, "name": o_, "type": t, "category": 1,
+                         "outDegree": d, "symbolSize": 28 + min(20, d * 2)}
         links.append({"source": s_, "target": o_, "value": row["rel"]})
     return {
         "nodes": list(nodes.values()),

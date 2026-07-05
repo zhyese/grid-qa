@@ -20,11 +20,11 @@ async def score_knowledge_quality(db: AsyncSession) -> dict:
     """知识库综合质量评分。"""
     # 1) 文档覆盖度
     doc_count = (await db.execute(
-        select(func.count()).select_from(Document).where(Document.is_deleted == 0)
+        select(func.count()).select_from(Document)
     )).scalar() or 0
     vectorized = (await db.execute(
         select(func.count()).select_from(Document)
-        .where(Document.is_deleted == 0, Document.status == "vectorized")
+        .where(Document.status == "vectorized")
     )).scalar() or 0
     coverage_rate = round(vectorized / max(doc_count, 1), 3)
 
@@ -48,7 +48,6 @@ async def score_knowledge_quality(db: AsyncSession) -> dict:
     # 4) 覆盖场景
     doc_types = (await db.execute(
         select(Document.doc_type, func.count())
-        .where(Document.is_deleted == 0)
         .group_by(Document.doc_type)
     )).all()
     type_dist = {r[0]: r[1] for r in doc_types}

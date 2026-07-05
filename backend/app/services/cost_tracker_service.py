@@ -44,35 +44,34 @@ async def record_token_usage(
         from app.db.session import AsyncSessionLocal
         from app.models.operation_log import OperationLog
         async with AsyncSessionLocal() as cost_db:
-            log = OperationLog(
-                username=username,
-                action="cost_track",
-                detail=json.dumps({
+            cost_db.add(OperationLog(
+                operate_user=username or "unknown",
+                operate_type="cost_track",
+                content=json.dumps({
                     "tenant": tenant, "model": model,
                     "inputTokens": input_tokens, "outputTokens": output_tokens,
                     "totalTokens": total_tokens, "cost": round(float(cost), 6),
                     "queryType": query_type, "ts": datetime.now().isoformat(),
                 }, ensure_ascii=False)[:1000],
-            )
-            cost_db.add(log)
+            ))
             await cost_db.commit()
     except Exception as e:
         degraded("cost_record", e)
 
-    # 更新 Redis 计数器
+    # 更新 Redis 计数器（get_redis() 拿异步连接做 pipeline）
     try:
-        from app.clients.redis_client import redis_client
+        from app.clients import redis_client
         today = date.today().isoformat()
         keys = [
-            f"cost:user:{username}:{today}",        # 按用户日累计
-            f"cost:tenant:{tenant}:{today}",         # 按租户日累计
-            f"cost:user:{username}:monthly",         # 按用户月累计
-            f"cost:tenant:{tenant}:monthly",         # 按租户月累计
+            f"cost:user:{username}:{today}",
+            f"cost:tenant:{tenant}:{today}",
+            f"cost:user:{username}:monthly",
+            f"cost:tenant:{tenant}:monthly",
         ]
-        pipe = redis_client.pipeline()
+        pipe = redis_client.get_redis().pipeline()
         for k in keys:
             pipe.incrby(k, total_tokens)
-            pipe.expire(k, 86400 * 31)  # 月累计保留31天
+            pipe.expire(k, 86400 * 31)
         await pipe.execute()
     except Exception as e:
         degraded("cost_redis_incr", e)
@@ -81,11 +80,12 @@ async def record_token_usage(
 async def check_quota(username: str, tenant: str) -> dict:
     """检查是否超配额。返回 {"allowed": bool, "reason": str}。"""
     try:
-        from app.clients.redis_client import redis_client
+        from app.clients import redis_client
+        r = redis_client.get_redis()
         user_key = f"cost:user:{username}:monthly"
         tenant_key = f"cost:tenant:{tenant}:monthly"
-        user_usage = int(await redis_client.get(user_key) or 0)
-        tenant_usage = int(await redis_client.get(tenant_key) or 0)
+        user_usage = int(await r.get(user_key) or 0)
+        tenant_usage = int(await r.get(tenant_key) or 0)
         user_quota = _DEFAULT_QUOTA["user"]
         tenant_quota = _DEFAULT_QUOTA["tenant"]
 
@@ -103,30 +103,24 @@ async def get_cost_report(db: AsyncSession, period: str = "today") -> dict:
     """成本报告（Admin 看板）。"""
     today = date.today().isoformat()
     try:
-        from app.clients.redis_client import redis_client
-        # 扫描 Redis 按模式获取
-        user_pattern = f"cost:user:*:{today}"
-        tenant_pattern = f"cost:tenant:*:{today}"
-
-        # 简化实现：从 operation_log 统计
-        from app.models.operation_log import OperationLog
+        # token 数据由 record_token_usage 落 operation_logs（operate_type=cost_track）
         from sqlalchemy import text
 
         # 今日总 token
         today_total = (await db.execute(
-            text("SELECT SUM(CAST(JSON_EXTRACT(detail, '$.totalTokens') AS SIGNED)) "
-                 "FROM operation_log WHERE action='cost_track' "
+            text("SELECT SUM(CAST(JSON_EXTRACT(content, '$.totalTokens') AS SIGNED)) "
+                 "FROM operation_logs WHERE operate_type='cost_track' "
                  "AND DATE(operate_time) = CURDATE()")
         )).scalar() or 0
 
         # 按模型汇总
         rows = (await db.execute(
-            text("SELECT JSON_EXTRACT(detail, '$.model') as model, "
-                 "SUM(CAST(JSON_EXTRACT(detail, '$.totalTokens') AS SIGNED)) as tokens, "
-                 "SUM(CAST(JSON_EXTRACT(detail, '$.cost') AS DECIMAL(12,6))) as cost "
-                 "FROM operation_log WHERE action='cost_track' "
+            text("SELECT JSON_EXTRACT(content, '$.model') as model, "
+                 "SUM(CAST(JSON_EXTRACT(content, '$.totalTokens') AS SIGNED)) as tokens, "
+                 "SUM(CAST(JSON_EXTRACT(content, '$.cost') AS DECIMAL(12,6))) as cost "
+                 "FROM operation_logs WHERE operate_type='cost_track' "
                  "AND DATE(operate_time) = CURDATE() "
-                 "GROUP BY JSON_EXTRACT(detail, '$.model')")
+                 "GROUP BY JSON_EXTRACT(content, '$.model')")
         )).all()
 
         by_model = [{"model": r.model.strip('"') if r.model else "unknown",
@@ -134,29 +128,29 @@ async def get_cost_report(db: AsyncSession, period: str = "today") -> dict:
 
         # 本月总
         month_total = (await db.execute(
-            text("SELECT SUM(CAST(JSON_EXTRACT(detail, '$.totalTokens') AS SIGNED)) "
-                 "FROM operation_log WHERE action='cost_track' "
+            text("SELECT SUM(CAST(JSON_EXTRACT(content, '$.totalTokens') AS SIGNED)) "
+                 "FROM operation_logs WHERE operate_type='cost_track' "
                  "AND operate_time >= DATE_FORMAT(CURDATE(), '%Y-%m-01')")
         )).scalar() or 0
 
         month_rows = (await db.execute(
-            text("SELECT JSON_EXTRACT(detail, '$.model') as model, "
-                 "SUM(CAST(JSON_EXTRACT(detail, '$.totalTokens') AS SIGNED)) as tokens "
-                 "FROM operation_log WHERE action='cost_track' "
+            text("SELECT JSON_EXTRACT(content, '$.model') as model, "
+                 "SUM(CAST(JSON_EXTRACT(content, '$.totalTokens') AS SIGNED)) as tokens "
+                 "FROM operation_logs WHERE operate_type='cost_track' "
                  "AND operate_time >= DATE_FORMAT(CURDATE(), '%Y-%m-01') "
-                 "GROUP BY JSON_EXTRACT(detail, '$.model')")
+                 "GROUP BY JSON_EXTRACT(content, '$.model')")
         )).all()
 
         month_by_model = [{"model": r.model.strip('"') if r.model else "unknown",
                            "tokens": int(r.tokens or 0)} for r in month_rows]
 
-        # 用户排行（本月 Top-10）
+        # 用户排行（本月 Top-10，operate_user 即调用方 username）
         user_rows = (await db.execute(
-            text("SELECT username, "
-                 "SUM(CAST(JSON_EXTRACT(detail, '$.totalTokens') AS SIGNED)) as tokens "
-                 "FROM operation_log WHERE action='cost_track' "
+            text("SELECT operate_user, "
+                 "SUM(CAST(JSON_EXTRACT(content, '$.totalTokens') AS SIGNED)) as tokens "
+                 "FROM operation_logs WHERE operate_type='cost_track' "
                  "AND operate_time >= DATE_FORMAT(CURDATE(), '%Y-%m-01') "
-                 "GROUP BY username ORDER BY tokens DESC LIMIT 10")
+                 "GROUP BY operate_user ORDER BY tokens DESC LIMIT 10")
         )).all()
 
         return {
@@ -165,7 +159,7 @@ async def get_cost_report(db: AsyncSession, period: str = "today") -> dict:
             "todayByModel": by_model,
             "monthTokens": int(month_total),
             "monthByModel": month_by_model,
-            "topUsers": [{"username": r.username, "tokens": int(r.tokens or 0)} for r in user_rows],
+            "topUsers": [{"username": r.operate_user, "tokens": int(r.tokens or 0)} for r in user_rows],
             "userQuota": _DEFAULT_QUOTA["user"],
             "tenantQuota": _DEFAULT_QUOTA["tenant"],
         }

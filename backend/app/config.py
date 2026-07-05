@@ -117,6 +117,11 @@ class Settings(BaseSettings):
     CRAG_LOW: float = 0.3        # top1 rerank分<此值=incorrect(触发纠错)
     CRAG_PERDOC_ENABLE: bool = False  # CRAG v2：LLM 逐条评估证据相关性（非仅 top1，增延迟，默认关）
 
+    # ---------- 优化建议（反馈驱动）----------
+    OPTIMIZER_CACHE_HIT_FLOOR: float = 0.20  # 缓存命中率低于此值才出缓存优化建议
+    OPTIMIZER_MIN_SAMPLE: int = 10           # 缓存样本少于此值不采信命中率（不出建议）
+    OPTIMIZER_TREND_RATIO: float = 1.2       # dislike 周环比≥此值预警"失分上升"
+
     # ---------- 结构感知分块 + Parent-Child（small-to-big）----------
     # 检索用小块（精度），命中后召回同组大块给 LLM（完整上下文，解决长规程跨块/表格被切两半）
     SMALL_TO_BIG_ENABLE: bool = True

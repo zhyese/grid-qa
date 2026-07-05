@@ -188,6 +188,19 @@ async def optimizer_generate(
     return success(report, "生成成功")
 
 
+@router.post("/optimizer/tune-cache")
+async def optimizer_tune_cache(
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+):
+    """缓存 TTL 自动调优：高频坏答案(dislike≥3)进黑名单禁缓存，高频好答案(like≥5)标延长候选。"""
+    from app.services.feedback_optimizer_service import auto_tune_cache_ttl
+    res = await auto_tune_cache_ttl(db)
+    await write_log(db, admin.username, "缓存TTL调优",
+                    f"黑名单{res['appliedBlacklist']}条，延长候选{len(res['extended'])}条")
+    return success(res, "调优完成")
+
+
 # ===== P2-⑦ LLM 成本追踪 =====
 
 

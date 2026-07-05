@@ -1,4 +1,6 @@
 """Prometheus 指标定义。"""
+from threading import Lock
+
 from prometheus_client import Counter, Gauge, Histogram
 
 REQUESTS = Counter(
@@ -78,6 +80,45 @@ CACHE_EVICTED = Counter("grid_cache_evicted_total", "淘汰/清理行数", ["rea
 ROUTING_DECISION = Counter("grid_routing_decision_total", "路由决策分布", ["route"])
 ROUTING_LATENCY = Histogram("grid_routing_latency_seconds", "路由分类延迟(秒)")
 ROUTING_MISMATCH = Counter("grid_routing_mismatch_total", "路由偏差(预期vs实际)", ["mismatch"])
+
+# ===== 进程内缓存命中 mirror =====
+# 底层逻辑：prometheus_client Counter 进程内无法直接读值（只能抓 /metrics 文本），
+# 而"优化建议"报告需要实时命中率做决策。这里维护一份进程内分层计数 mirror，
+# 由 cache_hit_inc() 在每次 CACHE_HIT.labels(x).inc() 时同步自增，
+# cache_hit_rate()/cache_hit_snapshot() 供优化建议报告读取。
+_CACHE_HIT_INPROC: dict[str, int] = {}
+_cache_lock = Lock()
+
+
+def cache_hit_inc(layer: str) -> None:
+    """缓存命中计数：同时写 prometheus（Grafana 用）+ 进程内 dict（优化建议报告用）。
+
+    替代分散的 metrics.CACHE_HIT.labels(x).inc() 两段式写法，集中一处保证两路同步。
+    """
+    try:
+        CACHE_HIT.labels(layer).inc()
+    except Exception:
+        pass
+    with _cache_lock:
+        _CACHE_HIT_INPROC[layer] = _CACHE_HIT_INPROC.get(layer, 0) + 1
+
+
+def cache_hit_snapshot() -> dict:
+    """返回进程内缓存命中分层快照（redis/mysql/semantic/llm）。"""
+    with _cache_lock:
+        return dict(_CACHE_HIT_INPROC)
+
+
+def cache_hit_rate() -> float:
+    """综合缓存命中率 = (redis+mysql+semantic) / (redis+mysql+semantic+llm)。
+
+    无样本时返回 0.0（调用方需结合样本量判断是否采信）。
+    """
+    with _cache_lock:
+        hit = (_CACHE_HIT_INPROC.get("redis", 0) + _CACHE_HIT_INPROC.get("mysql", 0)
+               + _CACHE_HIT_INPROC.get("semantic", 0))
+        total = hit + _CACHE_HIT_INPROC.get("llm", 0)
+    return round(hit / total, 3) if total else 0.0
 
 
 def init_metric_series() -> None:

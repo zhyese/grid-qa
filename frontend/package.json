@@ -15,6 +15,7 @@
     "highlight.js": "^11.11.1",
     "markdown-it": "^14.2.0",
     "pinia": "^2.2.4",
+    "three": "^0.128.0",
     "vue": "^3.4.38",
     "vue-router": "^4.4.3"
   },

@@ -20,7 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.obs import degraded
 
-_SAMPLE_RATE = 0.1  # 10% 采样
+_SAMPLE_RATE = 1.0  # 采样率（演示期全采以快速积累趋势；生产改回 0.1）
 
 
 def should_sample() -> bool:
@@ -73,19 +73,20 @@ async def eval_quality(
         "latencyMs": int((time.time() - t0) * 1000),
     }
 
-    # 落库
+    # 落库（独立 session：支持异步 create_task，不依赖请求 scoped db）
     try:
+        from app.db.session import AsyncSessionLocal
         from app.models.operation_log import OperationLog
-        log = OperationLog(
-            username="system",
-            action="online_eval",
-            detail=json.dumps({
-                "query": query[:100], "result": result,
-                "ts": datetime.now().isoformat(),
-            }, ensure_ascii=False)[:1000],
-        )
-        db.add(log)
-        await db.commit()
+        async with AsyncSessionLocal() as sdb:
+            sdb.add(OperationLog(
+                operate_user="system",
+                operate_type="online_eval",
+                content=json.dumps({
+                    "query": query[:100], "result": result,
+                    "ts": datetime.now().isoformat(),
+                }, ensure_ascii=False)[:1000],
+            ))
+            await sdb.commit()
     except Exception as e:
         degraded("online_eval_log", e)
 
@@ -117,12 +118,12 @@ async def get_quality_trends(db: AsyncSession, days: int = 7) -> dict:
             text("""
                 SELECT
                     DATE(operate_time) as dt,
-                    AVG(CAST(JSON_EXTRACT(detail, '$.result.overall') AS DECIMAL(5,3))) as avg_overall,
-                    AVG(CAST(JSON_EXTRACT(detail, '$.result.contextRelevance') AS DECIMAL(5,3))) as avg_relevance,
-                    AVG(CAST(JSON_EXTRACT(detail, '$.result.faithfulness') AS DECIMAL(5,3))) as avg_faithfulness,
+                    AVG(CAST(JSON_EXTRACT(content, '$.result.overall') AS DECIMAL(5,3))) as avg_overall,
+                    AVG(CAST(JSON_EXTRACT(content, '$.result.contextRelevance') AS DECIMAL(5,3))) as avg_relevance,
+                    AVG(CAST(JSON_EXTRACT(content, '$.result.faithfulness') AS DECIMAL(5,3))) as avg_faithfulness,
                     COUNT(*) as sample_count
-                FROM operation_log
-                WHERE action='online_eval'
+                FROM operation_logs
+                WHERE operate_type='online_eval'
                   AND operate_time >= DATE_SUB(CURDATE(), INTERVAL :days DAY)
                 GROUP BY DATE(operate_time)
                 ORDER BY dt

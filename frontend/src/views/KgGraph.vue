@@ -31,7 +31,9 @@
         </select>
         <button class="btn btn-primary" @click="doExtract" :disabled="!selDoc || extracting">{{ extracting ? '抽取中…(LLM 分块)' : '抽取三元组' }}</button>
       </div>
-      <div ref="graphEl" class="graph" v-if="graph.nodes.length"></div>
+      <div ref="graphEl" class="graph" v-if="graph.nodes.length">
+        <button class="fs-btn" @click="toggleFullscreen" :title="isFs ? '退出全屏(Esc)' : '全屏'">{{ isFs ? '⤫' : '⛶' }}</button>
+      </div>
       <div v-else class="empty">暂无图谱数据，请在上方选择文档并抽取三元组</div>
     </div>
 
@@ -137,10 +139,21 @@ async function doExtract() {
   catch (e) { show('抽取失败') } finally { extracting.value = false }
 }
 function onResize() { chart && chart.resize() }
+const isFs = ref(false)
+function toggleFullscreen() {
+  const el = graphEl.value
+  if (!el) return
+  if (document.fullscreenElement) document.exitFullscreen()
+  else el.requestFullscreen()
+}
+function onFsChange() {
+  isFs.value = !!document.fullscreenElement
+  setTimeout(() => chart && chart.resize(), 90)
+}
 watch(tab, async (t) => { if (t === 'graph') { await nextTick(); chart && chart.resize() } })
 async function loadHubs() { try { hubs.value = (await getKgInfluence(15)).data.hubs || [] } catch (e) {} }
-onMounted(async () => { await Promise.all([loadStats(), loadDocs(), loadGraph(''), loadHubs()]); window.addEventListener('resize', onResize) })
-onBeforeUnmount(() => { window.removeEventListener('resize', onResize); chart && chart.dispose() })
+onMounted(async () => { await Promise.all([loadStats(), loadDocs(), loadGraph(''), loadHubs()]); window.addEventListener('resize', onResize); document.addEventListener('fullscreenchange', onFsChange) })
+onBeforeUnmount(() => { window.removeEventListener('resize', onResize); document.removeEventListener('fullscreenchange', onFsChange); chart && chart.dispose() })
 </script>
 
 <style scoped>
@@ -149,7 +162,9 @@ onBeforeUnmount(() => { window.removeEventListener('resize', onResize); chart &&
 .kg-page .tabs { flex-shrink: 0; }
 .kg-page > .card { flex: 1; min-height: 0; margin-bottom: 0; display: flex; flex-direction: column; overflow: hidden; }
 .stat-grid.cols-4 { grid-template-columns: repeat(4, 1fr); }
-.graph { flex: 1; min-height: 320px; }
+.graph { flex: 1; min-height: 320px; position: relative; }
+.graph > .fs-btn { position: absolute; top: 10px; right: 10px; z-index: 10; width: 34px; height: 34px; border-radius: var(--radius-sm); background: rgba(0,0,0,.55); color: #fff; border: 1px solid rgba(255,255,255,.25); cursor: pointer; font-size: 16px; display: flex; align-items: center; justify-content: center; }
+.graph > .fs-btn:hover { background: rgba(0,0,0,.75); }
 .path-list { display: flex; flex-direction: column; gap: 8px; max-height: 540px; overflow-y: auto; }
 .path-item { display: flex; align-items: center; gap: 10px; background: var(--surface-2); padding: 10px 12px; border-radius: var(--radius-sm); flex-wrap: wrap; }
 .path-chain { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; font-size: 13px; }

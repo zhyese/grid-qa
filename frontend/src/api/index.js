@@ -97,8 +97,8 @@ export const streamAnswer = async (query, modelType, conversationId, onEvent, si
     throw e
   }
 }
-export const sendFeedback = (query, answer, feedback, conversationId, reason) =>
-  request.post('/qa/feedback', { query, answer, feedback, conversationId, reason })
+export const sendFeedback = (query, answer, feedback, conversationId, reason, sources = []) =>
+  request.post('/qa/feedback', { query, answer, feedback, conversationId, reason, retrievalSources: (sources || []).map(s => typeof s === 'string' ? s : (s?.docName || '')).filter(Boolean).join(',') })
 
 // 答案导出 Word（blob 下载，绕过 JSON 响应拦截器）
 export const exportAnswer = async (query, answer, sources, meta) => {
