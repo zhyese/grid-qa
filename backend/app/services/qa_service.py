@@ -488,7 +488,12 @@ async def stream_answer(
     # 1) meta：引用来源 + 会话 ID
     yield {
         "type": "meta",
-        "sources": [{"docName": c.get("docName", ""), "text": c["chunk"][:200]} for c in contexts],
+        "sources": [{
+            "docId": c.get("docId", ""), "docName": c.get("docName", ""),
+            "docType": c.get("docType", ""), "chunkIdx": c.get("chunkIdx"),
+            "chunk": c.get("chunk", ""), "score": c.get("score", 0.0),
+            "sources": c.get("sources", []),
+        } for c in contexts],
         "conversationId": conversation_id,
     }
 
@@ -507,11 +512,16 @@ async def stream_answer(
 
     # 3) 持久化完整答案
     full = "".join(parts)
+    # 证据溯源：补标（done 段下发 annotatedAnswer，前端替换渲染出角标；持久化/缓存均用补标后）
+    if getattr(settings, "CITATION_AUTO_ENABLE", True):
+        annotated, _trace = await citation.auto_cite(full, contexts)
+    else:
+        annotated, _trace = full, citation.evidence_trace(full)
     # 成本追踪（记录 token 用量 → 成本报告数据来源；估算 input/output token）
     try:
         import asyncio
         from app.services.cost_tracker_service import record_token_usage
-        asyncio.ensure_future(record_token_usage(db, username, tenant, model_type or settings.LLM_PROVIDER, len(str(messages)) // 2, len(full) // 2))
+        asyncio.ensure_future(record_token_usage(db, username, tenant, model_type or settings.LLM_PROVIDER, len(str(messages)) // 2, len(annotated) // 2))
     except Exception:
         pass
     # 在线质量评测采样（异步跑 LLM Judge，不阻塞流式；评测趋势数据来源）
@@ -519,25 +529,31 @@ async def stream_answer(
         import asyncio
         from app.services.online_eval_service import should_sample, eval_quality
         if should_sample():
-            asyncio.ensure_future(eval_quality(db, query, full, contexts, model_type))
+            asyncio.ensure_future(eval_quality(db, query, annotated, contexts, model_type))
     except Exception:
         pass
     try:
         await conversation_service.save_message(db, conversation_id, "user", query)
-        await conversation_service.save_message(db, conversation_id, "assistant", full)
+        await conversation_service.save_message(db, conversation_id, "assistant", annotated)
     except Exception as e:
         degraded("conv_save", e)
 
     # 4) 单轮 Write-Through 双写缓存（MySQL → Redis）
-    halluc = citation.estimate_hallucination(full, len(contexts))
+    halluc = citation.estimate_hallucination(annotated, len(contexts))
     try:
         from app.core import metrics
         metrics.HALLUC.observe(halluc)
     except Exception:
         pass
     cache_data = {
-        "answer": full,
-        "retrievalSource": [{"docName": c.get("docName", ""), "text": c["chunk"][:200]} for c in contexts],
+        "answer": annotated,
+        "retrievalSource": [{
+            "docId": c.get("docId", ""), "docName": c.get("docName", ""),
+            "docType": c.get("docType", ""), "chunkIdx": c.get("chunkIdx"),
+            "chunk": c.get("chunk", ""), "score": c.get("score", 0.0),
+            "sources": c.get("sources", []),
+        } for c in contexts],
+        "evidenceTrace": _trace,
         "responseTime": round(time.time() - t0, 3),
         "hallucinationRate": halluc,
         "cached": False,
@@ -576,7 +592,9 @@ async def stream_answer(
         "hallucinationRate": halluc,
         "modelType": _p,  # 实际调用的 LLM（前端据此展示 🤖 模型 badge；缓存命中时不带此字段）
         "graphCount": len(graph),
-        "highRisk": safety.extract_high_risk(full),
+        "highRisk": safety.extract_high_risk(annotated),
+        "annotatedAnswer": annotated,        # 补标后全文，前端替换渲染出 [n] 角标上标
+        "evidenceTrace": _trace,             # 句级溯源
         "confidence": confidence,
         "cragAction": crag_action,
         "cragGrade": crag_grade,
