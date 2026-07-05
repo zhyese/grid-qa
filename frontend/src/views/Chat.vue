@@ -62,10 +62,22 @@
 
             <div class="sources" v-if="m.sources && m.sources.length">
               <div class="src-head">📎 引用来源 <span class="hint">点 [n] 定位 · 点卡片复制</span></div>
-              <div v-for="(s, j) in m.sources" :key="j" :id="'src-' + (j + 1)" class="src-item" :class="{ hi: m.hiIdx === j + 1 }" @click="copySource(s)">
+              <div v-for="(s, j) in m.sources" :key="j" :id="'src-' + (j + 1)" class="src-item" :class="{ hi: m.hiIdx === j + 1 }" @click="copySource(s)" @mouseenter="hoverSource(m, j + 1)" @mouseleave="leaveSource(m)">
                 <b class="src-no">[{{ j + 1 }}]</b>
-                <span class="src-doc" v-if="srcName(s)">📄 {{ srcName(s) }}</span>
-                <span class="src-text">{{ srcText(s) }}</span>
+                <div class="src-main">
+                  <div class="src-line1">
+                    <span class="src-doc" v-if="srcName(s)">📄 {{ srcName(s) }}</span>
+                    <span v-if="s && s.docType" class="badge badge-neutral src-badge">{{ s.docType }}</span>
+                    <span v-for="src in (s && s.sources) || []" :key="src" class="badge src-badge" :class="srcBadge(src)">{{ srcLabel(src) }}</span>
+                  </div>
+                  <div class="src-score" v-if="s && typeof s.score === 'number'">
+                    <div class="bar"><div class="bar-fill" :style="{ width: Math.min(100, Math.max(2, s.score * 100)) + '%' }"></div></div>
+                    <span class="muted">{{ (s.score * 100).toFixed(0) }}%</span>
+                  </div>
+                  <div class="src-text" :class="{ clamp: !(s && s._exp) }" @click.stop="s && (s._exp = !s._exp)">
+                    {{ srcText(s) }} <span class="hint">{{ s && s._exp ? '收起' : '展开' }}</span>
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -263,6 +275,8 @@ async function runStream(q, opts = {}) {
     else if (ev.type === 'aborted') { msg.aborted = true; msg.streaming = false; loading.value = false }   // 停止生成：保留已收内容
     else if (ev.type === 'done' || ev.type === 'error') {
       if (ev.content) msg.content = ev.content
+      if (ev.annotatedAnswer) msg.content = ev.annotatedAnswer   // 补标后全文替换，触发 renderMd 出 [n] 角标上标
+      if (ev.evidenceTrace) msg._evTrace = ev.evidenceTrace      // 句级溯源面板数据源
       if (typeof ev.responseTime === 'number') msg.time = ev.responseTime
       if (typeof ev.hallucinationRate === 'number') msg.halluc = ev.hallucinationRate
       if (typeof ev.graphCount === 'number') msg.graphCount = ev.graphCount
@@ -337,7 +351,17 @@ function cacheLabel(l) { return ({ redis: '高频问答·热点', mysql: '高频
 function cacheTitle(l) { return ({ redis: 'Redis 热点缓存(L1)，毫秒级秒回', mysql: 'MySQL 持久缓存(L2)' })[l] || (l && l.startsWith('semantic') ? '语义相似缓存(L1.5)，embedding 近似匹配' : '已缓存') }
 function cacheBadge(l) { return ({ redis: 'badge-cache', mysql: 'badge-cache-mysql' })[l] || (l && l.startsWith('semantic') ? 'badge-cache-semantic' : 'badge-cache') }
 function srcName(s) { return typeof s === 'string' ? '' : (s.docName || '') }
-function srcText(s) { return typeof s === 'string' ? s : (s.text || '') }
+function srcText(s) { return typeof s === 'string' ? s : (s.chunk || s.text || '') }
+function srcLabel(s) { return { dense_cloud: '云稠密', dense_bge: 'bge稠密', bm25: 'BM25' }[s] || s }
+function srcBadge(s) { return { dense_cloud: 'badge-info', dense_bge: 'badge-primary', bm25: 'badge-warning' }[s] || 'badge-neutral' }
+function hoverSource(m, k) {
+  m.hiIdx = k
+  document.querySelectorAll('.cite-ref[data-idx="' + k + '"]').forEach(el => el.classList.add('cite-hot'))
+}
+function leaveSource(m) {
+  m.hiIdx = null
+  document.querySelectorAll('.cite-ref.cite-hot').forEach(el => el.classList.remove('cite-hot'))
+}
 async function copyAnswer(m) { try { await navigator.clipboard.writeText(m.content); toast('答案已复制') } catch (e) { toast('复制失败') } }
 async function exportWord(m) {
   try {
@@ -354,7 +378,7 @@ function onAnsClick(e, m) {
 async function showEvidence(m) {
   if (m._evTrace) { m._evOpen = !m._evOpen; return }
   try {
-    const sources = (m.sources || []).map(s => typeof s === 'string' ? s : (s.text || ''))
+    const sources = (m.sources || []).map(s => typeof s === 'string' ? s : (s.chunk || s.text || ''))
     const r = await getEvidenceTrace(m.content, sources, m.model_type || null)
     m._evTrace = r.data || { sentences: [], supportRatio: 0 }
     m._evOpen = true
@@ -473,6 +497,16 @@ html.dark .ai-bubble { background: var(--surface); }
 .src-item { font-size: 12px; color: var(--text-muted); margin: 4px 0; padding: 7px 9px; border-radius: var(--radius-sm); background: var(--surface); border: 1px solid var(--border-soft); cursor: pointer; transition: background .15s; line-height: 1.6; }
 .src-item:hover { background: var(--surface-2); }
 .src-item.hi { background: var(--warning-soft); border-color: var(--warning); }
+.src-item { display: flex; align-items: flex-start; gap: 6px; }
+.src-main { flex: 1; min-width: 0; }
+.src-line1 { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.src-badge { font-size: 10px; padding: 1px 5px; }
+.src-score { display: flex; align-items: center; gap: 6px; margin: 3px 0; }
+.src-score .bar { flex: 1; height: 4px; background: var(--border); border-radius: 2px; overflow: hidden; }
+.src-score .bar-fill { height: 100%; background: var(--primary, #3b82f6); }
+.src-text.clamp { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.cite-ref { color: var(--primary, #3b82f6); cursor: pointer; font-size: 0.75em; vertical-align: super; }
+.cite-ref.cite-hot { background: var(--warning-soft); border-radius: 2px; padding: 0 2px; }
 .src-no { color: var(--primary); margin-right: 4px; }
 .src-doc { color: var(--info); }
 
