@@ -1,0 +1,21 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: 安装最小测试依赖
+        run: |
+          pip install fastapi pydantic pydantic-settings SQLAlchemy aiomysql
+          pip install rank-bm25 jieba pytest httpx
+      - name: 运行单元测试（跳过需服务的集成测试）
+        run: python -m pytest tests/ -v -m "not integration"
