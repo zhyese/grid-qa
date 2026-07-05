@@ -121,6 +121,7 @@ class Settings(BaseSettings):
     OPTIMIZER_CACHE_HIT_FLOOR: float = 0.20  # 缓存命中率低于此值才出缓存优化建议
     OPTIMIZER_MIN_SAMPLE: int = 10           # 缓存样本少于此值不采信命中率（不出建议）
     OPTIMIZER_TREND_RATIO: float = 1.2       # dislike 周环比≥此值预警"失分上升"
+    OPTIMIZER_BLACKLIST_THRESHOLD: int = 2   # 同一 query dislike 累计≥此值自动进缓存黑名单
 
     # ---------- 结构感知分块 + Parent-Child（small-to-big）----------
     # 检索用小块（精度），命中后召回同组大块给 LLM（完整上下文，解决长规程跨块/表格被切两半）

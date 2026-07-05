@@ -156,6 +156,19 @@
             <div v-if="tuneResult.blacklisted?.length" class="opt-detail">🚫 高频坏答案禁缓存：{{ tuneResult.blacklisted.join('、') }}</div>
             <div v-if="tuneResult.extended?.length" class="opt-detail">⏱️ TTL 延长候选：{{ tuneResult.extended.map(e => e.query).join('、') }}</div>
           </div>
+          <div class="opt-card" style="margin-bottom:10px">
+            <div class="opt-header"><span class="badge badge-danger">🚫 黑名单</span><strong class="opt-title">缓存黑名单管理</strong></div>
+            <div class="opt-detail" style="margin-top:4px">黑名单内的 query 强制跳过所有缓存层(redis+mysql+semantic)，每次重走 LLM。来源：dislike 累计达标自动入库 + 此处手动添加。</div>
+            <div style="display:flex; gap:6px; margin:8px 0">
+              <input v-model="blInput" placeholder="输入要拉黑的 query，回车加入" @keyup.enter="addBlacklist" style="flex:1; padding:5px 8px; border:1px solid var(--border); border-radius:4px; background:var(--bg); color:var(--text)" />
+              <button class="btn btn-primary btn-sm" @click="addBlacklist">加入</button>
+              <button class="btn btn-ghost btn-sm" @click="loadBlacklist">刷新</button>
+            </div>
+            <div v-if="blacklist.length">
+              <span v-for="q in blacklist" :key="q" class="badge badge-danger" style="margin:3px; cursor:pointer; display:inline-block" @click="removeBlacklist(q)" title="点击移除">{{ q }} ✕</span>
+            </div>
+            <div v-else class="hint" style="font-size:12px; margin-top:4px">黑名单为空</div>
+          </div>
           <div v-if="!optimizer.suggestions?.length" class="empty">暂无优化建议（数据积累中）</div>
           <div class="opt-card" v-for="(s, i) in optimizer.suggestions" :key="i" :class="'sev-' + s.severity">
             <div class="opt-header">
@@ -355,6 +368,7 @@ async function loadOptimizer() {
   try {
     const r = await request.get('/system/optimizer/report')
     optimizer.value = r.data || null
+    loadBlacklist()
   } catch (e) { /* silent */ } finally { optLoading.value = false }
 }
 async function generateOptimizer() {
@@ -373,7 +387,30 @@ async function tuneCache() {
     const r = await request.post('/system/optimizer/tune-cache')
     tuneResult.value = r.data || null
     toast(`已应用黑名单 ${(r.data || {}).appliedBlacklist || 0} 条`)
+    loadBlacklist()
   } catch (e) { toast('调优失败') } finally { tuneLoading.value = false }
+}
+const blacklist = ref([])
+const blInput = ref('')
+async function loadBlacklist() {
+  try { blacklist.value = (await request.get('/system/optimizer/blacklist')).data || [] } catch (e) { /* silent */ }
+}
+async function addBlacklist() {
+  const q = blInput.value.trim()
+  if (!q) return
+  try {
+    await request.post('/system/optimizer/blacklist', null, { params: { query: q } })
+    blInput.value = ''
+    await loadBlacklist()
+    toast('已加入黑名单')
+  } catch (e) { toast('加入失败') }
+}
+async function removeBlacklist(q) {
+  try {
+    await request.delete('/system/optimizer/blacklist', { params: { query: q } })
+    await loadBlacklist()
+    toast('已移出黑名单')
+  } catch (e) { toast('移除失败') }
 }
 function typeLabel(t) {
   return { retrieval: '检索优化', knowledge_gap: '知识盲区', cache: '缓存策略', trend: '趋势预警', hallucination: '编造风险' }[t] || t

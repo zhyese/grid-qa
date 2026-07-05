@@ -201,6 +201,41 @@ async def optimizer_tune_cache(
     return success(res, "调优完成")
 
 
+@router.get("/optimizer/blacklist")
+async def optimizer_blacklist_list(
+    admin: User = Depends(require_admin),
+):
+    """列出当前缓存黑名单（归一化 query）。"""
+    from app.services.feedback_optimizer_service import list_blacklist
+    return success(await list_blacklist(), "查询成功")
+
+
+@router.post("/optimizer/blacklist")
+async def optimizer_blacklist_add(
+    query: str,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+):
+    """手动加入缓存黑名单（query 走 query param）。"""
+    from app.services.feedback_optimizer_service import add_blacklist
+    nq = await add_blacklist(query)
+    await write_log(db, admin.username, "加黑名单", nq[:60])
+    return success({"query": nq}, "已加入黑名单")
+
+
+@router.delete("/optimizer/blacklist")
+async def optimizer_blacklist_remove(
+    query: str,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+):
+    """手动移出缓存黑名单。"""
+    from app.services.feedback_optimizer_service import remove_blacklist
+    nq = await remove_blacklist(query)
+    await write_log(db, admin.username, "移除黑名单", nq[:60])
+    return success({"query": nq}, "已移出黑名单")
+
+
 # ===== P2-⑦ LLM 成本追踪 =====
 
 

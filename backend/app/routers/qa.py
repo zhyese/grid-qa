@@ -167,11 +167,15 @@ async def feedback(
         reason=body.reason or "",
         retrieval_sources=body.retrievalSources or "",
     )
-    # dislike 时异步失效缓存（防止坏答案继续喂给其他用户）
+    # dislike 时异步失效缓存 + 自动黑名单判定（累计≥阈值则进黑名单，打通自动链路）
     if body.feedback == "dislike" and body.query:
         try:
-            from app.services.feedback_optimizer_service import invalidate_cache_on_dislike
-            _bg_tasks.add(asyncio.create_task(invalidate_cache_on_dislike(db, body.query)))
+            from app.services.feedback_optimizer_service import (
+                invalidate_cache_on_dislike, maybe_blacklist_on_dislike,
+            )
+            _bg_tasks.add(asyncio.create_task(invalidate_cache_on_dislike(body.query)))
+            # maybe 内部用独立 session，后台 task 安全
+            _bg_tasks.add(asyncio.create_task(maybe_blacklist_on_dislike(body.query)))
         except Exception:
             pass
     return success(None, "感谢反馈")

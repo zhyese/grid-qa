@@ -27,34 +27,38 @@ _OPTIMIZER_REPORT_PATH = Path(__file__).resolve().parent.parent.parent / "data" 
 
 # ========== 1. 缓存自动失效 ==========
 
-async def invalidate_cache_on_dislike(db: AsyncSession, query: str) -> int:
+async def invalidate_cache_on_dislike(query: str) -> int:
     """dislike 命中时，失效该问题的全部缓存（Redis L1 + MySQL L2）。
 
     底层逻辑：缓存 key = qa:{model}:{normalized_query}，MySQL 用 query_hash(MD5) 精确匹配。
     故按归一化后的 query 精确失效——既补上 Redis L1（旧版只软删 MySQL，坏答案仍在 Redis 继续命中），
     又改掉旧版 `query.like(prefix%)` 前缀匹配的误删/漏删（raw query 与缓存存的 normalized_query 不对齐）。
+    用独立 AsyncSession（不共享请求 db）——供后台 task 安全调用，避免请求结束 close session 时
+    bg task 仍持有 session 触发 IllegalStateChangeError。
     返回失效条数（MySQL 软删 + Redis 物理删）。
     """
     try:
         from app.services.term_service import normalize as _normalize
         from app.clients import redis_client
+        from app.db.session import AsyncSessionLocal
         nq = _normalize(query or "")
         if not nq:
             return 0
 
-        # MySQL L2：按归一化 query 精确软删（覆盖所有 model_type）
-        rows = (await db.execute(
-            select(QaCache).where(
-                QaCache.is_deleted == 0,
-                QaCache.query_normalized == nq,
-            ).limit(50)
-        )).scalars().all()
-        mysql_n = 0
-        for r in rows:
-            r.is_deleted = 1
-            mysql_n += 1
-        if mysql_n:
-            await db.commit()
+        # MySQL L2：按归一化 query 精确软删（覆盖所有 model_type），独立 session
+        async with AsyncSessionLocal() as db:
+            rows = (await db.execute(
+                select(QaCache).where(
+                    QaCache.is_deleted == 0,
+                    QaCache.query_normalized == nq,
+                ).limit(50)
+            )).scalars().all()
+            mysql_n = 0
+            for r in rows:
+                r.is_deleted = 1
+                mysql_n += 1
+            if mysql_n:
+                await db.commit()
 
         # Redis L1：SCAN 匹配 qa:*:{nq} 物理删（覆盖所有 model_type）
         redis_n = 0
@@ -277,7 +281,7 @@ async def auto_tune_cache_ttl(db: AsyncSession) -> dict:
         select(Feedback.query, func.count()).where(Feedback.feedback == "dislike")
         .group_by(Feedback.query).order_by(func.count().desc()).limit(20)
     )).all()
-    blacklist_raw = [q for q, cnt in bad_queries if cnt >= 3]
+    blacklist_raw = [q for q, cnt in bad_queries if cnt >= settings.OPTIMIZER_BLACKLIST_THRESHOLD]
     blacklist_nq = sorted({_normalize(q or "") for q in blacklist_raw if q})
     applied = 0
     if blacklist_nq:
@@ -299,3 +303,61 @@ async def auto_tune_cache_ttl(db: AsyncSession) -> dict:
     tune_results["extended"] = extend
     tune_results["appliedBlacklist"] = applied
     return tune_results
+
+
+# ========== 4. 黑名单自动触发 + 手动管理 ==========
+
+async def maybe_blacklist_on_dislike(query: str) -> int:
+    """dislike 时自动触发：该 query 累计 dislike≥阈值则自动 SADD 黑名单。
+
+    打通 dislike→黑名单→QA拦截 自动链路（不再依赖管理员手动点调优）。
+    用独立 session（不依赖请求 db 生命周期，供后台 task 安全调用）。
+    返回累计 dislike 数（≥阈值时已写入；<阈值或异常返回 0）。
+    """
+    try:
+        from app.services.term_service import normalize as _normalize
+        nq = _normalize(query or "")
+        if not nq:
+            return 0
+        from app.db.session import AsyncSessionLocal
+        from app.clients import redis_client
+        async with AsyncSessionLocal() as db:
+            cnt = (await db.execute(
+                select(func.count()).where(Feedback.feedback == "dislike", Feedback.query == query)
+            )).scalar() or 0
+        if cnt >= settings.OPTIMIZER_BLACKLIST_THRESHOLD:
+            await redis_client.get_redis().sadd(_BLACKLIST_KEY, nq)
+            return cnt
+        return 0
+    except Exception as e:
+        degraded("optimizer_auto_blacklist", e)
+        return 0
+
+
+async def add_blacklist(query: str) -> str:
+    """管理员手动加入黑名单。返回归一化后的 nq。"""
+    from app.services.term_service import normalize as _normalize
+    from app.clients import redis_client
+    nq = _normalize(query or "")
+    if nq:
+        await redis_client.get_redis().sadd(_BLACKLIST_KEY, nq)
+    return nq
+
+
+async def remove_blacklist(query: str) -> str:
+    """管理员手动移出黑名单。返回归一化后的 nq。"""
+    from app.services.term_service import normalize as _normalize
+    from app.clients import redis_client
+    nq = _normalize(query or "")
+    if nq:
+        await redis_client.get_redis().srem(_BLACKLIST_KEY, nq)
+    return nq
+
+
+async def list_blacklist() -> list[str]:
+    """读取当前黑名单成员（归一化 query 列表）。"""
+    try:
+        from app.clients import redis_client
+        return sorted(await redis_client.get_redis().smembers(_BLACKLIST_KEY))
+    except Exception:
+        return []
