@@ -110,9 +110,11 @@ async def _dense_and_sparse(
         asyncio.to_thread(milvus_client.search, settings.MILVUS_COLLECTION, qvec_cloud, cand),
         asyncio.to_thread(milvus_client.search, settings.MILVUS_COLLECTION_BGE, qvec_bge, cand),
     )
-    dense_hits = [
-        {**d, "key": (d.get("doc_id"), d.get("chunk_idx"))} for d in (dense_cloud + dense_bge)
-    ]
+    dense_hits = []
+    for d in dense_cloud:
+        dense_hits.append({**d, "key": (d.get("doc_id"), d.get("chunk_idx")), "srcs": ["dense_cloud"]})
+    for d in dense_bge:
+        dense_hits.append({**d, "key": (d.get("doc_id"), d.get("chunk_idx")), "srcs": ["dense_bge"]})
 
     await bm25_service.ensure_built(db)
     sparse_hits = []
@@ -123,6 +125,7 @@ async def _dense_and_sparse(
         sparse_hits.append({
             "key": (c["doc_id"], c["chunk_idx"]), "text": c["text"],
             "doc_id": c["doc_id"], "doc_name": c["doc_name"], "chunk_idx": c["chunk_idx"],
+            "srcs": ["bm25"],
         })
     return dense_hits, sparse_hits
 
@@ -168,6 +171,7 @@ async def mixed_search(
                         "key": (c["doc_id"], c["chunk_idx"]), "text": c["text"],
                         "doc_id": c["doc_id"], "doc_name": c["doc_name"],
                         "chunk_idx": c["chunk_idx"], "score": s.get("score", 0),
+                        "srcs": ["bm25"],
                     })
         # 高置信 sparse 可跳过 rerank
         try:
@@ -200,6 +204,7 @@ async def mixed_search(
                 for d in results:
                     all_dense.append({
                         **d, "key": (d.get("doc_id"), d.get("chunk_idx")),
+                        "srcs": [src],
                     })
 
     else:
@@ -209,17 +214,26 @@ async def mixed_search(
             all_dense.extend(d)
             all_sparse.extend(s)
 
-    # 2) RRF 融合 / 单路排序
+    # 2) RRF 融合 / 单路排序 + sources 归因回填
     fused = []  # 兼容旧引用
     if route == "sparse":
         # BM25 单路：按分数排序取 topk*2
         pool = sorted(all_sparse, key=lambda x: -float(x.get("score", 0) or 0))[: topk * 2]
+        _src_map = _aggregate_srcs([], all_sparse)
+        for h in pool:
+            h["srcs"] = _src_map.get(h.get("key"), list(h.get("srcs", [])))
     elif route == "dense":
         # Dense 单路：按分数排序取 topk*2
         pool = sorted(all_dense, key=lambda x: -float(x.get("score", 0) or 0))[: topk * 2]
+        _src_map = _aggregate_srcs(all_dense, [])
+        for h in pool:
+            h["srcs"] = _src_map.get(h.get("key"), list(h.get("srcs", [])))
     else:
         # hybrid / sparse_first: RRF 融合
         fused = rrf.rrf_fuse([all_dense, all_sparse], key_fn=lambda h: h["key"])
+        _src_map = _aggregate_srcs(all_dense, all_sparse)
+        for h in fused:
+            h["srcs"] = _src_map.get(h.get("key"), [])
         pool = fused[: topk * 2]
 
     # 3) 重排（高置信 sparse 可跳过，单路 dense/sparse 也可跳过）
@@ -249,6 +263,17 @@ async def mixed_search(
             and (not doc_type or dt_map.get(h.get("doc_id")) == doc_type)
             and (not equipment or equipment in eq_map.get(h.get("doc_id"), ""))
         ]
+
+    # 4.5) docType 补全：保证每个 item 都带 doc_type（来源卡片要用，无条件查一次）
+    _need_type_ids = {h.get("doc_id") for h in pool if h.get("doc_id") and not h.get("doc_type")}
+    if _need_type_ids:
+        _rows = (await db.execute(
+            select(Document.id, Document.doc_type).where(Document.id.in_(_need_type_ids))
+        )).all()
+        _dt = {r[0]: (r[1] or "") for r in _rows}
+        for h in pool:
+            if not h.get("doc_type"):
+                h["doc_type"] = _dt.get(h.get("doc_id"), "")
 
     # 5) MMR 多样性选 topk
     if settings.MMR_ENABLE and len(pool) > topk:
