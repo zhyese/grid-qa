@@ -111,3 +111,65 @@ def mark_evidence(answer: str, sources: list[dict]) -> str:
                 continue
         result_parts.append(s["text"])
     return "".join(result_parts)
+
+
+def _cosine_mat(sent_vecs: list[list[float]], chunk_vecs: list[list[float]]) -> list[list[float]]:
+    """句子×chunk 的 cosine 相似度矩阵 (n_sent, n_chunk)。不假设向量已归一化。"""
+    import numpy as np
+    if not sent_vecs or not chunk_vecs:
+        return []
+    S = np.asarray(sent_vecs, dtype=np.float32)
+    C = np.asarray(chunk_vecs, dtype=np.float32)
+    sn = S / (np.linalg.norm(S, axis=1, keepdims=True) + 1e-10)
+    cn = C / (np.linalg.norm(C, axis=1, keepdims=True) + 1e-10)
+    return (sn @ cn.T).tolist()
+
+
+async def auto_cite(answer: str, contexts: list[dict],
+                    threshold: float | None = None) -> tuple[str, dict]:
+    """对答案中无 [n] 角标的句子，用向量相似度匹配 chunk 补标。
+
+    返回 (annotated_answer, evidence_trace_dict)。
+    contexts: mixed_search _to_item 产物，每项含 "chunk"。
+    embed 异常 → degraded，返回 (answer, evidence_trace(answer))。
+    """
+    from app.config import settings
+    from app.services import embedding_service
+
+    if not answer or not contexts:
+        return answer, evidence_trace(answer)
+
+    if threshold is None:
+        threshold = getattr(settings, "CITATION_SIM_THRESHOLD", 0.6)
+
+    sentences = split_sentences(answer)
+    bare_idx = [i for i, s in enumerate(sentences) if not extract_sentence_sources(s)]
+    annotated = list(sentences)
+
+    if bare_idx:
+        try:
+            chunk_texts = [c.get("chunk", "") or c.get("text", "") for c in contexts]
+            chunk_embs = await embedding_service.embed_texts(chunk_texts)
+            bare_embs = await embedding_service.embed_texts([sentences[i] for i in bare_idx])
+            sim = _cosine_mat(bare_embs, chunk_embs)   # (len(bare), len(chunks))
+            for row, si in enumerate(bare_idx):
+                if not sim[row]:
+                    continue
+                best_k = max(range(len(sim[row])), key=lambda k: sim[row][k])
+                if sim[row][best_k] >= threshold:
+                    s = sentences[si]
+                    tag = f"[{best_k + 1}]"
+                    # 角标插在句末标点之前，避免分句时跑到下一句（与 LLM 原生角标位置一致）
+                    if s and s[-1] in "。！？!.?":
+                        annotated[si] = s[:-1] + tag + s[-1]
+                    else:
+                        annotated[si] = s + tag
+        except Exception as e:
+            try:
+                from app.core.obs import degraded
+                degraded("auto_cite_embed", e)
+            except Exception:
+                pass
+
+    new_answer = "".join(annotated)
+    return new_answer, evidence_trace(new_answer)
