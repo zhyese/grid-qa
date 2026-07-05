@@ -2,7 +2,8 @@
   <div>
     <div class="tabs">
       <button class="tab" :class="{ active: tab === 'diagnose' }" @click="tab = 'diagnose'">🩺 故障诊断推理</button>
-      <button class="tab" :class="{ active: tab === 'debate' }" @click="tab = 'debate'">🗣️ 辩论诊断(Multi-Agent)</button>
+      <button class="tab" :class="{ active: tab === 'debate' }" @click="tab = 'debate'">🗣️ 辩论诊断</button>
+      <button class="tab" :class="{ active: tab === 'queryplan' }" @click="tab = 'queryplan'">🧩 问题分解</button>
       <button class="tab" :class="{ active: tab === 'case' }" @click="tab = 'case'">📚 相似案例</button>
       <button class="tab" :class="{ active: tab === 'ticket' }" @click="tab = 'ticket'">📝 两票生成</button>
       <button class="tab" :class="{ active: tab === 'audit' }" @click="tab = 'audit'">🔍 两票审核</button>
@@ -107,6 +108,26 @@
       </div>
     </div>
 
+    <!-- 问题分解 -->
+    <div class="card" v-show="tab === 'queryplan'">
+      <div class="row" style="margin-bottom: 14px">
+        <input class="input" v-model="planQuestion" placeholder="复杂问题，系统自动分解为子问题并行检索后综合回答" @keyup.enter="doPlan" style="flex:1;min-width:260px" />
+        <select class="select" v-model="modelType" style="max-width:140px"><option value="">默认模型</option><option value="deepseek">DeepSeek</option><option value="qwen">通义千问</option><option value="doubao">豆包</option></select>
+        <button class="btn btn-primary" @click="doPlan" :disabled="planLoading || !planQuestion.trim()">{{ planLoading ? '分解中…' : '问题分解' }}</button>
+      </div>
+      <div v-if="planResult">
+        <div class="src-head">子问题（{{ planResult.subQueryCount || planResult.subQueries?.length || 0 }} 个）<span class="hint">· {{ planResult.latencyMs }}ms</span></div>
+        <div class="cause" v-for="(sq, i) in planResult.subQueries" :key="i">
+          <span class="lk" style="width:24px;height:24px;font-size:11px;background:var(--primary)">{{ i+1 }}</span>
+          <div class="cause-body">
+            <div class="cause-name">{{ sq.query }} <span class="badge badge-neutral" style="font-size:10px">{{ sq.type }}</span></div>
+            <div class="cause-line" v-if="sq.contextCount">检索到 {{ sq.contextCount }} 条相关资料</div>
+          </div>
+        </div>
+        <div class="summary" style="margin-top:10px"><b>综合答案：</b>{{ planResult.answer }}</div>
+      </div>
+    </div>
+
     <!-- 相似案例 -->
     <div class="card" v-show="tab === 'case'">
       <div class="row" style="margin-bottom: 14px">
@@ -169,7 +190,7 @@
 
 <script setup>
 import { ref, h } from 'vue'
-import { diagnose, similarCase, generateTicket, auditTicket, diagnoseAgent, diagnoseDebate } from '../api'
+import { diagnose, similarCase, generateTicket, auditTicket, diagnoseAgent, diagnoseDebate, queryPlan } from '../api'
 
 const SourcesList = {
   props: ['sources'],
@@ -207,6 +228,13 @@ async function doDebate() {
   debateLoading.value = true; debate.value = null
   try { debate.value = (await diagnoseDebate(debateSymptom.value, modelType.value || null)).data }
   catch (e) { show('辩论诊断失败') } finally { debateLoading.value = false }
+}
+const planQuestion = ref(''); const planLoading = ref(false); const planResult = ref(null)
+async function doPlan() {
+  if (!planQuestion.value.trim()) return
+  planLoading.value = true; planResult.value = null
+  try { planResult.value = (await queryPlan(planQuestion.value, modelType.value || null)).data }
+  catch (e) { show('问题分解失败') } finally { planLoading.value = false }
 }
 const caseSymptom = ref(''); const caseLoading = ref(false); const cases = ref(null)
 async function doCase() {

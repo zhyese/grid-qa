@@ -81,6 +81,28 @@
                 <a @click="like(m)" :class="{ on: m.fb === 'like' }">👍</a>
                 <a @click="dislike(m)" :class="{ on: m.fb === 'dislike' }">👎</a>
               </span>
+              <a v-if="m.content && !m.streaming" class="ev-btn" @click="showEvidence(m)">🔍 证据溯源</a>
+            </div>
+            <!-- 证据溯源弹窗 -->
+            <div class="modal-overlay" v-if="m._evOpen" @click.self="m._evOpen = false">
+              <div class="modal">
+                <div class="modal-head">
+                  证据溯源·句级引用 <span class="hint">支持比 {{ m._evTrace?.supportRatio * 100 || 0 }}%</span>
+                  <a @click="m._evOpen = false" style="cursor:pointer">✕</a>
+                </div>
+                <div class="ev-list">
+                  <div v-for="(s, i) in (m._evTrace?.sentences || [])" :key="i" class="ev-item" :class="{ 'ev-supported': s.supported, 'ev-unsupported': !s.supported }">
+                    <span class="ev-icon">{{ s.supported ? '✅' : '⚠️' }}</span>
+                    <div class="ev-body">
+                      <div class="ev-text">{{ s.text }}</div>
+                      <div v-if="s.sources?.length" class="ev-src">
+                        📎 <span v-for="n in s.sources" :key="n" class="ev-ref" @click="scrollToSource(m, n)">[{{ n }}]</span>
+                      </div>
+                      <div v-else class="ev-nosrc">无引用来源</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
 
             <div class="related" v-if="!m.streaming && m.related && m.related.length">
@@ -131,7 +153,7 @@ import sql from 'highlight.js/lib/languages/sql'
 import xml from 'highlight.js/lib/languages/xml'
 import markdown from 'highlight.js/lib/languages/markdown'
 import { useAuthStore } from '../stores/auth'
-import { streamAnswer, streamAnswerWS, sendFeedback, getFaithfulness, getRelatedQuestions, getConversations, getHistory, deleteConversation, renameConversation, batchDeleteConversations, batchDeleteMessages, exportAnswer } from '../api'
+import { streamAnswer, streamAnswerWS, sendFeedback, getFaithfulness, getRelatedQuestions, getConversations, getHistory, deleteConversation, renameConversation, batchDeleteConversations, batchDeleteMessages, exportAnswer, getEvidenceTrace } from '../api'
 
 hljs.registerLanguage('python', python)
 hljs.registerLanguage('javascript', javascript)
@@ -322,6 +344,16 @@ function onAnsClick(e, m) {
   const idx = Number(el.dataset.idx); m.hiIdx = idx
   const target = document.getElementById('src-' + idx); if (target) target.scrollIntoView({ behavior: 'smooth', block: 'center' })
 }
+async function showEvidence(m) {
+  if (m._evTrace) { m._evOpen = !m._evOpen; return }
+  try {
+    const sources = (m.sources || []).map(s => typeof s === 'string' ? s : (s.text || ''))
+    const r = await getEvidenceTrace(m.content, sources, m.model_type || null)
+    m._evTrace = r.data || { sentences: [], supportRatio: 0 }
+    m._evOpen = true
+  } catch (e) { toast('证据溯源失败') }
+}
+function scrollToSource(m, idx) { m.hiIdx = idx; const el = document.getElementById('src-' + idx); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' }) }
 
 async function removeConv(c) {
   if (!confirm(`删除对话「${c.title || '无标题'}」？`)) return
@@ -480,4 +512,17 @@ html.dark .ai-bubble { background: var(--surface); }
   .conv-bar.collapsed { display: none; }
   .bubble { max-width: 92%; }
 }
+.ev-btn { font-size: 11px; cursor: pointer; color: var(--text-muted); margin-left: 6px; }
+.ev-btn:hover { color: var(--primary); }
+.ev-list { max-height: 400px; overflow-y: auto; padding: 8px 0; }
+.ev-item { display: flex; gap: 8px; padding: 6px 12px; border-radius: var(--radius-sm); margin-bottom: 4px; font-size: 13px; }
+.ev-supported { background: var(--surface-2); border-left: 3px solid var(--success); }
+.ev-unsupported { background: var(--surface-2); border-left: 3px solid var(--warning); }
+.ev-icon { flex-shrink: 0; font-size: 14px; }
+.ev-body { flex: 1; }
+.ev-text { color: var(--text); line-height: 1.5; }
+.ev-src { font-size: 12px; margin-top: 2px; color: var(--text-muted); }
+.ev-ref { cursor: pointer; color: var(--primary); font-weight: 600; margin-right: 4px; }
+.ev-ref:hover { text-decoration: underline; }
+.ev-nosrc { font-size: 11px; color: var(--warning); margin-top: 2px; }
 </style>

@@ -6,6 +6,10 @@
       <button class="tab" :class="{ active: tab === 'alert' }" @click="loadAlerts(); tab = 'alert'">🚨 告警 <span v-if="alerts.total" class="badge badge-danger">{{ alerts.total }}</span></button>
       <button class="tab" :class="{ active: tab === 'config' }" @click="tab = 'config'">⚙️ 系统配置</button>
       <button class="tab" :class="{ active: tab === 'optimizer' }" @click="loadOptimizer(); tab = 'optimizer'">📈 优化建议</button>
+      <button class="tab" :class="{ active: tab === 'cost' }" @click="loadCostReport(); tab = 'cost'">💰 成本</button>
+      <button class="tab" :class="{ active: tab === 'quality' }" @click="loadQuality(); tab = 'quality'">📚 知识库质量</button>
+      <button class="tab" :class="{ active: tab === 'eval' }" @click="loadEval(); tab = 'eval'">📊 评测趋势</button>
+      <button class="tab" :class="{ active: tab === 'abtest' }" @click="loadABTest(); tab = 'abtest'">🧪 A/B测试</button>
     </div>
 
     <!-- 反馈管理 -->
@@ -158,6 +162,89 @@
         </div>
         <div v-else class="hint" style="margin-top:12px">点「重新分析」生成优化建议报告。</div>
       </div>
+
+      <!-- 成本 -->
+      <div class="card" v-show="tab === 'cost'">
+        <div class="card-header"><h3 class="card-title">💰 LLM 成本报告</h3><button class="btn btn-ghost btn-sm" @click="loadCostReport">🔄 刷新</button></div>
+        <div v-if="costReport">
+          <div class="stats-grid" style="margin-bottom:10px">
+            <div class="stat stat-accent"><div class="stat-val">{{ costReport.todayTokens?.toLocaleString() || 0 }}</div><div class="stat-lbl">今日 Token</div></div>
+            <div class="stat stat-accent"><div class="stat-val">{{ costReport.monthTokens?.toLocaleString() || 0 }}</div><div class="stat-lbl">本月 Token</div></div>
+            <div class="stat stat-accent"><div class="stat-val">¥{{ costReport.todayByModel?.reduce((s,m)=>s+m.cost,0).toFixed(4) || '0' }}</div><div class="stat-lbl">今日费用</div></div>
+          </div>
+          <div v-if="costReport.todayByModel?.length" class="src-head">今日各模型消耗</div>
+          <div class="cause" v-for="m in costReport.todayByModel" :key="m.model" style="justify-content:space-between">
+            <span><b>{{ m.model }}</b></span><span>{{ m.tokens?.toLocaleString() }} tokens · ¥{{ m.cost?.toFixed(4) }}</span>
+          </div>
+          <div v-if="costReport.topUsers?.length" class="src-head" style="margin-top:10px">本月用户排行 Top-10</div>
+          <div class="cause" v-for="(u, i) in costReport.topUsers" :key="i" style="justify-content:space-between">
+            <span>{{ i+1 }}. {{ u.username }}</span><span>{{ u.tokens?.toLocaleString() }} tokens</span>
+          </div>
+          <div class="hint" style="margin-top:8px">用户配额：{{ costReport.userQuota?.toLocaleString() }} · 租户配额：{{ costReport.tenantQuota?.toLocaleString() }}</div>
+        </div>
+        <div v-else class="hint" style="margin-top:8px">加载中...</div>
+      </div>
+
+      <!-- 知识库质量 -->
+      <div class="card" v-show="tab === 'quality'">
+        <div class="card-header"><h3 class="card-title">📚 知识库质量</h3><button class="btn btn-ghost btn-sm" @click="loadQuality">🔄 刷新</button></div>
+        <div v-if="quality">
+          <div class="stats-grid" style="margin-bottom:10px">
+            <div class="stat stat-accent"><div class="stat-val">{{ quality.overallGrade || '?' }}</div><div class="stat-lbl">综合评级</div></div>
+            <div class="stat stat-accent"><div class="stat-val">{{ (quality.qualityScore * 100).toFixed(0) }}%</div><div class="stat-lbl">分块质量</div></div>
+            <div class="stat stat-accent"><div class="stat-val">{{ (quality.coverageRate * 100).toFixed(0) }}%</div><div class="stat-lbl">向量化覆盖</div></div>
+          </div>
+          <div class="cause" style="justify-content:space-between"><span>文档数</span><span>{{ quality.docCount }}</span></div>
+          <div class="cause" style="justify-content:space-between"><span>分块数</span><span>{{ quality.chunkCount }}</span></div>
+          <div class="cause" style="justify-content:space-between"><span>重复率</span><span>{{ (quality.dupRate * 100).toFixed(1) }}%</span></div>
+          <div class="cause" style="justify-content:space-between"><span>过短分块</span><span>{{ quality.tooShortChunks }}</span></div>
+          <div class="cause" style="justify-content:space-between"><span>过长分块</span><span>{{ quality.tooLongChunks }}</span></div>
+          <div v-if="quality.docTypeDistribution" class="src-head" style="margin-top:8px">文档类型分布</div>
+          <div class="cause" v-for="(c, t) in quality.docTypeDistribution" :key="t" style="justify-content:space-between"><span>{{ t }}</span><span>{{ c }} 份</span></div>
+          <div v-if="quality.gaps?.length" class="src-head" style="margin-top:8px;color:var(--warning)">⚠ 知识盲区</div>
+          <div class="cause" v-for="g in quality.gaps" :key="g.term"><span>{{ g.suggestion }}</span></div>
+        </div>
+        <div v-else class="hint" style="margin-top:8px">加载中...</div>
+      </div>
+
+      <!-- 评测趋势 -->
+      <div class="card" v-show="tab === 'eval'">
+        <div class="card-header"><h3 class="card-title">📊 检索质量评测趋势</h3><button class="btn btn-ghost btn-sm" @click="loadEval">🔄 刷新</button></div>
+        <div v-if="evalTrend">
+          <div class="stats-grid" style="margin-bottom:10px">
+            <div class="stat stat-accent"><div class="stat-val">{{ (evalTrend.latestOverall * 100 || 0).toFixed(1) }}%</div><div class="stat-lbl">综合评分</div></div>
+          </div>
+          <div class="src-head">近 {{ evalTrend.days }} 天趋势</div>
+          <div class="cause" v-for="t in evalTrend.trends" :key="t.date" style="flex-direction:column;align-items:flex-start">
+            <div style="display:flex;justify-content:space-between;width:100%">
+              <span><b>{{ t.date }}</b></span><span>{{ t.samples }} 条</span>
+            </div>
+            <div style="display:flex;gap:8px;font-size:12px;margin-top:2px">
+              <span>综合:{{ (t.overall * 100).toFixed(0) }}%</span>
+              <span>相关性:{{ (t.relevance * 100).toFixed(0) }}%</span>
+              <span>忠实度:{{ (t.faithfulness * 100).toFixed(0) }}%</span>
+            </div>
+          </div>
+          <div v-if="!evalTrend.trends?.length" class="empty">暂无评测数据（需要用户问答触发采样）</div>
+        </div>
+        <div v-else class="hint" style="margin-top:8px">加载中...</div>
+      </div>
+
+      <!-- A/B 测试 -->
+      <div class="card" v-show="tab === 'abtest'">
+        <div class="card-header"><h3 class="card-title">🧪 路由 A/B 测试</h3><button class="btn btn-ghost btn-sm" @click="loadABTest">🔄 刷新</button></div>
+        <div v-if="abConfig">
+          <div class="stats-grid" style="margin-bottom:10px">
+            <div class="stat stat-accent"><div class="stat-val">{{ abConfig.enabled ? '✅ 开' : '❌ 关' }}</div><div class="stat-lbl">路由总开关</div></div>
+            <div class="stat stat-accent"><div class="stat-val">{{ abConfig.abTestRatio < 1 ? ((1 - abConfig.abTestRatio) * 100).toFixed(0) + '%' : '全量' }}</div><div class="stat-lbl">B 组流量</div></div>
+          </div>
+          <div class="cause" style="justify-content:space-between"><span>Sparse 最大长度</span><span>{{ abConfig.sparseMaxLen }}</span></div>
+          <div class="cause" style="justify-content:space-between"><span>Dense 最小长度</span><span>{{ abConfig.denseMinLen }}</span></div>
+          <div class="cause" style="justify-content:space-between"><span>最低置信度</span><span>{{ abConfig.minConfidence }}</span></div>
+          <div class="hint" style="margin-top:8px">B 组走 hybrid 全链路，A 组走智能路由。对比两组延迟和检索质量。</div>
+        </div>
+        <div v-else class="hint" style="margin-top:8px">加载中...</div>
+      </div>
       <div class="toast" v-if="toastMsg">{{ toastMsg }}</div>
   </div>
 </template>
@@ -257,6 +344,11 @@ function typeLabel(t) {
 function severityBadge(s) {
   return { high: 'badge badge-danger', medium: 'badge badge-warning', low: 'badge badge-info' }[s] || 'badge badge-neutral'
 }
+const costReport = ref(null); const quality = ref(null); const evalTrend = ref(null); const abConfig = ref(null)
+async function loadCostReport() { try { costReport.value = (await request.get('/system/cost/report', { params: { period: 'today' } })).data } catch (e) { toast('加载失败') } }
+async function loadQuality() { try { quality.value = (await request.get('/system/knowledge/quality')).data } catch (e) { toast('加载失败') } }
+async function loadEval() { try { evalTrend.value = (await request.get('/system/eval/trends', { params: { days: 7 } })).data } catch (e) { toast('加载失败') } }
+async function loadABTest() { try { abConfig.value = (await request.get('/system/routing/config')).data } catch (e) { toast('加载失败') } }
 onMounted(() => { loadLogs(); loadFeedbacks('dislike'); loadFbStats(); loadAlerts(); loadConfig() })
 </script>
 
