@@ -135,6 +135,7 @@
         <div class="card-header"><h3 class="card-title">BM25 索引</h3><button class="btn btn-ghost btn-sm" :disabled="bm25Loading" @click="handleRebuildBm25">{{ bm25Loading ? '重建中...' : '🔄 全量重建' }}</button></div>
         <p class="hint" style="margin-top:0">新文档默认增量进内存；进程重启/异常后点此兜底全量重建。</p>
       </div>
+    </div><!-- /config tab -->
 
       <!-- 优化建议 -->
       <div class="card" v-show="tab === 'optimizer'">

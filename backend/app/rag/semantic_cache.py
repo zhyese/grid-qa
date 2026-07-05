@@ -14,7 +14,7 @@ from typing import Any
 
 import numpy as np
 
-from app.clients.redis_client import redis_client
+from app.clients import redis_client
 from app.config import settings
 from app.core.obs import degraded
 from app.services import embedding_service
@@ -63,14 +63,13 @@ async def semantic_cache_get(
 
     # 2) 语义匹配：计算 query embedding → 在索引中找相似
     try:
-        q_emb = (await embedding_service.get_embeddings([nq]))[0]
+        q_emb = await embedding_service.embed_query(nq)
     except Exception as e:
         degraded("semantic_cache_embed", e)
         return None, "miss", 0.0
 
     try:
-        index_data = await redis_client.get(_SEMANTIC_INDEX_KEY)
-        index: list[dict] = json.loads(index_data) if index_data else []
+        index = await redis_client.cache_get_json(_SEMANTIC_INDEX_KEY) or []
     except Exception:
         index = []
 
@@ -131,16 +130,14 @@ async def semantic_cache_set(
     # 获取/传参 embedding
     if embedding is None:
         try:
-            embeds = await embedding_service.get_embeddings([nq])
-            embedding = embeds[0]
+            embedding = await embedding_service.embed_query(nq)
         except Exception as e:
             degraded("semantic_cache_index_embed", e)
             return
 
     # 读取索引
     try:
-        raw = await redis_client.get(_SEMANTIC_INDEX_KEY)
-        index: list[dict] = json.loads(raw) if raw else []
+        index = await redis_client.cache_get_json(_SEMANTIC_INDEX_KEY) or []
     except Exception:
         index = []
 
@@ -165,7 +162,7 @@ async def semantic_cache_set(
 
     # 写回
     try:
-        await redis_client.set(_SEMANTIC_INDEX_KEY, json.dumps(index), ex=_SEMANTIC_TTL)
+        await redis_client.cache_set_json(_SEMANTIC_INDEX_KEY, index, _SEMANTIC_TTL)
     except Exception as e:
         degraded("semantic_cache_index_write", e)
 
@@ -178,9 +175,8 @@ async def semantic_cache_invalidate(model_type: str | None, query: str) -> None:
     if not nq:
         return
     try:
-        raw = await redis_client.get(_SEMANTIC_INDEX_KEY)
-        index: list[dict] = json.loads(raw) if raw else []
+        index = await redis_client.cache_get_json(_SEMANTIC_INDEX_KEY) or []
         index = [e for e in index if e.get("query") != nq]
-        await redis_client.set(_SEMANTIC_INDEX_KEY, json.dumps(index), ex=_SEMANTIC_TTL)
+        await redis_client.cache_set_json(_SEMANTIC_INDEX_KEY, index, _SEMANTIC_TTL)
     except Exception:
         pass

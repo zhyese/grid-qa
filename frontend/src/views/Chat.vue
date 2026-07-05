@@ -71,6 +71,7 @@
 
             <div class="meta" v-if="m.time">
               <span>⏱ {{ m.time }}s</span>
+              <span v-if="m.cached" class="badge" :class="cacheBadge(m.cacheLayer)" :title="'命中缓存：' + cacheTitle(m.cacheLayer)">⚡ {{ cacheLabel(m.cacheLayer) }}</span>
               <span>· 幻觉率 {{ m.halluc }}</span>
               <span v-if="m.route" class="badge" :class="routeBadge(m.route)" :title="m.routeReason || ''">🧭 {{ routeLabel(m.route) }}</span>
               <span v-if="m.graphCount" class="badge badge-info">🔗 图谱{{ m.graphCount }}</span>
@@ -271,6 +272,8 @@ async function runStream(q, opts = {}) {
       if (ev.route) msg.route = ev.route
       if (ev.routeReason) msg.routeReason = ev.routeReason
       if (ev.modelType) msg.modelType = ev.modelType
+      if (ev.cached !== undefined) msg.cached = ev.cached
+      if (ev.cacheLayer) msg.cacheLayer = ev.cacheLayer
       msg.streaming = false
       loading.value = false
       abortCtrl.value = null
@@ -329,6 +332,10 @@ function confBadge(c) { return ({ high: 'badge-success', medium: 'badge-warning'
 function routeLabel(r) { return ({ sparse: '🔤 纯 BM25 匹配(sparse)', dense: '🧠 向量语义检索(dense)', hybrid: '🔀 全链路(hybrid)', sparse_first: '🔤→🔀 关键词优先(sparse_first)' })[r] || r }
 function modelLabel(m) { return ({ deepseek: 'DeepSeek', qwen: '通义千问', doubao: '豆包' })[m] || m }
 function routeBadge(r) { return ({ sparse: 'badge-sparse', dense: 'badge-dense', hybrid: 'badge-neutral', sparse_first: 'badge-warning' })[r] || 'badge-neutral' }
+// 缓存层标识：redis(L1热点) / mysql(L2持久) / semantic_*(L1.5相似) 三态区分
+function cacheLabel(l) { return ({ redis: '高频问答·热点', mysql: '高频问答·历史' })[l] || (l && l.startsWith('semantic') ? '高频问答·相似' : '高频问答') }
+function cacheTitle(l) { return ({ redis: 'Redis 热点缓存(L1)，毫秒级秒回', mysql: 'MySQL 持久缓存(L2)' })[l] || (l && l.startsWith('semantic') ? '语义相似缓存(L1.5)，embedding 近似匹配' : '已缓存') }
+function cacheBadge(l) { return ({ redis: 'badge-cache', mysql: 'badge-cache-mysql' })[l] || (l && l.startsWith('semantic') ? 'badge-cache-semantic' : 'badge-cache') }
 function srcName(s) { return typeof s === 'string' ? '' : (s.docName || '') }
 function srcText(s) { return typeof s === 'string' ? s : (s.text || '') }
 async function copyAnswer(m) { try { await navigator.clipboard.writeText(m.content); toast('答案已复制') } catch (e) { toast('复制失败') } }
@@ -504,6 +511,9 @@ html.dark .ai-bubble { background: var(--surface); }
 .msg-check { display: inline-flex; align-items: center; margin-right: 6px; cursor: pointer; opacity: .7; }
 .msg-check:hover { opacity: 1; }
 .empty.small { padding: 20px; font-size: 12px; }
+.badge-cache { background: #ff9800; color: #fff; font-weight: 600; }          /* Redis 热点 L1：橙 */
+.badge-cache-mysql { background: #2196f3; color: #fff; font-weight: 600; }     /* MySQL 持久 L2：蓝 */
+.badge-cache-semantic { background: #9c27b0; color: #fff; font-weight: 600; }  /* 语义相似 L1.5：紫 */
 .menu-btn { display: none; }
 
 @media (max-width: 768px) {

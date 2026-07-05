@@ -134,10 +134,11 @@ async def cache_set_mysql(
                     """INSERT INTO qa_cache
                        (cache_key, model_type, query_hash, query_normalized, query_original,
                         answer, retrieval_sources, confidence, hallucination_rate,
-                        hit_count, ttl_seconds, expires_at, last_hit_at, created_at, updated_at)
+                        hit_count, ttl_seconds, expires_at, last_hit_at, created_at, updated_at,
+                        is_deleted)
                     VALUES
                        (:ck, :mt, :qh, :qn, :qo, :ans, :src, :conf, :hall,
-                        :hc, :ttl, :exp, :hit_at, :now, :now)"""
+                        :hc, :ttl, :exp, :hit_at, :now, :now, 0)"""
                 ),
                 {
                     "ck": cache_key,
@@ -179,25 +180,19 @@ async def cache_cleanup(db: AsyncSession) -> int:
     """
     total = 0
     try:
-        # ① 已过期的
+        # ① 已过期的（raw SQL：MySQL DELETE 支持 LIMIT，ORM delete().limit() 不支持）
         r1 = await db.execute(
-            delete(QaCache).where(QaCache.expires_at < func.now()).limit(5000)
+            text("DELETE FROM qa_cache WHERE expires_at < NOW() LIMIT 5000")
         )
         total += r1.rowcount or 0
         # ② 3 天未命中（冷数据，即使未过期也清理）
         r2 = await db.execute(
-            delete(QaCache).where(
-                QaCache.updated_at < func.now() - text("INTERVAL 3 DAY"),
-                QaCache.is_deleted == 0,
-            ).limit(5000)
+            text("DELETE FROM qa_cache WHERE updated_at < NOW() - INTERVAL 3 DAY AND is_deleted = 0 LIMIT 5000")
         )
         total += r2.rowcount or 0
         # ③ 软删超过 7 天的物理删除
         r3 = await db.execute(
-            delete(QaCache).where(
-                QaCache.is_deleted == 1,
-                QaCache.updated_at < func.now() - text("INTERVAL 7 DAY"),
-            ).limit(1000)
+            text("DELETE FROM qa_cache WHERE is_deleted = 1 AND updated_at < NOW() - INTERVAL 7 DAY LIMIT 1000")
         )
         total += r3.rowcount or 0
         if total > 0:

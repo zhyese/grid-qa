@@ -137,27 +137,7 @@ async def answer(
                 pass
             return cached
 
-        # L1.5: 语义缓存（embedding 相似度匹配）
-        if getattr(settings, "SEMANTIC_CACHE_ENABLE", False):
-            try:
-                from app.rag.semantic_cache import semantic_cache_get
-                sc_data, sc_type, sc_sim = await semantic_cache_get(model_type, nq)
-                if sc_data and sc_type in ("semantic_high", "semantic_medium"):
-                    sc_data["cached"] = True
-                    sc_data["cacheLayer"] = f"semantic_{sc_type}"
-                    sc_data["semanticSimilarity"] = round(sc_sim, 4)
-                    sc_data["responseTime"] = round(time.time() - t0, 3)
-                    try:
-                        from app.core import metrics
-                        metrics.QA_TOTAL.labels(model_type or settings.LLM_PROVIDER, "true").inc()
-                        metrics.CACHE_HIT.labels("semantic").inc()
-                    except Exception:
-                        pass
-                    return sc_data
-            except Exception as e:
-                degraded("semantic_cache_get", e)
-
-        # L2: MySQL 二级缓存（Redis miss，查 MySQL）
+        # L2: MySQL 二级缓存（精确持久，Redis 过期/evict 时兜底；优先于模糊语义匹配）
         if settings.CACHE_PERSIST_ENABLE:
             try:
                 from app.services.cache_persist import cache_get_mysql
@@ -169,11 +149,32 @@ async def answer(
                     try:
                         from app.core import metrics
                         metrics.QA_TOTAL.labels(model_type or settings.LLM_PROVIDER, "true").inc()
+                        metrics.CACHE_HIT.labels("mysql").inc()
                     except Exception:
                         pass
                     return mysql_cached
             except Exception as e:
                 degraded("qa_cache_mysql", e)
+
+        # L1.5: 语义缓存（模糊相似，精确持久 miss 后兜底）
+        if getattr(settings, "SEMANTIC_CACHE_ENABLE", False):
+            try:
+                from app.rag.semantic_cache import semantic_cache_get
+                sc_data, sc_type, sc_sim = await semantic_cache_get(model_type, nq)
+                if sc_data and sc_type in ("semantic_high", "semantic_medium"):
+                    sc_data["cached"] = True
+                    sc_data["cacheLayer"] = sc_type
+                    sc_data["semanticSimilarity"] = round(sc_sim, 4)
+                    sc_data["responseTime"] = round(time.time() - t0, 3)
+                    try:
+                        from app.core import metrics
+                        metrics.QA_TOTAL.labels(model_type or settings.LLM_PROVIDER, "true").inc()
+                        metrics.CACHE_HIT.labels("semantic").inc()
+                    except Exception:
+                        pass
+                    return sc_data
+            except Exception as e:
+                degraded("semantic_cache_get", e)
 
     # 多轮历史（提前获取：供指代消解 + 拼 LLM 上下文，避免重复查）
     history: list[dict] = []
@@ -343,7 +344,7 @@ async def stream_answer(
             }
             return
 
-        # L2: MySQL 二级缓存
+        # L2: MySQL 二级缓存（精确持久，Redis 过期/evict 时兜底；优先于模糊语义匹配）
         if settings.CACHE_PERSIST_ENABLE:
             try:
                 from app.services.cache_persist import cache_get_mysql
@@ -373,6 +374,39 @@ async def stream_answer(
                     return
             except Exception as e:
                 degraded("qa_cache_mysql_stream", e)
+
+        # L1.5: 语义缓存（模糊相似，精确持久 miss 后兜底）
+        if getattr(settings, "SEMANTIC_CACHE_ENABLE", False):
+            try:
+                from app.rag.semantic_cache import semantic_cache_get
+                sc_data, sc_type, sc_sim = await semantic_cache_get(model_type, nq)
+                if sc_data and sc_type in ("semantic_high", "semantic_medium"):
+                    conv = await conversation_service.create_conversation(db, username, query)
+                    cid = conv.id
+                    try:
+                        await conversation_service.save_message(db, cid, "user", query)
+                        await conversation_service.save_message(db, cid, "assistant", sc_data.get("answer", ""))
+                    except Exception as e:
+                        degraded("conv_save", e)
+                    yield {"type": "meta", "sources": sc_data.get("retrievalSource", []), "conversationId": cid}
+                    yield {"type": "token", "content": sc_data.get("answer", "")}
+                    try:
+                        from app.core import metrics
+                        metrics.QA_TOTAL.labels(_p, "true").inc()
+                        metrics.CACHE_HIT.labels("semantic").inc()
+                    except Exception:
+                        pass
+                    yield {
+                        "type": "done", "responseTime": round(time.time() - t0, 3),
+                        "hallucinationRate": sc_data.get("hallucinationRate", 0.0),
+                        "conversationId": cid, "cached": True,
+                        "cacheLayer": sc_type,
+                        "semanticSimilarity": round(sc_sim, 4),
+                        "route": sc_data.get("route", "hybrid"),
+                    }
+                    return
+            except Exception as e:
+                degraded("semantic_cache_get_stream", e)
 
     # 多轮历史 + 指代消解
     history: list[dict] = []
@@ -473,6 +507,13 @@ async def stream_answer(
             await redis_client.cache_set_json(_cache_key(model_type, nq), cache_data, settings.QA_CACHE_TTL)
         except Exception as e:
             degraded("qa_cache_set", e)
+        # L1.5: 语义缓存索引（向量化入库，供后续相似查询命中）
+        if getattr(settings, "SEMANTIC_CACHE_ENABLE", False):
+            try:
+                from app.rag.semantic_cache import semantic_cache_set
+                await semantic_cache_set(model_type, nq, _cache_key(model_type, nq))
+            except Exception as e:
+                degraded("semantic_cache_set_stream", e)
     try:
         from app.core import metrics
         metrics.QA_TOTAL.labels(_p, "false").inc()
