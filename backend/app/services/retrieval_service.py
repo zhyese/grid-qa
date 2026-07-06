@@ -85,6 +85,24 @@ async def _expand_parents(db: AsyncSession, pool: list[dict]) -> list[dict]:
     return out or pool
 
 
+async def _hyde_or_cache(q: str, model_type: str | None = None) -> str | None:
+    """HyDE 假设文档（带 Redis 缓存）。关闭/失败返回 None。相同 query 不重复调 LLM。"""
+    if not getattr(settings, "HYDE_ENABLE", False):
+        return None
+    from app.services import hyde, rewrite_cache
+    try:
+        cached = await rewrite_cache.get("hyde", q)
+        if cached:
+            return cached.get("hypothetical")
+        ht = await hyde.generate_hypothetical(q, model_type)
+        if ht:
+            await rewrite_cache.set("hyde", q, {"hypothetical": ht})
+        return ht
+    except Exception as e:
+        degraded("hyde_dispatch", e)
+        return None
+
+
 async def _dense_and_sparse(
     db: AsyncSession, q: str, cand: int, model_type: str | None = None
 ) -> tuple[list[dict], list[dict]]:
@@ -92,15 +110,7 @@ async def _dense_and_sparse(
 
     HyDE：用 LLM 生成的假设文档做 dense embedding（BM25 仍用原 q，稀疏检索吃原词）。
     """
-    dense_q = q
-    if getattr(settings, "HYDE_ENABLE", False):
-        from app.services import hyde
-        try:
-            ht = await hyde.generate_hypothetical(q, model_type)
-            if ht:
-                dense_q = ht
-        except Exception as e:
-            degraded("hyde_dispatch", e)
+    dense_q = (await _hyde_or_cache(q, model_type)) or q
 
     qvec_cloud, qvec_bge = await asyncio.gather(
         embedding_service.embed_query(dense_q, settings.EMB_PROVIDER),
@@ -139,18 +149,23 @@ async def mixed_search(
     _t0 = time.time()
     cand = max(topk * 4, 20)
 
-    # 0) query 改写（口语→规范）
-    q = await query_rewrite.rewrite_query(query, model_type)
+    # 0) query 改写（口语→规范，含 adaptive 跳过 + 缓存 + 评估闭环）
+    q = (await query_rewrite.rewrite_query_v2(query, model_type))["query"]
 
     # 路由调度：根据决策选择检索路径
     route = routing_decision.route if routing_decision else "hybrid"
 
-    # 0.5) 多查询分解（仅 hybrid 和 dense 路径启用；sparse 跳过）
+    # 0.5) 多查询分解（仅 hybrid 和 dense 路径启用；sparse 跳过；带缓存）
     queries = [q]
     if route != "sparse" and getattr(settings, "MULTI_QUERY_ENABLE", False):
-        from app.services import multi_query
+        from app.services import multi_query, rewrite_cache
         try:
-            subs = await multi_query.decompose(query, model_type)
+            cached_mq = await rewrite_cache.get("multi", query)
+            if cached_mq:
+                subs = cached_mq.get("subs", [])
+            else:
+                subs = await multi_query.decompose(query, model_type) or []
+                await rewrite_cache.set("multi", query, {"subs": subs})
             if subs:
                 queries.extend(subs)
         except Exception as e:
@@ -183,15 +198,7 @@ async def mixed_search(
     elif route == "dense":
         # dense-only: 仅双路向量，跳过 BM25
         for qq in queries:
-            dense_q = qq
-            if getattr(settings, "HYDE_ENABLE", False):
-                from app.services import hyde
-                try:
-                    ht = await hyde.generate_hypothetical(qq, model_type)
-                    if ht:
-                        dense_q = ht
-                except Exception as e:
-                    degraded("hyde_dispatch", e)
+            dense_q = (await _hyde_or_cache(qq, model_type)) or qq
             qvec_cloud, qvec_bge = await asyncio.gather(
                 embedding_service.embed_query(dense_q, settings.EMB_PROVIDER),
                 embedding_service.embed_query(dense_q, "bge"),
