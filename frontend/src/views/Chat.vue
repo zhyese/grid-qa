@@ -98,22 +98,31 @@
             </div>
             <!-- 证据溯源弹窗 -->
             <div class="modal-overlay" v-if="m._evOpen" @click.self="m._evOpen = false">
-              <div class="modal">
+              <div class="modal ev-modal">
                 <div class="modal-head">
-                  证据溯源·句级引用 <span class="hint">支持比 {{ m._evTrace?.supportRatio * 100 || 0 }}%</span>
+                  证据溯源·句级引用 <span v-if="!m._evTrace?.cached" class="hint">支持比 {{ m._evTrace?.supportRatio * 100 || 0 }}%</span>
                   <a @click="m._evOpen = false" style="cursor:pointer">✕</a>
                 </div>
                 <div class="ev-list">
-                  <div v-for="(s, i) in (m._evTrace?.sentences || [])" :key="i" class="ev-item" :class="{ 'ev-supported': s.supported, 'ev-unsupported': !s.supported }">
-                    <span class="ev-icon">{{ s.supported ? '✅' : '⚠️' }}</span>
+                  <div v-if="m._evTrace?.cached" class="ev-item" style="border-left-color:var(--accent)">
+                    <span class="ev-icon">⚡</span>
                     <div class="ev-body">
-                      <div class="ev-text">{{ s.text }}</div>
-                      <div v-if="s.sources?.length" class="ev-src">
-                        📎 <span v-for="n in s.sources" :key="n" class="ev-ref" @click="scrollToSource(m, n)">[{{ n }}]</span>
-                      </div>
-                      <div v-else class="ev-nosrc">无引用来源</div>
+                      <div class="ev-text">本答案命中<strong>{{ cacheLabel(m._evTrace.cacheLayer) }}</strong>，未走实时检索，故无句级引用可溯源。</div>
+                      <div class="ev-src">来源：{{ cacheLabel(m._evTrace.cacheLayer) }}</div>
                     </div>
                   </div>
+                  <template v-else>
+                    <div v-for="(s, i) in (m._evTrace?.sentences || []).filter(s => (s.sources && s.sources.length) && (s.text || '').trim())" :key="i" class="ev-item" :class="{ 'ev-supported': s.supported, 'ev-unsupported': !s.supported }">
+                      <span class="ev-icon">{{ s.supported ? '✅' : '⚠️' }}</span>
+                      <div class="ev-body">
+                        <div class="ev-text">{{ s.text }}</div>
+                        <div v-if="s.sources?.length" class="ev-src">
+                          📎 <span v-for="n in s.sources" :key="n" class="ev-ref" @click="scrollToSource(m, n)">[{{ n }}]</span>
+                        </div>
+                        <div v-else class="ev-nosrc">无引用来源</div>
+                      </div>
+                    </div>
+                  </template>
                 </div>
               </div>
             </div>
@@ -377,6 +386,12 @@ function onAnsClick(e, m) {
 }
 async function showEvidence(m) {
   if (m._evTrace) { m._evOpen = !m._evOpen; return }
+  // 缓存命中：未走实时检索，无句级引用可溯源 → 直接展示缓存来源，不调溯源接口（避免误报"证据溯源失败"）
+  if (m.cached) {
+    m._evTrace = { cached: true, cacheLayer: m.cacheLayer, supportRatio: null, sentences: [] }
+    m._evOpen = true
+    return
+  }
   try {
     const sources = (m.sources || []).map(s => typeof s === 'string' ? s : (s.chunk || s.text || ''))
     const r = await getEvidenceTrace(m.content, sources, m.model_type || null)
@@ -558,7 +573,8 @@ html.dark .ai-bubble { background: var(--surface); }
 }
 .ev-btn { font-size: 11px; cursor: pointer; color: var(--text-muted); margin-left: 6px; }
 .ev-btn:hover { color: var(--primary); }
-.ev-list { max-height: 400px; overflow-y: auto; padding: 8px 0; }
+.modal.ev-modal { height: auto; max-height: 85vh; }
+.ev-list { max-height: calc(85vh - 64px); overflow-y: auto; padding: 8px 0; }
 .ev-item { display: flex; gap: 8px; padding: 6px 12px; border-radius: var(--radius-sm); margin-bottom: 4px; font-size: 13px; }
 .ev-supported { background: var(--surface-2); border-left: 3px solid var(--success); }
 .ev-unsupported { background: var(--surface-2); border-left: 3px solid var(--warning); }
