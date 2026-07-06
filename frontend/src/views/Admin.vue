@@ -6,6 +6,7 @@
       <button class="tab" :class="{ active: tab === 'alert' }" @click="loadAlerts(); tab = 'alert'">🚨 告警 <span v-if="alerts.total" class="badge badge-danger">{{ alerts.total }}</span></button>
       <button class="tab" :class="{ active: tab === 'config' }" @click="tab = 'config'">⚙️ 系统配置</button>
       <button class="tab" :class="{ active: tab === 'optimizer' }" @click="loadOptimizer(); tab = 'optimizer'">📈 优化建议</button>
+      <button class="tab" :class="{ active: tab === 'rewrite' }" @click="loadRewrite(); tab = 'rewrite'">🔧 Query改写</button>
       <button class="tab" :class="{ active: tab === 'cost' }" @click="loadCostReport(); tab = 'cost'">💰 成本</button>
       <button class="tab" :class="{ active: tab === 'quality' }" @click="loadQuality(); tab = 'quality'">📚 知识库质量</button>
       <button class="tab" :class="{ active: tab === 'eval' }" @click="loadEval(); tab = 'eval'">📊 评测趋势</button>
@@ -185,6 +186,41 @@
         <div v-else class="hint" style="margin-top:12px">点「重新分析」生成优化建议报告。</div>
       </div>
 
+      <!-- Query 改写质量评估 -->
+      <div class="card" v-show="tab === 'rewrite'">
+        <div class="card-header">
+          <h3 class="card-title">🔧 Query 改写质量评估</h3>
+          <select v-model="rwPeriod" @change="loadRewrite" class="btn btn-ghost btn-sm">
+            <option value="today">今天</option><option value="7d">近7天</option>
+          </select>
+        </div>
+        <div v-if="rwStats" style="display:flex; gap:16px; flex-wrap:wrap; margin:8px 0">
+          <div class="stat"><small>总改写</small><b> {{ rwStats.total }} </b></div>
+          <div class="stat"><small>采纳率</small><b> {{ (rwStats.adoptedRate * 100).toFixed(0) }}% </b></div>
+          <div class="stat"><small>否决率</small><b> {{ ((1 - rwStats.adoptedRate) * 100).toFixed(0) }}% </b></div>
+          <div class="stat"><small>缓存命中</small><b> {{ (rwStats.cacheHitRate * 100).toFixed(0) }}% </b></div>
+        </div>
+        <div style="display:flex; gap:12px; flex-wrap:wrap; margin:12px 0">
+          <div ref="rwPieEl" style="width:48%; height:280px"></div>
+          <div ref="rwScatterEl" style="width:48%; height:280px"></div>
+        </div>
+        <div class="card-header"><h4 class="card-title">改写明细</h4>
+          <button class="btn btn-ghost btn-sm" @click="loadRewriteEvents">🔄 刷新</button>
+        </div>
+        <table class="tbl" v-if="rwEvents.length">
+          <thead><tr><th>时间</th><th>策略</th><th>原 query</th><th>改写</th><th>采纳</th><th>分数(原→新)</th></tr></thead>
+          <tbody>
+            <tr v-for="(e, i) in rwEvents" :key="i">
+              <td>{{ e.ts }}</td><td>{{ e.strategy }}</td>
+              <td>{{ (e.original || '').slice(0, 30) }}</td><td>{{ (e.rewritten || '').slice(0, 30) }}</td>
+              <td><span :class="e.improved ? 'badge badge-success' : 'badge badge-neutral'">{{ e.improved ? '✓' : '✗' }}</span></td>
+              <td>{{ e.origScore != null ? e.origScore.toFixed(2) : '-' }} → {{ e.newScore != null ? e.newScore.toFixed(2) : '-' }}</td>
+            </tr>
+          </tbody>
+        </table>
+        <div v-else class="empty">暂无改写事件（先在 Chat 问几个口语化问题积累数据）</div>
+      </div>
+
       <!-- 成本 -->
       <div class="card" v-show="tab === 'cost'">
         <div class="card-header"><h3 class="card-title">💰 LLM 成本报告</h3><button class="btn btn-ghost btn-sm" @click="loadCostReport">🔄 刷新</button></div>
@@ -286,13 +322,13 @@
 <script setup>
 import { ref, reactive, onMounted, nextTick } from 'vue'
 import * as echarts from 'echarts/core'
-import { PieChart, BarChart } from 'echarts/charts'
+import { PieChart, BarChart, ScatterChart } from 'echarts/charts'
 import { TooltipComponent, LegendComponent, GridComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
 import { getLogs, getAlerts, configMilvus, configModel, getMilvusConfig, getModelConfig, getProviderHealth, rebuildBm25, getFeedbacks, markFeedbackGolden, getFeedbackStats } from '../api'
 import request from '../api/request'
 
-echarts.use([PieChart, BarChart, TooltipComponent, LegendComponent, GridComponent, CanvasRenderer])
+echarts.use([PieChart, BarChart, ScatterChart, TooltipComponent, LegendComponent, GridComponent, CanvasRenderer])
 
 const tab = ref('feedback')
 const logs = ref({ total: 0, list: [] })
@@ -411,6 +447,41 @@ async function removeBlacklist(q) {
     await loadBlacklist()
     toast('已移出黑名单')
   } catch (e) { toast('移除失败') }
+}
+const rwStats = ref(null); const rwEvents = ref([]); const rwPeriod = ref('today')
+const rwPieEl = ref(null); const rwScatterEl = ref(null)
+async function loadRewrite() {
+  try {
+    rwStats.value = (await request.get('/system/optimizer/rewrite-stats', { params: { period: rwPeriod.value } })).data
+    await loadRewriteEvents()
+    await nextTick()  // 等 DOM ref 就位再渲染图表
+    renderRwCharts()
+  } catch (e) { toast('加载失败') }
+}
+async function loadRewriteEvents() {
+  try {
+    const d = (await request.get('/system/optimizer/rewrite-events', { params: { size: 50 } })).data
+    rwEvents.value = (d && d.list) || []
+  } catch (e) { rwEvents.value = [] }
+}
+function renderRwCharts() {
+  if (!rwStats.value) return
+  const bs = rwStats.value.byStrategy || {}
+  if (rwPieEl.value) {
+    echarts.init(rwPieEl.value).setOption({
+      title: { text: '策略分布', left: 'center', textStyle: { fontSize: 13 } },
+      tooltip: { trigger: 'item' },
+      series: [{ type: 'pie', radius: ['40%', '70%'], data: Object.entries(bs).map(([k, v]) => ({ name: k, value: v.count })) }]
+    })
+  }
+  if (rwScatterEl.value) {
+    echarts.init(rwScatterEl.value).setOption({
+      title: { text: '改写前后分数（对角线上方=改进）', left: 'center', textStyle: { fontSize: 13 } },
+      xAxis: { name: '原分数', type: 'value' }, yAxis: { name: '新分数', type: 'value' },
+      tooltip: { trigger: 'item' },
+      series: [{ type: 'scatter', symbolSize: 6, data: rwEvents.value.map(e => [e.origScore || 0, e.newScore || 0]), itemStyle: { color: '#3b82f6' } }]
+    })
+  }
 }
 function typeLabel(t) {
   return { retrieval: '检索优化', knowledge_gap: '知识盲区', cache: '缓存策略', trend: '趋势预警', hallucination: '编造风险' }[t] || t
