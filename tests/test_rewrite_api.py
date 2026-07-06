@@ -5,11 +5,12 @@ import httpx
 
 
 def test_rewrite_stats_requires_admin():
-    """无 token → 401（require_admin 生效；backend 须完全启动，启动中会临时放行）。"""
+    """无 token → 业务 code 401（项目统一封装：HTTP 恒 200，认证失败体现在 body code）。"""
     async def go():
         async with httpx.AsyncClient(base_url="http://localhost:8001") as c:
             r = await c.get("/api/system/optimizer/rewrite-stats")
-            assert r.status_code == 401
+            assert r.status_code == 200  # HTTP 恒 200
+            assert r.json()["code"] == 401  # 业务码 401 = 未登录
     asyncio.run(go())
 
 
