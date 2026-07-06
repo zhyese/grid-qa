@@ -192,6 +192,25 @@ async def answer(
     # 多轮指代消解：检索用改写后的独立查询
     search_q = await _search_query_for_retrieve(db, query, nq, conversation_id, history, model_type)
 
+    # 多轮且 query 完整(standalone 未改写 search_q==nq) → 也查 Redis 热点缓存
+    # 场景：用户点推荐问题(完整 query)接续对话，答案不依赖上下文，可安全命中
+    if conversation_id and search_q == nq and not await _is_blacklisted(nq):
+        try:
+            cached = await redis_client.cache_get_json(_cache_key(model_type, nq))
+            if cached:
+                cached["cached"] = True
+                cached["cacheLayer"] = "redis"
+                cached["responseTime"] = round(time.time() - t0, 3)
+                try:
+                    from app.core import metrics
+                    metrics.QA_TOTAL.labels(model_type or settings.LLM_PROVIDER, "true").inc()
+                    metrics.cache_hit_inc("redis")
+                except Exception:
+                    pass
+                return cached
+        except Exception as e:
+            degraded("qa_cache_get_multi", e)
+
     # 智能路由：根据查询特征选择最优检索路径（Phase A）
     routing = None
     if settings.ROUTING_ENABLE:
@@ -277,8 +296,8 @@ async def answer(
         "conversationId": conversation_id,
     }
 
-    # 仅单轮结果写缓存（Write-Through: MySQL → Redis）；黑名单 query 不写缓存
-    if is_single and not await _is_blacklisted(nq):
+    # 单轮 或 多轮完整query(search_q==nq) 且 高置信(confidence==high) 才写；黑名单/证据有限/不足不写
+    if (is_single or (conversation_id and search_q == nq)) and confidence == "high" and not await _is_blacklisted(nq):
         # L2: MySQL 持久化（先写，保证数据不丢）
         if settings.CACHE_PERSIST_ENABLE:
             try:
@@ -449,6 +468,32 @@ async def stream_answer(
         history = await conversation_service.get_messages(db, conversation_id, _HISTORY_LIMIT)
     search_q = await _search_query_for_retrieve(db, query, nq, conversation_id, history, model_type)
 
+    # 多轮且 query 完整(search_q==nq) → 也查 Redis 热点（流式，存消息接续对话）
+    if conversation_id and search_q == nq and not regen and not await _is_blacklisted(nq):
+        try:
+            cached = await redis_client.cache_get_json(_cache_key(model_type, nq))
+            if cached:
+                try:
+                    await conversation_service.save_message(db, conversation_id, "user", query)
+                    await conversation_service.save_message(db, conversation_id, "assistant", cached.get("answer", ""))
+                except Exception as e:
+                    degraded("conv_save", e)
+                yield {"type": "meta", "sources": cached.get("retrievalSource", []), "conversationId": conversation_id}
+                yield {"type": "token", "content": cached.get("answer", "")}
+                try:
+                    from app.core import metrics
+                    metrics.QA_TOTAL.labels(_p, "true").inc()
+                    metrics.cache_hit_inc("redis")
+                except Exception:
+                    pass
+                yield {"type": "done", "responseTime": round(time.time() - t0, 3),
+                       "hallucinationRate": cached.get("hallucinationRate", 0.0),
+                       "conversationId": conversation_id, "cached": True, "cacheLayer": "redis",
+                       "route": cached.get("route", "hybrid")}
+                return
+        except Exception as e:
+            degraded("qa_cache_get_multi_stream", e)
+
     # 智能路由：根据查询特征选择最优检索路径（Phase A）
     routing = None
     if settings.ROUTING_ENABLE:
@@ -560,7 +605,8 @@ async def stream_answer(
         "cacheLayer": "llm",
         "conversationId": conversation_id,
     }
-    if is_single and not await _is_blacklisted(nq):
+    # 单轮 或 多轮完整query 且 高置信 才写；黑名单/证据有限/不足不写
+    if (is_single or (conversation_id and search_q == nq)) and confidence == "high" and not await _is_blacklisted(nq):
         # L2: MySQL 持久化（先写）
         if settings.CACHE_PERSIST_ENABLE:
             try:
