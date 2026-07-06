@@ -204,6 +204,7 @@
           <div ref="rwPieEl" style="width:48%; height:280px"></div>
           <div ref="rwScatterEl" style="width:48%; height:280px"></div>
         </div>
+        <div ref="rwTrendEl" style="width:100%; height:260px; margin-bottom:12px"></div>
         <div class="card-header"><h4 class="card-title">改写明细</h4>
           <button class="btn btn-ghost btn-sm" @click="loadRewriteEvents">🔄 刷新</button>
         </div>
@@ -322,13 +323,13 @@
 <script setup>
 import { ref, reactive, onMounted, nextTick } from 'vue'
 import * as echarts from 'echarts/core'
-import { PieChart, BarChart, ScatterChart } from 'echarts/charts'
+import { PieChart, BarChart, ScatterChart, LineChart } from 'echarts/charts'
 import { TooltipComponent, LegendComponent, GridComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
 import { getLogs, getAlerts, configMilvus, configModel, getMilvusConfig, getModelConfig, getProviderHealth, rebuildBm25, getFeedbacks, markFeedbackGolden, getFeedbackStats } from '../api'
 import request from '../api/request'
 
-echarts.use([PieChart, BarChart, ScatterChart, TooltipComponent, LegendComponent, GridComponent, CanvasRenderer])
+echarts.use([PieChart, BarChart, ScatterChart, LineChart, TooltipComponent, LegendComponent, GridComponent, CanvasRenderer])
 
 const tab = ref('feedback')
 const logs = ref({ total: 0, list: [] })
@@ -449,7 +450,7 @@ async function removeBlacklist(q) {
   } catch (e) { toast('移除失败') }
 }
 const rwStats = ref(null); const rwEvents = ref([]); const rwPeriod = ref('today')
-const rwPieEl = ref(null); const rwScatterEl = ref(null)
+const rwPieEl = ref(null); const rwScatterEl = ref(null); const rwTrendEl = ref(null)
 async function loadRewrite() {
   try {
     rwStats.value = (await request.get('/system/optimizer/rewrite-stats', { params: { period: rwPeriod.value } })).data
@@ -480,6 +481,22 @@ function renderRwCharts() {
       xAxis: { name: '原分数', type: 'value' }, yAxis: { name: '新分数', type: 'value' },
       tooltip: { trigger: 'item' },
       series: [{ type: 'scatter', symbolSize: 6, data: rwEvents.value.map(e => [e.origScore || 0, e.newScore || 0]), itemStyle: { color: '#3b82f6' } }]
+    })
+  }
+  if (rwTrendEl.value && rwStats.value.daily && rwStats.value.daily.length) {
+    const daily = rwStats.value.daily
+    echarts.init(rwTrendEl.value).setOption({
+      title: { text: '采纳率 / 否决率 / 缓存命中率 趋势', left: 'center', textStyle: { fontSize: 13 } },
+      tooltip: { trigger: 'axis' },
+      legend: { data: ['采纳率', '否决率', '缓存命中率'], bottom: 0 },
+      grid: { left: 40, right: 20, top: 40, bottom: 40 },
+      xAxis: { type: 'category', data: daily.map(d => d.date) },
+      yAxis: { type: 'value', max: 100, axisLabel: { formatter: '{value}%' } },
+      series: [
+        { name: '采纳率', type: 'line', smooth: true, symbol: 'circle', symbolSize: 6, itemStyle: { color: '#22c55e' }, data: daily.map(d => +(d.adoptedRate * 100).toFixed(1)) },
+        { name: '否决率', type: 'line', smooth: true, symbol: 'circle', symbolSize: 6, itemStyle: { color: '#ef4444' }, data: daily.map(d => +(d.rejectedRate * 100).toFixed(1)) },
+        { name: '缓存命中率', type: 'line', smooth: true, symbol: 'circle', symbolSize: 6, itemStyle: { color: '#3b82f6' }, data: daily.map(d => +(d.cacheHitRate * 100).toFixed(1)) },
+      ]
     })
   }
 }

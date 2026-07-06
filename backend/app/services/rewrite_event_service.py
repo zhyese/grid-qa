@@ -59,12 +59,33 @@ async def stats(period: str = "today") -> dict:
                 d["count"] += cnt
                 if imp:
                     d["adopted"] += cnt
+            # 按日聚合（折线图趋势用）
+            daily_rows = (await db.execute(
+                select(
+                    func.date(RewriteEvent.ts).label("d"),
+                    func.count().label("t"),
+                    func.sum(RewriteEvent.improved).label("a"),
+                    func.sum(RewriteEvent.cached).label("c"),
+                ).where(RewriteEvent.ts >= start)
+                .group_by(func.date(RewriteEvent.ts))
+                .order_by(func.date(RewriteEvent.ts))
+            )).all()
+            daily = []
+            for d, t, a, c in daily_rows:
+                t = int(t or 0); a = int(a or 0); c = int(c or 0)
+                daily.append({
+                    "date": str(d), "total": t, "adopted": a, "cacheHit": c,
+                    "adoptedRate": round(a / t, 3) if t else 0,
+                    "rejectedRate": round((t - a) / t, 3) if t else 0,
+                    "cacheHitRate": round(c / t, 3) if t else 0,
+                })
             return {
                 "total": total, "adopted": adopted, "rejected": total - adopted,
                 "cacheHit": cached,
                 "adoptedRate": round(adopted / total, 3) if total else 0,
                 "cacheHitRate": round(cached / total, 3) if total else 0,
                 "byStrategy": by_strategy,
+                "daily": daily,
             }
     except Exception as e:
         degraded("rewrite_event_stats", e)
