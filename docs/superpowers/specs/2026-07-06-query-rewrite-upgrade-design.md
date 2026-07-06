@@ -54,6 +54,13 @@
 - **依赖**：`embedding_service`、`milvus_client`、`rrf`
 - **只管 `rewrite_query`**；multi_query 是扩召回（不评估单个）、hyde 是换 dense_q（不评估）
 
+### 4.4 RewriteEventLogger（新）
+- **职责**：每次改写异步记一条事件（供 §12 可视化面板）
+- **接口**：`log(strategy, original, rewritten, improved, orig_score, new_score, cached, route)`
+- **依赖**：`AsyncSessionLocal`（独立 session，bg task 安全——记 dislike invalidate session 并发 500 的教训）
+- **触发点**：`rewrite_with_cache_and_eval` 末尾 + multi_query/hyde 命中时
+- **采样**：高流量时可配 `REWRITE_EVENT_SAMPLE_RATE`（默认 1.0 全采）避免写放大
+
 ## 5. 数据流（`mixed_search` step 0 改造）
 
 ```
@@ -114,7 +121,10 @@ REWRITE_EVAL_TOPK: int = 5             # 评估取 top-K 算分数和
 - `backend/app/services/rewrite_cache.py`（Cache）
 - `backend/app/services/rewrite_evaluator.py`（Evaluator）
 - `backend/app/data/rewrite_fewshot.json`（电网 few-shot 示例库，按类型组织）
-- `tests/test_rewrite_strategy.py` / `test_rewrite_evaluator.py` / `test_rewrite_cache.py`
+- `backend/app/models/rewrite_event.py`（改写事件表）
+- `backend/app/services/rewrite_event_service.py`（记录 + 聚合查询）
+- `frontend/src/views/Admin.vue`（新「🔧 Query改写」tab + 面板组件，复用 echarts）
+- `tests/test_rewrite_strategy.py` / `test_rewrite_evaluator.py` / `test_rewrite_cache.py` / `test_rewrite_event.py`
 
 ## 10. 风险与权衡
 
@@ -131,3 +141,27 @@ REWRITE_EVAL_TOPK: int = 5             # 评估取 top-K 算分数和
 4. 口语 query 改写带 few-shot 效果 ≥ 旧 prompt（golden 对比不退化）
 5. 全链路不退化（`test_mixed_search_e2e` 通过）
 6. CRAG force 改写仍工作（不受 adaptive/评估影响）
+7. Admin「🔧 Query改写」面板可看采纳率/否决率/缓存命中率/分数散点/明细
+
+## 12. 前端可视化：Query 改写质量评估面板
+
+### 12.1 定位
+Admin 新增 tab「🔧 Query改写」，让管理员观测改写质量（采纳率/否决原因/缓存命中/分数提升），驱动 prompt 与 margin 调参——这是评估闭环的「眼睛」。
+
+### 12.2 数据模型（后端新表 `rewrite_event`）
+每次改写记一条：`id, ts, strategy(rewrite/multi/hyde), original_query, rewritten_query, improved(bool), orig_score, new_score, cached(bool), route, tenant`
+
+### 12.3 接口（system router，admin only）
+- `GET /system/optimizer/rewrite-stats?period=today|7d` → `{total, adopted, rejected, cacheHit, byStrategy:{rewrite/multi/hyde:{count,adopted}}, daily:[{date, adoptedRate, cacheHitRate}]}`
+- `GET /system/optimizer/rewrite-events?page=&size=&strategy=&adopted=` → `{total, list:[{ts, strategy, original, rewritten, improved, origScore, newScore, cached}]}`
+
+### 12.4 前端面板（Admin 新 tab，复用 echarts）
+1. **概览卡**：总改写 / 采纳率 / 否决率 / 缓存命中率
+2. **策略分布饼图**：rewrite/multi/hyde 占比 + 各自采纳率
+3. **趋势线**：采纳率 & 缓存命中率（按日）
+4. **分数散点图**：每次改写 `orig_score`(x) vs `new_score`(y)，对角线上方=改进（绿）/下方=否决（红），直观看改写质量分布
+5. **明细表**：最近改写，可按策略/采纳过滤，行展开看「原 query → 改写」对比 + 否决原因（分数差）
+
+### 12.5 配套
+- `REWRITE_EVENT_SAMPLE_RATE: float = 1.0`（事件采样率，高流量可降避免写放大）
+- 表 `rewrite_event` 加 Alembic 迁移；事件写入走 bg task（不阻塞检索）
