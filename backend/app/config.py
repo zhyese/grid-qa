@@ -123,6 +123,15 @@ class Settings(BaseSettings):
     OPTIMIZER_TREND_RATIO: float = 1.2       # dislike 周环比≥此值预警"失分上升"
     OPTIMIZER_BLACKLIST_THRESHOLD: int = 2   # 同一 query dislike 累计≥此值自动进缓存黑名单
 
+    # ---------- Query 改写升级（评估闭环+缓存+adaptive）----------
+    REWRITE_CACHE_TTL: int = 604800            # 改写缓存 TTL（7 天）
+    REWRITE_EVAL_ENABLE: bool = True           # 评估闭环开关（False=改写后不评估，盲用）
+    REWRITE_ADAPTIVE_ENABLE: bool = True       # Classifier 判正常 query 时跳过改写（False=全部改写）
+    REWRITE_EVAL_MARGIN: float = 0.05          # 评估更优阈值（new > orig*(1+margin)）
+    REWRITE_EVAL_CAND: int = 10                # 评估检索候选数
+    REWRITE_EVAL_TOPK: int = 5                 # 评估取 top-K 算分数和
+    REWRITE_EVENT_SAMPLE_RATE: float = 1.0     # 改写事件采样率（高流量可降避免写放大）
+
     # ---------- 结构感知分块 + Parent-Child（small-to-big）----------
     # 检索用小块（精度），命中后召回同组大块给 LLM（完整上下文，解决长规程跨块/表格被切两半）
     SMALL_TO_BIG_ENABLE: bool = True

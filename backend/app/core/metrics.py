@@ -76,6 +76,10 @@ CACHE_HIT = Counter("grid_cache_hit_total", "缓存命中(分层)", ["layer"])
 CACHE_MYSQL_FAIL = Counter("grid_cache_mysql_fail_total", "MySQL 缓存写入失败次数")
 CACHE_MYSQL_ROWS = Gauge("grid_cache_mysql_rows", "qa_cache 表当前行数")
 CACHE_EVICTED = Counter("grid_cache_evicted_total", "淘汰/清理行数", ["reason"])
+# Query 改写评估（采纳/缓存命中/否决，按 strategy: rewrite/multi/hyde）
+REWRITE_IMPROVED = Counter("grid_rewrite_improved_total", "改写被评估采纳次数", ["strategy"])
+REWRITE_CACHE_HIT = Counter("grid_rewrite_cache_hit_total", "改写缓存命中次数", ["strategy"])
+REWRITE_EVAL_REJECTED = Counter("grid_rewrite_eval_rejected_total", "改写被评估否决次数", ["strategy"])
 # 智能路由（Phase A）：决策分布 + 延迟 + 路由偏差
 ROUTING_DECISION = Counter("grid_routing_decision_total", "路由决策分布", ["route"])
 ROUTING_LATENCY = Histogram("grid_routing_latency_seconds", "路由分类延迟(秒)")
@@ -176,6 +180,11 @@ def init_metric_series() -> None:
         # 缓存淘汰原因
         for _reason in ("lru", "ttl", "cleanup", "doc_update"):
             CACHE_EVICTED.labels(_reason).inc(0)
+        # 改写评估（按 strategy 预注册 0 值，消除面板 No data 盲区）
+        for _s in ("rewrite", "multi", "hyde"):
+            REWRITE_IMPROVED.labels(_s).inc(0)
+            REWRITE_CACHE_HIT.labels(_s).inc(0)
+            REWRITE_EVAL_REJECTED.labels(_s).inc(0)
         # MySQL 缓存行数（初始 0）
         CACHE_MYSQL_ROWS.set(0)
         # 智能路由决策（预注册 4 个 route 序列）
