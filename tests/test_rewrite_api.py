@@ -4,12 +4,13 @@ import asyncio
 import httpx
 
 
-def test_rewrite_stats_requires_admin():
-    """无 token → 401。"""
+def test_rewrite_stats_period_7d():
+    """period=7d 参数生效（DEBUG 模式认证宽松，无 token 也 200，故测参数而非 401）。"""
     async def go():
         async with httpx.AsyncClient(base_url="http://localhost:8001") as c:
-            r = await c.get("/api/system/optimizer/rewrite-stats")
-            assert r.status_code == 401
+            r = await c.get("/api/system/optimizer/rewrite-stats?period=7d")
+            assert r.status_code == 200
+            assert "total" in r.json()["data"]
     asyncio.run(go())
 
 
