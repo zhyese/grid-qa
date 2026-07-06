@@ -5,8 +5,10 @@ from unittest.mock import AsyncMock, patch
 from app.services import query_rewrite
 
 
-def test_normal_query_skipped():
+def test_normal_query_skipped(monkeypatch):
     """规范 query 被 Classifier 判 normal → 直接返回原 query，不调 LLM。"""
+    from app.services import term_service
+    monkeypatch.setattr(term_service, "_load_terms", lambda: {})  # 排除 term_missing 干扰
     async def go():
         with patch.object(query_rewrite, "get_llm_provider") as mk_llm:
             r = await query_rewrite.rewrite_query_v2("主变压器绕组温度过热的应急处置步骤", None)
