@@ -236,6 +236,27 @@ async def optimizer_blacklist_remove(
     return success({"query": nq}, "已移出黑名单")
 
 
+@router.get("/optimizer/rewrite-stats")
+async def optimizer_rewrite_stats(
+    period: str = "today",
+    admin: User = Depends(require_admin),
+):
+    """Query 改写质量评估统计（总数/采纳率/缓存命中/策略分布），驱动可视化面板。"""
+    from app.services.rewrite_event_service import stats
+    return success(await stats(period), "查询成功")
+
+
+@router.get("/optimizer/rewrite-events")
+async def optimizer_rewrite_events(
+    page: int = 1, size: int = 20, strategy: str | None = None,
+    adopted: bool | None = None,
+    admin: User = Depends(require_admin),
+):
+    """Query 改写事件明细（可按 strategy/adopted 过滤），供面板散点/明细表。"""
+    from app.services.rewrite_event_service import events_page
+    return success(await events_page(page, size, strategy, adopted), "查询成功")
+
+
 # ===== P2-⑦ LLM 成本追踪 =====
 
 
