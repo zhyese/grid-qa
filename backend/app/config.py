@@ -79,7 +79,7 @@ class Settings(BaseSettings):
 
     # ---------- Redis（热点问答缓存）----------
     REDIS_URL: str = "redis://localhost:6379/0"
-    REDIS_MAXMEMORY: str = "10mb"       # allkeys-lru 内存上限
+    REDIS_MAXMEMORY: str = "300mb"      # allkeys-lru 内存上限
     QA_CACHE_TTL: int = 259200          # 3 天（72h），原 3600 命中率太低
     # ---------- MySQL 二级缓存（Redis LRU 淘汰持久化）----------
     CACHE_PERSIST_ENABLE: bool = True     # Write-Through 双写 MySQL

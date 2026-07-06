@@ -106,7 +106,7 @@ services:
       - "6379:6379"
     volumes:
       - ./data/redis:/data
-    command: redis-server --appendonly yes --maxmemory 10mb --maxmemory-policy allkeys-lru --maxmemory-samples 10
+    command: redis-server --appendonly yes --maxmemory 300mb --maxmemory-policy allkeys-lru --maxmemory-samples 10
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
