@@ -296,8 +296,9 @@ async def answer(
         "conversationId": conversation_id,
     }
 
-    # 单轮 或 多轮完整query(search_q==nq) 且 高置信(confidence==high) 才写；黑名单/证据有限/不足不写
-    if (is_single or (conversation_id and search_q == nq)) and confidence == "high" and not await _is_blacklisted(nq):
+    # 单轮 或 多轮 且 高置信(confidence==high) 才写；黑名单/证据有限/不足不写
+    # 注：多轮指代问题(search_q!=nq)会写但读时按 search_q==nq 过滤(避免跨对话脏命中)
+    if (is_single or conversation_id) and confidence == "high" and not await _is_blacklisted(nq):
         # L2: MySQL 持久化（先写，保证数据不丢）
         if settings.CACHE_PERSIST_ENABLE:
             try:
@@ -605,8 +606,8 @@ async def stream_answer(
         "cacheLayer": "llm",
         "conversationId": conversation_id,
     }
-    # 单轮 或 多轮完整query 且 高置信 才写；黑名单/证据有限/不足不写
-    if (is_single or (conversation_id and search_q == nq)) and confidence == "high" and not await _is_blacklisted(nq):
+    # 单轮 或 多轮 且 高置信 才写；黑名单/证据有限/不足不写
+    if (is_single or conversation_id) and confidence == "high" and not await _is_blacklisted(nq):
         # L2: MySQL 持久化（先写）
         if settings.CACHE_PERSIST_ENABLE:
             try:
