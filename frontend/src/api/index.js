@@ -175,3 +175,13 @@ export const getKnowledgeQuality = () => request.get('/system/knowledge/quality'
 // P4-⑮ 证据溯源
 export const getEvidenceTrace = (answer, sources, modelType) =>
   request.post('/qa/evidence-trace', { answer, sources, modelType })
+
+// 证据补全闭环（admin）
+export const getEvidenceGaps = (params) => request.get('/system/evidence-gap', { params })
+export const aiDraftGap = (id, modelType) => request.post(`/system/evidence-gap/${id}/ai-draft`, { modelType })
+export const confirmGap = (id, finalAnswer, modelType) =>
+  request.post(`/system/evidence-gap/${id}/confirm`, { finalAnswer, modelType })
+export const ignoreGap = (id) => request.post(`/system/evidence-gap/${id}/ignore`)
+export const deleteGap = (id) => request.delete(`/system/evidence-gap/${id}`)
+export const reportEvidenceGap = (query, answer, confidence, grade, action) =>
+  request.post('/qa/evidence-gap/report', { query, answer, confidence, grade, action })

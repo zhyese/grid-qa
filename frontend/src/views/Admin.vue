@@ -7,6 +7,7 @@
       <button class="tab" :class="{ active: tab === 'config' }" @click="tab = 'config'">⚙️ 系统配置</button>
       <button class="tab" :class="{ active: tab === 'optimizer' }" @click="loadOptimizer(); tab = 'optimizer'">📈 优化建议</button>
       <button class="tab" :class="{ active: tab === 'rewrite' }" @click="loadRewrite(); tab = 'rewrite'">🔧 Query改写</button>
+      <button class="tab" :class="{ active: tab === 'evidence' }" @click="loadEvidenceGaps(); tab = 'evidence'">📝 证据补全</button>
       <button class="tab" :class="{ active: tab === 'cost' }" @click="loadCostReport(); tab = 'cost'">💰 成本</button>
       <button class="tab" :class="{ active: tab === 'quality' }" @click="loadQuality(); tab = 'quality'">📚 知识库质量</button>
       <button class="tab" :class="{ active: tab === 'eval' }" @click="loadEval(); tab = 'eval'">📊 评测趋势</button>
@@ -220,6 +221,34 @@
           </tbody>
         </table>
         <div v-else class="empty">暂无改写事件（先在 Chat 问几个口语化问题积累数据）</div>
+      </div>
+
+      <!-- 证据补全 -->
+      <div class="card" v-show="tab === 'evidence'">
+        <div class="card-header">
+          <h3 class="card-title">📝 证据补全（medium/refused 人工兜底回流）</h3>
+          <select v-model="egFilter" @change="loadEvidenceGaps" class="btn btn-ghost btn-sm">
+            <option value="">全部</option><option value="pending">待处理</option>
+            <option value="ai_drafted">已续写</option><option value="synced">已同步</option>
+            <option value="ignored">已忽略</option>
+          </select>
+        </div>
+        <div v-if="!egList.length" class="empty">暂无证据补全记录（medium/refused 自动收集 + Chat 上报）</div>
+        <div class="opt-card" v-for="g in egList" :key="g.id" :class="g.confidence==='refused'?'sev-high':'sev-medium'">
+          <div class="opt-header">
+            <span class="badge" :class="g.confidence==='refused'?'badge-danger':'badge-warning'">{{ g.confidence==='refused'?'证据不足':'证据有限' }}</span>
+            <span class="badge" :class="{pending:'badge-info',ai_drafted:'badge-warning',synced:'badge-success',ignored:'badge-neutral'}[g.status]">{{ {pending:'待处理',ai_drafted:'已续写',synced:'已同步',ignored:'已忽略'}[g.status] }}</span>
+            <strong class="opt-title">{{ g.query }}</strong>
+          </div>
+          <div class="opt-detail">原答案：{{ (g.originalAnswer || '').slice(0, 80) }}</div>
+          <div v-if="g.aiDraft" class="opt-detail">AI草稿：{{ g.aiDraft.slice(0, 100) }}</div>
+          <div v-if="g.status==='synced'" class="opt-detail" style="color:var(--success)">最终：{{ (g.finalAnswer || '').slice(0, 100) }}</div>
+          <div style="margin-top:6px">
+            <button v-if="g.status==='pending'" class="btn btn-primary btn-sm" @click="egDraft(g)">🤖 AI续写</button>
+            <button v-if="g.status==='pending' || g.status==='ai_drafted'" class="btn btn-success btn-sm" @click="egConfirm(g)">✓ 确认同步</button>
+            <button v-if="g.status!=='synced' && g.status!=='ignored'" class="btn btn-ghost btn-sm" @click="egIgnore(g)">忽略</button>
+          </div>
+        </div>
       </div>
 
       <!-- 成本 -->
@@ -451,6 +480,30 @@ async function removeBlacklist(q) {
 }
 const rwStats = ref(null); const rwEvents = ref([]); const rwPeriod = ref('today')
 const rwPieEl = ref(null); const rwScatterEl = ref(null); const rwTrendEl = ref(null)
+const egList = ref([]); const egFilter = ref('pending')
+async function loadEvidenceGaps() {
+  try {
+    const d = (await request.get('/system/evidence-gap', { params: { status: egFilter.value || undefined, size: 50 } })).data
+    egList.value = (d && d.list) || []
+  } catch (e) { toast('加载失败') }
+}
+async function egDraft(g) {
+  try { const r = await request.post(`/system/evidence-gap/${g.id}/ai-draft`); g.aiDraft = (r.data || {}).aiDraft || ''; g.status = 'ai_drafted'; toast('AI续写完成') }
+  catch (e) { toast('续写失败') }
+}
+async function egConfirm(g) {
+  const ans = prompt('确认最终答案（可编辑AI草稿），确认后同步入库', g.aiDraft || g.originalAnswer || '')
+  if (ans === null) return
+  try {
+    const r = await request.post(`/system/evidence-gap/${g.id}/confirm`, { finalAnswer: ans })
+    if ((r.data || {}).ok) { g.status = 'synced'; toast('已确认并同步入库') }
+    else { toast('同步失败: ' + ((r.data || {}).msg || '')) }
+  } catch (e) { toast('确认失败') }
+}
+async function egIgnore(g) {
+  try { await request.post(`/system/evidence-gap/${g.id}/ignore`); g.status = 'ignored'; toast('已忽略') }
+  catch (e) { toast('失败') }
+}
 async function loadRewrite() {
   try {
     rwStats.value = (await request.get('/system/optimizer/rewrite-stats', { params: { period: rwPeriod.value } })).data

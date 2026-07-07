@@ -95,6 +95,7 @@
                 <a @click="dislike(m)" :class="{ on: m.fb === 'dislike' }">👎</a>
               </span>
               <a v-if="m.content && !m.streaming" class="ev-btn" @click="showEvidence(m)">🔍 证据溯源</a>
+              <a v-if="m.content && !m.streaming && (m.confidence==='medium'||m.confidence==='refused')" class="ev-btn" @click="reportGap(m)">⚠️ 上报证据不足</a>
             </div>
             <!-- 证据溯源弹窗 -->
             <div class="modal-overlay" v-if="m._evOpen" @click.self="m._evOpen = false">
@@ -175,7 +176,7 @@ import sql from 'highlight.js/lib/languages/sql'
 import xml from 'highlight.js/lib/languages/xml'
 import markdown from 'highlight.js/lib/languages/markdown'
 import { useAuthStore } from '../stores/auth'
-import { streamAnswer, streamAnswerWS, sendFeedback, getFaithfulness, getRelatedQuestions, getConversations, getHistory, deleteConversation, renameConversation, batchDeleteConversations, batchDeleteMessages, exportAnswer, getEvidenceTrace } from '../api'
+import { streamAnswer, streamAnswerWS, sendFeedback, getFaithfulness, getRelatedQuestions, getConversations, getHistory, deleteConversation, renameConversation, batchDeleteConversations, batchDeleteMessages, exportAnswer, getEvidenceTrace, reportEvidenceGap } from '../api'
 
 hljs.registerLanguage('python', python)
 hljs.registerLanguage('javascript', javascript)
@@ -383,6 +384,12 @@ function onAnsClick(e, m) {
   const el = e.target.closest('.cite-ref'); if (!el) return
   const idx = Number(el.dataset.idx); m.hiIdx = idx
   const target = document.getElementById('src-' + idx); if (target) target.scrollIntoView({ behavior: 'smooth', block: 'center' })
+}
+async function reportGap(m) {
+  try {
+    await reportEvidenceGap(m.query, m.content, m.confidence, m.cragGrade, m.cragAction)
+    toast('已上报，将补充证据')
+  } catch (e) { toast('上报失败') }
 }
 async function showEvidence(m) {
   if (m._evTrace) { m._evOpen = !m._evOpen; return }
