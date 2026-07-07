@@ -91,3 +91,61 @@ async def ai_draft(gap_id: int, model_type: str | None = None) -> str:
     except Exception as e:
         degraded("evidence_gap_ai_draft", e)
         return ""
+
+
+async def confirm_and_sync(gap_id: int, final_answer: str, operator: str,
+                           model_type: str | None = None) -> dict:
+    """人工确认 final_answer + 同步入库（FAQ文档 vectorize + qa_cache/Redis 双写）。状态→synced。
+
+    FAQ 答案短，直接 1 个 chunk（不切块）；复用 document_service.vectorize_document 向量化。
+    """
+    import uuid
+    from app.config import settings
+    from app.models.document import Document
+    from app.models.chunk import Chunk
+    from app.services import document_service
+    from app.services.cache_persist import cache_set_mysql
+    from app.clients import redis_client
+    try:
+        async with AsyncSessionLocal() as db:
+            row = (await db.execute(select(EvidenceGap).where(EvidenceGap.id == gap_id))).scalar_one_or_none()
+            if not row:
+                return {"ok": False, "msg": "记录不存在"}
+            nq = row.query
+            if not (final_answer or "").strip():
+                return {"ok": False, "msg": "final_answer 为空"}
+            # 1) FAQ 文档（不走 MinIO/parse，直接 parsed + 1 chunk）
+            doc_id = uuid.uuid4().hex
+            db.add(Document(
+                id=doc_id, doc_name=f"FAQ:{nq[:40]}", doc_type=settings.EVIDENCE_GAP_FAQ_DOCTYPE,
+                minio_object="", file_size=len(final_answer.encode()),
+                upload_user=operator, tenant_id=row.tenant, status="parsed", chunk_count=1,
+            ))
+            db.add(Chunk(
+                doc_id=doc_id, chunk_idx=0, content=final_answer,
+                char_count=len(final_answer), chunk_type="text", parent_idx=0, section="",
+            ))
+            await db.commit()
+            # 2) 向量化（复用 vectorize_document，写 Milvus）
+            await document_service.vectorize_document(db, doc_id)
+            # 3) 缓存双写（qa_cache high + Redis）
+            result = {
+                "answer": final_answer, "retrievalSource": [], "confidence": "high",
+                "hallucinationRate": 0.0, "cached": True, "cacheLayer": "redis",
+            }
+            await cache_set_mysql(db, model_type, nq, nq, result)
+            await redis_client.cache_set_json(
+                f"qa:{model_type or 'default'}:{nq}", result, settings.QA_CACHE_TTL,
+            )
+            # 4) 状态 synced
+            row.final_answer = final_answer
+            row.synced_doc_id = doc_id
+            row.synced_cache = 1
+            row.status = "synced"
+            row.operator = operator
+            row.handled_at = datetime.utcnow()
+            await db.commit()
+            return {"ok": True, "docId": doc_id}
+    except Exception as e:
+        degraded("evidence_gap_sync", e)
+        return {"ok": False, "msg": str(e)}
