@@ -67,3 +67,27 @@ async def get_gap(gap_id: int) -> dict | None:
     except Exception as e:
         degraded("evidence_gap_get", e)
         return None
+
+
+async def ai_draft(gap_id: int, model_type: str | None = None) -> str:
+    """AI 续写草稿：放宽检索(topk×倍) 再 LLM 生成。失败返回空串。状态 pending→ai_drafted。"""
+    from app.config import settings
+    from app.services import retrieval_service
+    from app.providers.factory import get_llm_provider
+    from app.rag import prompt_templates
+    try:
+        async with AsyncSessionLocal() as db:
+            row = (await db.execute(select(EvidenceGap).where(EvidenceGap.id == gap_id))).scalar_one_or_none()
+            if not row:
+                return ""
+            topk = 5 * settings.EVIDENCE_GAP_DRAFT_TOPK_MULT
+            contexts = await retrieval_service.mixed_search(db, row.query, topk, tenant=row.tenant)
+            messages = prompt_templates.build_messages_with_history(row.query, contexts, [], [], "medium")
+            draft = (await get_llm_provider(model_type).chat(messages, temperature=0.3)).strip()
+            row.ai_draft = draft
+            row.status = "ai_drafted"
+            await db.commit()
+            return draft
+    except Exception as e:
+        degraded("evidence_gap_ai_draft", e)
+        return ""
