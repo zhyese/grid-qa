@@ -114,6 +114,7 @@ async def confirm_and_sync(gap_id: int, final_answer: str, operator: str,
     """人工确认 final_answer + 同步入库（FAQ文档 vectorize + qa_cache/Redis 双写）。状态→synced。
 
     FAQ 答案短，直接 1 个 chunk（不切块）；复用 document_service.vectorize_document 向量化。
+    """
     import uuid
     from app.config import settings
     from app.models.document import Document
