@@ -81,6 +81,7 @@ async def _crag_correct(
         from app.core import metrics
         metrics.CRAG_GRADE.labels(grade).inc()
         metrics.CRAG_ACTION.labels(action).inc()
+        metrics.CRAG_CONFIDENCE.labels(confidence).inc()
     except Exception:
         pass
     return contexts, confidence, action, grade

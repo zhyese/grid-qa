@@ -56,6 +56,7 @@ DEGRADED = Counter("grid_degraded_total", "静默降级次数(失败被兜底)",
 # Corrective RAG：检索结果分级（correct/ambiguous/incorrect）+ 纠错动作
 CRAG_GRADE = Counter("grid_crag_grade_total", "CRAG 检索分级", ["grade"])
 CRAG_ACTION = Counter("grid_crag_action_total", "CRAG 纠错动作", ["action"])
+CRAG_CONFIDENCE = Counter("grid_crag_confidence_total", "答案置信度分布(high/medium/refused)", ["confidence"])
 # 基础组件健康（MySQL/Milvus/Redis/MinIO 探活结果，1=up/0=down）—— 让 /health 状态进 Grafana 可监控可告警
 COMPONENT_HEALTH = Gauge("grid_component_health", "基础组件健康状态(1=up/0=down)", ["component"])
 # 安全合规：prompt injection 命中 + 答案脱敏次数（D4，电网强监管可见性）
@@ -152,6 +153,9 @@ def init_metric_series() -> None:
         CRAG_ACTION.labels("normal").inc(0)
         CRAG_ACTION.labels("rewritten").inc(0)
         CRAG_ACTION.labels("refused").inc(0)
+        # CRAG 答案置信度（证据有限/不足占比的一等指标）
+        for _conf in ("high", "medium", "refused"):
+            CRAG_CONFIDENCE.labels(_conf).inc(0)
         # 领域增强
         DOMAIN_CALLS.labels("diagnose").inc(0)
         DOMAIN_CALLS.labels("ticket").inc(0)
