@@ -1,5 +1,6 @@
 """系统接口：登录 / 注册 / 操作日志（角色+时间过滤） / 配置（管理员，Redis 持久化）。"""
 from fastapi import APIRouter, Depends, Query, Request
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.response import BizError, success
@@ -255,6 +256,70 @@ async def optimizer_rewrite_events(
     """Query 改写事件明细（可按 strategy/adopted 过滤），供面板散点/明细表。"""
     from app.services.rewrite_event_service import events_page
     return success(await events_page(page, size, strategy, adopted), "查询成功")
+
+
+# ===== 证据补全闭环 =====
+
+@router.get("/evidence-gap")
+async def evidence_gap_list(
+    status: str | None = None, page: int = 1, size: int = 20,
+    admin: User = Depends(require_admin),
+):
+    """证据补全列表（按 status 过滤）。"""
+    from app.services.evidence_gap_service import list_gaps
+    return success(await list_gaps(status, page, size), "查询成功")
+
+
+@router.post("/evidence-gap/{gap_id}/ai-draft")
+async def evidence_gap_ai_draft(
+    gap_id: int, model_type: str | None = None,
+    admin: User = Depends(require_admin),
+):
+    """AI 续写草稿（放宽检索再生成）。"""
+    from app.services.evidence_gap_service import ai_draft
+    draft = await ai_draft(gap_id, model_type)
+    return success({"aiDraft": draft}, "续写完成")
+
+
+@router.post("/evidence-gap/{gap_id}/confirm")
+async def evidence_gap_confirm(
+    gap_id: int, body: dict,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+):
+    """人工确认 final_answer + 同步入库（一站式：FAQ 文档 + 缓存双写）。"""
+    from app.services.evidence_gap_service import confirm_and_sync
+    r = await confirm_and_sync(gap_id, body.get("finalAnswer", ""), admin.username, body.get("modelType"))
+    await log_service.write_log(db, admin.username, "证据补全确认", f"gap#{gap_id} ok={r.get('ok')}")
+    return success(r, "已确认并同步" if r.get("ok") else "同步失败")
+
+
+@router.post("/evidence-gap/{gap_id}/ignore")
+async def evidence_gap_ignore(
+    gap_id: int, db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+):
+    """忽略（不补，status=ignored）。"""
+    from app.models.evidence_gap import EvidenceGap
+    row = (await db.execute(select(EvidenceGap).where(EvidenceGap.id == gap_id))).scalar_one_or_none()
+    if row:
+        row.status = "ignored"
+        await db.commit()
+    return success(None, "已忽略")
+
+
+@router.delete("/evidence-gap/{gap_id}")
+async def evidence_gap_delete(
+    gap_id: int, db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+):
+    """删除一条证据补全记录。"""
+    from app.models.evidence_gap import EvidenceGap
+    row = (await db.execute(select(EvidenceGap).where(EvidenceGap.id == gap_id))).scalar_one_or_none()
+    if row:
+        await db.delete(row)
+        await db.commit()
+    return success(None, "已删除")
 
 
 # ===== P2-⑦ LLM 成本追踪 =====
