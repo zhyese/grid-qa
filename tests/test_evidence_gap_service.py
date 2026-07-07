@@ -4,11 +4,12 @@ from app.services import evidence_gap_service as svc
 
 
 def test_collect_dedup():
-    """同 query pending 去重：第二次 collect 返回 0。"""
+    """同 query pending 去重：第二次 collect 返回 0。用唯一 query 避开历史残留。"""
     async def go():
-        id1 = await svc.collect("测试evidence_gap_query", "答案", "medium", "ambiguous", "normal")
+        q = "测试_dedup_unique_20260707_xyz"
+        id1 = await svc.collect(q, "答案", "medium", "ambiguous", "normal")
         assert id1 > 0
-        id2 = await svc.collect("测试evidence_gap_query", "答案", "medium", "ambiguous", "normal")
+        id2 = await svc.collect(q, "答案", "medium", "ambiguous", "normal")
         assert id2 == 0  # 去重
     asyncio.run(go())
 
@@ -22,7 +23,8 @@ def test_list_gaps_structure():
 
 def test_get_gap():
     async def go():
-        gid = await svc.collect("测试get_query", "答", "refused", "incorrect", "refused")
+        q = "测试_get_unique_20260707_abc"
+        gid = await svc.collect(q, "答", "refused", "incorrect", "refused")
         g = await svc.get_gap(gid)
-        assert g and g["query"] == "测试get_query"
+        assert g and g["query"] == q
     asyncio.run(go())
