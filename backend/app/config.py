@@ -132,6 +132,11 @@ class Settings(BaseSettings):
     REWRITE_EVAL_TOPK: int = 5                 # 评估取 top-K 算分数和
     REWRITE_EVENT_SAMPLE_RATE: float = 1.0     # 改写事件采样率（高流量可降避免写放大）
 
+    # ---------- 证据补全闭环 ----------
+    EVIDENCE_GAP_AUTO_COLLECT: bool = True        # 自动收集 medium/refused
+    EVIDENCE_GAP_DRAFT_TOPK_MULT: int = 2         # AI 续写检索放宽倍数
+    EVIDENCE_GAP_FAQ_DOCTYPE: str = "证据补全FAQ"  # 同步入库的 docType
+
     # ---------- 结构感知分块 + Parent-Child（small-to-big）----------
     # 检索用小块（精度），命中后召回同组大块给 LLM（完整上下文，解决长规程跨块/表格被切两半）
     SMALL_TO_BIG_ENABLE: bool = True
