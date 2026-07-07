@@ -245,8 +245,41 @@
           <div v-if="g.status==='synced'" class="opt-detail" style="color:var(--success)">最终：{{ (g.finalAnswer || '').slice(0, 100) }}</div>
           <div style="margin-top:6px">
             <button v-if="g.status==='pending'" class="btn btn-primary btn-sm" @click="egDraft(g)">🤖 AI续写</button>
-            <button v-if="g.status==='pending' || g.status==='ai_drafted'" class="btn btn-success btn-sm" @click="egConfirm(g)">✓ 确认同步</button>
+            <button v-if="g.status!=='synced' && g.status!=='ignored'" class="btn btn-ghost btn-sm" @click="egEdit(g)">✏️ 人工编辑</button>
+            <button v-if="g.status==='ai_drafted' || g.status==='confirmed'" class="btn btn-success btn-sm" @click="egConfirm(g)">✓ 确认同步</button>
             <button v-if="g.status!=='synced' && g.status!=='ignored'" class="btn btn-ghost btn-sm" @click="egIgnore(g)">忽略</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 证据补全：人工编辑弹窗 -->
+      <div class="modal-overlay" v-if="egEditing" @click.self="egEditing = null">
+        <div class="modal" style="max-width:680px; height:auto; max-height:88vh; overflow-y:auto">
+          <div class="modal-head">
+            ✏️ 人工编辑最终答案
+            <a @click="egEditing = null" style="cursor:pointer">✕</a>
+          </div>
+          <div style="padding:14px 18px; display:flex; flex-direction:column; gap:12px">
+            <div>
+              <div style="font-size:12px;color:var(--text-muted);margin-bottom:4px">问题</div>
+              <div style="font-weight:600">{{ egEditing.query }}</div>
+            </div>
+            <div v-if="egEditing.originalAnswer">
+              <div style="font-size:12px;color:var(--text-muted);margin-bottom:4px">原答案（{{ egEditing.confidence === 'refused' ? '证据不足' : '证据有限' }}）</div>
+              <div style="background:var(--surface-2);padding:8px 10px;border-radius:6px;font-size:13px;max-height:80px;overflow-y:auto;color:var(--text-muted)">{{ egEditing.originalAnswer }}</div>
+            </div>
+            <div v-if="egEditing.aiDraft">
+              <div style="font-size:12px;color:var(--text-muted);margin-bottom:4px">AI 草稿（参考，可复制）</div>
+              <div style="background:var(--surface-2);padding:8px 10px;border-radius:6px;font-size:13px;max-height:100px;overflow-y:auto;border-left:3px solid var(--accent)">{{ egEditing.aiDraft }}</div>
+            </div>
+            <div>
+              <div style="font-size:12px;color:var(--text-muted);margin-bottom:4px">最终答案（编辑后点「保存」，再「确认同步」入库）</div>
+              <textarea v-model="egEditText" rows="8" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-size:13px;font-family:inherit;resize:vertical" placeholder="编辑最终答案（保存后状态变为「已确认」，再点确认同步入库）"></textarea>
+            </div>
+          </div>
+          <div style="padding:10px 18px;display:flex;gap:8px;justify-content:flex-end;border-top:1px solid var(--border)">
+            <button class="btn btn-ghost btn-sm" @click="egEditing = null">取消</button>
+            <button class="btn btn-primary btn-sm" :disabled="egSaving" @click="egSave">{{ egSaving ? '保存中…' : '💾 保存（待同步）' }}</button>
           </div>
         </div>
       </div>
@@ -491,11 +524,27 @@ async function egDraft(g) {
   try { const r = await request.post(`/system/evidence-gap/${g.id}/ai-draft`); g.aiDraft = (r.data || {}).aiDraft || ''; g.status = 'ai_drafted'; toast('AI续写完成') }
   catch (e) { toast('续写失败') }
 }
-async function egConfirm(g) {
-  const ans = prompt('确认最终答案（可编辑AI草稿），确认后同步入库', g.aiDraft || g.originalAnswer || '')
-  if (ans === null) return
+const egEditing = ref(null); const egEditText = ref(''); const egSaving = ref(false)
+function egEdit(g) {
+  egEditing.value = { id: g.id, query: g.query, confidence: g.confidence,
+                      originalAnswer: g.originalAnswer || '', aiDraft: g.aiDraft || '' }
+  egEditText.value = g.finalAnswer || g.aiDraft || g.originalAnswer || ''
+}
+async function egSave() {
+  if (!egEditText.value.trim()) { toast('答案不能为空'); return }
+  egSaving.value = true
   try {
-    const r = await request.post(`/system/evidence-gap/${g.id}/confirm`, { finalAnswer: ans })
+    const id = egEditing.value.id
+    await request.post(`/system/evidence-gap/${id}/edit`, { finalAnswer: egEditText.value })
+    const g = egList.value.find(x => x.id === id)
+    if (g) { g.finalAnswer = egEditText.value; g.status = 'confirmed' }
+    egEditing.value = null
+    toast('已保存，点「✓ 确认同步」入库')
+  } catch (e) { toast('保存失败') } finally { egSaving.value = false }
+}
+async function egConfirm(g) {
+  try {
+    const r = await request.post(`/system/evidence-gap/${g.id}/confirm`)
     if ((r.data || {}).ok) { g.status = 'synced'; toast('已确认并同步入库') }
     else { toast('同步失败: ' + ((r.data || {}).msg || '')) }
   } catch (e) { toast('确认失败') }

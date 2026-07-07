@@ -281,17 +281,34 @@ async def evidence_gap_ai_draft(
     return success({"aiDraft": draft}, "续写完成")
 
 
+@router.post("/evidence-gap/{gap_id}/edit")
+async def evidence_gap_edit(
+    gap_id: int, body: dict,
+    admin: User = Depends(require_admin),
+):
+    """人工编辑最终答案（status→confirmed，不触发同步，待「确认同步」）。"""
+    from app.services.evidence_gap_service import edit_answer
+    r = await edit_answer(gap_id, body.get("finalAnswer", ""))
+    return success(r, "已保存" if r.get("ok") else "保存失败")
+
+
 @router.post("/evidence-gap/{gap_id}/confirm")
 async def evidence_gap_confirm(
-    gap_id: int, body: dict,
+    gap_id: int,
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(require_admin),
 ):
-    """人工确认 final_answer + 同步入库（一站式：FAQ 文档 + 缓存双写）。"""
-    from app.services.evidence_gap_service import confirm_and_sync
-    r = await confirm_and_sync(gap_id, body.get("finalAnswer", ""), admin.username, body.get("modelType"))
-    await log_service.write_log(db, admin.username, "证据补全确认", f"gap#{gap_id} ok={r.get('ok')}")
-    return success(r, "已确认并同步" if r.get("ok") else "同步失败")
+    """确认同步：用已编辑的 final_answer（或 AI草稿兜底）同步入库。"""
+    from app.services.evidence_gap_service import confirm_and_sync, get_gap
+    g = await get_gap(gap_id)
+    if not g:
+        return success({"ok": False, "msg": "记录不存在"}, "失败")
+    final = (g.get("finalAnswer") or "").strip() or (g.get("aiDraft") or "").strip()
+    if not final:
+        return success({"ok": False, "msg": "请先人工编辑或 AI续写"}, "失败")
+    r = await confirm_and_sync(gap_id, final, admin.username)
+    await log_service.write_log(db, admin.username, "证据补全确认同步", f"gap#{gap_id} ok={r.get('ok')}")
+    return success(r, "已确认并同步入库" if r.get("ok") else "同步失败")
 
 
 @router.post("/evidence-gap/{gap_id}/ignore")

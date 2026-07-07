@@ -93,12 +93,27 @@ async def ai_draft(gap_id: int, model_type: str | None = None) -> str:
         return ""
 
 
+async def edit_answer(gap_id: int, final_answer: str) -> dict:
+    """人工编辑保存最终答案，status→confirmed（不同步，待「确认同步」触发入库）。"""
+    try:
+        async with AsyncSessionLocal() as db:
+            row = (await db.execute(select(EvidenceGap).where(EvidenceGap.id == gap_id))).scalar_one_or_none()
+            if not row:
+                return {"ok": False, "msg": "记录不存在"}
+            row.final_answer = final_answer
+            row.status = "confirmed"
+            await db.commit()
+            return {"ok": True}
+    except Exception as e:
+        degraded("evidence_gap_edit", e)
+        return {"ok": False, "msg": str(e)}
+
+
 async def confirm_and_sync(gap_id: int, final_answer: str, operator: str,
                            model_type: str | None = None) -> dict:
     """人工确认 final_answer + 同步入库（FAQ文档 vectorize + qa_cache/Redis 双写）。状态→synced。
 
     FAQ 答案短，直接 1 个 chunk（不切块）；复用 document_service.vectorize_document 向量化。
-    """
     import uuid
     from app.config import settings
     from app.models.document import Document
