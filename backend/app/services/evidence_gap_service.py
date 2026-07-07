@@ -1,0 +1,69 @@
+"""证据补全：收集(medium/refused 去重) + AI续写 + 人工确认 + 同步入库回流。
+
+bg task 用独立 AsyncSessionLocal（防 session 并发 500）。
+"""
+from datetime import datetime
+
+from sqlalchemy import desc, func, select
+
+from app.core.obs import degraded
+from app.db.session import AsyncSessionLocal
+from app.models.evidence_gap import EvidenceGap
+
+
+async def collect(query: str, answer: str, confidence: str, grade: str, action: str,
+                  source: str = "auto", tenant: str = "default") -> int:
+    """去重写：同 query 已有 pending 则跳过。返回新 id（0=去重跳过/异常）。bg task 用独立 session。"""
+    if not query:
+        return 0
+    try:
+        async with AsyncSessionLocal() as db:
+            existing = (await db.execute(
+                select(EvidenceGap).where(EvidenceGap.query == query, EvidenceGap.status == "pending")
+            )).scalar_one_or_none()
+            if existing:
+                return 0
+            row = EvidenceGap(query=query, original_answer=(answer or "")[:2000],
+                              confidence=confidence, grade=grade, crag_action=action,
+                              source=source, tenant=tenant)
+            db.add(row)
+            await db.commit()
+            await db.refresh(row)
+            return row.id
+    except Exception as e:
+        degraded("evidence_gap_collect", e)
+        return 0
+
+
+async def list_gaps(status: str | None = None, page: int = 1, size: int = 20) -> dict:
+    try:
+        async with AsyncSessionLocal() as db:
+            q = select(EvidenceGap).order_by(desc(EvidenceGap.ts))
+            cq = select(func.count()).select_from(EvidenceGap)
+            if status:
+                q = q.where(EvidenceGap.status == status)
+                cq = cq.where(EvidenceGap.status == status)
+            total = (await db.execute(cq)).scalar() or 0
+            rows = (await db.execute(q.offset((page - 1) * size).limit(size))).scalars().all()
+            return {"total": total, "list": [{
+                "id": r.id, "ts": r.ts.strftime("%Y-%m-%d %H:%M") if r.ts else "",
+                "query": r.query, "originalAnswer": (r.original_answer or "")[:200],
+                "confidence": r.confidence, "status": r.status, "source": r.source,
+                "aiDraft": r.ai_draft, "finalAnswer": r.final_answer, "syncedDocId": r.synced_doc_id,
+            } for r in rows]}
+    except Exception as e:
+        degraded("evidence_gap_list", e)
+        return {"total": 0, "list": []}
+
+
+async def get_gap(gap_id: int) -> dict | None:
+    try:
+        async with AsyncSessionLocal() as db:
+            r = (await db.execute(select(EvidenceGap).where(EvidenceGap.id == gap_id))).scalar_one_or_none()
+            if not r:
+                return None
+            return {"id": r.id, "query": r.query, "confidence": r.confidence, "status": r.status,
+                    "aiDraft": r.ai_draft, "finalAnswer": r.final_answer, "originalAnswer": r.original_answer}
+    except Exception as e:
+        degraded("evidence_gap_get", e)
+        return None
