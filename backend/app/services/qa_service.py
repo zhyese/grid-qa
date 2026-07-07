@@ -2,6 +2,9 @@
 import json
 import re
 import time
+import asyncio
+
+_bg_tasks: set = set()  # 持有后台 task 引用，防 GC
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -339,6 +342,15 @@ async def answer(
             asyncio.ensure_future(eval_quality(db, query, ans, contexts, model_type))
     except Exception:
         pass
+    # 证据补全：medium/refused 自动收集（bg task，独立 session，不阻塞响应）
+    if settings.EVIDENCE_GAP_AUTO_COLLECT and confidence in ("medium", "refused"):
+        try:
+            from app.services import evidence_gap_service
+            _bg_tasks.add(asyncio.create_task(evidence_gap_service.collect(
+                nq, ans, confidence, crag_grade, crag_action, "auto", tenant,
+            )))
+        except Exception:
+            pass
     return result
 
 
@@ -633,6 +645,15 @@ async def stream_answer(
         metrics.cache_hit_inc("llm")
     except Exception:
         pass
+    # 证据补全：medium/refused 自动收集（bg task，独立 session，不阻塞流式）
+    if settings.EVIDENCE_GAP_AUTO_COLLECT and confidence in ("medium", "refused"):
+        try:
+            from app.services import evidence_gap_service
+            _bg_tasks.add(asyncio.create_task(evidence_gap_service.collect(
+                nq, annotated, confidence, crag_grade, crag_action, "auto", tenant,
+            )))
+        except Exception:
+            pass
     yield {
         "type": "done",
         "responseTime": round(time.time() - t0, 3),
