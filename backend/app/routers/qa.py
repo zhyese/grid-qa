@@ -181,6 +181,23 @@ async def feedback(
     return success(None, "感谢反馈")
 
 
+@router.post("/evidence-gap/report")
+@limiter.limit("30/minute")
+async def evidence_gap_report(
+    request: Request,
+    body: dict,
+    user: User = Depends(get_current_user),
+):
+    """用户主动上报证据不足（Chat 对 medium/refused 答案触发）。"""
+    from app.services.evidence_gap_service import collect
+    gid = await collect(
+        term_service.normalize(body.get("query", "")),
+        body.get("answer", ""), body.get("confidence", "medium"),
+        body.get("grade", ""), body.get("action", ""), "manual", user.tenant_id,
+    )
+    return success({"id": gid}, "已上报" if gid else "已记录（去重）")
+
+
 @router.post("/faithfulness")
 @limiter.limit("30/minute")
 async def faithfulness(
