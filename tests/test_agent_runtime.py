@@ -97,3 +97,18 @@ def test_draft_ticket_wraps_domain(monkeypatch):
 def test_default_registry_has_four_tools():
     names = {t.name for t in agent_tools.DEFAULT_REGISTRY._tools.values()}
     assert names == {"search_regulation", "query_equipment_graph", "search_similar_case", "draft_ticket"}
+
+
+# ===== Task 3: metrics 预注册 =====
+from app.core import metrics
+from prometheus_client import generate_latest
+
+
+def test_agent_metrics_preregistered_in_registry():
+    metrics.init_metric_series()
+    text = generate_latest().decode("utf-8")
+    assert "grid_agent_calls_total" in text
+    assert 'persona="diagnose"' in text
+    assert "grid_agent_tool_calls_total" in text
+    for t in ("search_regulation", "query_equipment_graph", "search_similar_case", "draft_ticket"):
+        assert f'persona="diagnose",tool="{t}"' in text

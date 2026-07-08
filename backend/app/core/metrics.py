@@ -70,6 +70,9 @@ TICKET_AUDIT = Counter("grid_ticket_audit_total", "两票智能审核结果", ["
 # Agentic 诊断：循环深度分布（观测 agent 调几轮工具）
 AGENT_ITERS = Histogram("grid_agent_iters", "诊断 agent 循环深度(轮)",
                         buckets=(1, 2, 3, 4, 5, 6, float("inf")))
+# 通用 Agent 引擎（S1）：persona 调用次数 + persona×工具 调用次数（为 S6 决策看板铺路）
+AGENT_CALLS = Counter("grid_agent_calls_total", "Agent 引擎调用次数", ["persona"])
+AGENT_TOOL_CALLS = Counter("grid_agent_tool_calls_total", "Agent 工具调用次数", ["persona", "tool"])
 # 告警闭环：Grafana alerting webhook 回调接收到的告警数（按 severity）
 ALERT_RECEIVED = Counter("grid_alert_received_total", "告警接收总数(Grafana回调)", ["severity"])
 # 缓存分层命中（Redis / MySQL / LLM）—— Phase 2 三级缓存可见性
@@ -194,6 +197,11 @@ def init_metric_series() -> None:
         # 智能路由决策（预注册 4 个 route 序列）
         for _route in ("sparse", "dense", "hybrid", "sparse_first"):
             ROUTING_DECISION.labels(_route).inc(0)
+        # Agent 引擎（S1）：diagnose persona + 其 4 工具预注册 0 值
+        AGENT_CALLS.labels("diagnose").inc(0)
+        for _agent_tool in ("search_regulation", "query_equipment_graph",
+                            "search_similar_case", "draft_ticket"):
+            AGENT_TOOL_CALLS.labels("diagnose", _agent_tool).inc(0)
     except Exception:
         # 预注册失败不影响服务启动
         pass
