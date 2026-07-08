@@ -207,3 +207,29 @@ def test_run_agent_per_tool_error_isolated(monkeypatch):
     res = asyncio.run(run_agent(None, persona, "q", registry=_reg_with("h1", boom)))
     assert res.degraded is False  # 工具失败不崩循环
     assert res.steps[0]["error"] is True and "执行失败" in res.steps[0]["result"]
+
+
+# ===== Task 5: DIAGNOSE_PERSONA =====
+from app.services import agent_personas
+
+
+def test_diagnose_persona_config():
+    p = agent_personas.DIAGNOSE_PERSONA
+    assert p.name == "diagnose"
+    assert p.output_format == "json"
+    assert p.max_iter == 6
+    assert set(p.allowed_tools) == {"search_regulation", "query_equipment_graph",
+                                    "search_similar_case", "draft_ticket"}
+    assert "电网运维" in p.system_prompt or "诊断" in p.system_prompt
+
+
+def test_diagnose_fallback_strips_prefix_and_calls_domain(monkeypatch):
+    captured = {}
+    async def fake_diagnose(db, symptom, mt):
+        captured["symptom"] = symptom
+        return {"diagnosis": {"summary": "s", "causes": []}}
+    monkeypatch.setattr(agent_personas.domain_service, "diagnose", fake_diagnose)
+    out = asyncio.run(agent_personas._diagnose_fallback(
+        db=None, user_msg="故障症状：1号主变油温高", model_type=None))
+    assert captured["symptom"] == "1号主变油温高"  # 前缀已剥离
+    assert out == {"summary": "s", "causes": []}
