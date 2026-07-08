@@ -317,7 +317,18 @@
             <strong class="opt-title">{{ g.query }}</strong>
           </div>
           <div class="opt-detail">原答案：{{ (g.originalAnswer || '').slice(0, 80) }}</div>
-          <div v-if="g.aiDraft" class="opt-detail">AI草稿：{{ g.aiDraft.slice(0, 100) }}</div>
+          <div v-if="g.agentSteps && g.agentSteps.length" class="agent-trace" style="margin:6px 0">
+            <div class="trace-head" @click="g._traceOpen = (g._traceOpen === false)">🧠 深度思考 · {{ g.agentSteps.length }}步 <span class="trace-toggle">{{ g._traceOpen === false ? '展开▸' : '收起▾' }}</span></div>
+            <div v-show="g._traceOpen !== false" class="trace-steps">
+              <div v-for="(st, k) in g.agentSteps" :key="k" class="trace-step" :class="{'is-final': !st.tool}">
+                <span class="trace-iter">第{{ st.iter }}轮</span>
+                <span v-if="st.tool" class="trace-tool">🔧 {{ st.tool }}</span>
+                <span v-else class="trace-thought">💭 综合作答</span>
+                <div v-if="st.result" class="trace-result" :class="{err: st.error}">{{ (st.result || '').slice(0, 180) }}</div>
+              </div>
+            </div>
+          </div>
+          <div v-if="g.aiDraft" class="opt-detail" style="max-height:200px;overflow-y:auto;white-space:pre-wrap"><b>AI草稿{{ g.deepStreaming ? '（生成中…）' : '' }}：</b>{{ g.aiDraft }}</div>
           <div v-if="g.status==='synced'" class="opt-detail" style="color:var(--success)">最终：{{ (g.finalAnswer || '').slice(0, 100) }}</div>
           <div style="margin-top:6px">
             <button v-if="g.status==='pending'" class="btn btn-primary btn-sm" @click="egDraft(g)">🤖 AI续写</button>
@@ -461,6 +472,7 @@
 
 <script setup>
 import { ref, reactive, onMounted, nextTick } from 'vue'
+import { useAuthStore } from '../stores/auth'
 import * as echarts from 'echarts/core'
 import { PieChart, BarChart, ScatterChart, LineChart } from 'echarts/charts'
 import { TooltipComponent, LegendComponent, GridComponent } from 'echarts/components'
@@ -628,8 +640,38 @@ async function egDraft(g) {
   catch (e) { toast('续写失败') }
 }
 async function egDeepDraft(g) {
-  try { const r = await request.post(`/system/evidence-gap/${g.id}/deep-draft`); g.aiDraft = (r.data || {}).aiDraft || ''; g.status = 'ai_drafted'; toast('深度补全完成（Agent 多轮调工具交叉验证）') }
-  catch (e) { toast('深度补全失败') }
+  g.agentSteps = []; g.deepStreaming = true; g._traceOpen = true
+  const auth = useAuthStore()
+  try {
+    const resp = await fetch(`/api/system/evidence-gap/${g.id}/deep-draft`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...(auth.token ? { Authorization: `Bearer ${auth.token}` } : {}) },
+      body: JSON.stringify({ modelType: null })
+    })
+    if (!resp.ok) throw new Error('流式失败')
+    const reader = resp.body.getReader()
+    const decoder = new TextDecoder('utf-8')
+    let buf = ''
+    while (true) {
+      const { value, done } = await reader.read()
+      if (done) break
+      buf += decoder.decode(value, { stream: true })
+      const lines = buf.split('\n'); buf = lines.pop()
+      for (const line of lines) {
+        const s = line.trim()
+        if (!s.startsWith('data:')) continue
+        const payload = s.slice(5).trim()
+        if (payload === '[DONE]') continue
+        try {
+          const ev = JSON.parse(payload)
+          if (ev.type === 'tool_step') { g.agentSteps.push(ev.step || {}) }
+          else if (ev.type === 'token') { g.aiDraft = ev.content || ''; g.status = 'ai_drafted' }
+          else if (ev.type === 'done') { toast(ev.error ? ('失败: ' + ev.error) : '深度补全完成') }
+        } catch (e) {}
+      }
+    }
+  } catch (e) { toast('深度补全失败') }
+  finally { g.deepStreaming = false }
 }
 const egEditing = ref(null); const egEditText = ref(''); const egSaving = ref(false)
 function egEdit(g) {
@@ -816,6 +858,16 @@ onMounted(() => { loadLogs(); loadFeedbacks('dislike'); loadFbStats(); loadAlert
 .opt-header { display: flex; align-items: center; gap: 6px; font-size: 13px; margin-bottom: 4px; flex-wrap: wrap; }
 .opt-type { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
 .opt-detail { font-size: 12px; color: var(--text); margin-bottom: 4px; line-height: 1.5; }
+.agent-trace { padding: 6px 8px; background: rgba(108, 92, 231, 0.06); border: 1px solid var(--border); border-radius: 6px; font-size: 12px; }
+.trace-head { font-weight: 600; color: var(--primary); cursor: pointer; user-select: none; display: flex; justify-content: space-between; }
+.trace-toggle { font-weight: 400; color: var(--text-muted); }
+.trace-steps { margin-top: 6px; display: flex; flex-direction: column; gap: 4px; }
+.trace-step { padding: 4px 6px; background: var(--surface); border-radius: 6px; border-left: 3px solid var(--primary); }
+.trace-step.is-final { border-left-color: #6c5ce7; }
+.trace-iter { color: var(--text-muted); margin-right: 6px; }
+.trace-tool { font-weight: 600; color: var(--text); }
+.trace-result { color: var(--text-soft); margin-top: 2px; white-space: pre-wrap; word-break: break-all; }
+.trace-result.err { color: var(--danger); }
 .opt-actions { display: flex; flex-direction: column; gap: 2px; }
 .opt-action { font-size: 12px; color: var(--text-muted); padding-left: 8px; border-left: 2px solid var(--border); margin: 1px 0; }
 </style>

@@ -366,10 +366,16 @@ async def evidence_gap_deep_draft(
     gap_id: int, model_type: str | None = None,
     admin: User = Depends(require_admin),
 ):
-    """深度AI补全（Agent 引擎多轮调工具交叉验证，比续写更深；复用 🎯深度思考同款引擎）。"""
-    from app.services.evidence_gap_service import deep_draft
-    draft = await deep_draft(gap_id, model_type)
-    return success({"aiDraft": draft}, "深度补全完成")
+    """深度AI补全（SSE 流式）：meta→tool_step×N→token→done，实时看 Agent 思考链 + 答案生成。"""
+    import json as _json
+    from fastapi.responses import StreamingResponse
+    from app.services.evidence_gap_service import deep_draft_stream
+
+    async def gen():
+        async for ev in deep_draft_stream(gap_id, model_type):
+            yield f"data: {_json.dumps(ev, ensure_ascii=False)}\n\n"
+        yield "data: [DONE]\n\n"
+    return StreamingResponse(gen(), media_type="text/event-stream")
 
 
 @router.post("/evidence-gap/{gap_id}/edit")

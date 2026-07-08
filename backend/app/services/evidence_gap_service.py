@@ -115,6 +115,66 @@ async def deep_draft(gap_id: int, model_type: str | None = None) -> str:
         return ""
 
 
+async def deep_draft_stream(gap_id: int, model_type: str | None = None):
+    """SSE 流式深度补全：meta→tool_step×N→token→done。done 时更新 gap.ai_draft。
+    复用 agent_runtime on_step + asyncio.Queue 桥接（同 qa _stream_agent 模式）。"""
+    import asyncio
+    from app.services.agent_runtime import run_agent
+    from app.services.persona_store import get_persona
+    query = ""
+    try:
+        async with AsyncSessionLocal() as db:
+            row = (await db.execute(select(EvidenceGap).where(EvidenceGap.id == gap_id))).scalar_one_or_none()
+            query = row.query if row else ""
+    except Exception as e:
+        degraded("evidence_gap_deep_stream_get", e)
+    if not query:
+        yield {"type": "done", "error": "记录不存在或 query 为空"}
+        return
+    yield {"type": "meta", "query": query}
+    persona = await get_persona("qa")
+    queue: asyncio.Queue = asyncio.Queue()
+
+    async def _run():
+        try:
+            async with AsyncSessionLocal() as db:
+                res = await run_agent(db, persona, query, model_type,
+                                      on_step=lambda s: queue.put_nowait({"type": "tool_step", "step": s}))
+            await queue.put({"type": "_result", "result": res})
+        except Exception as e:
+            degraded("evidence_gap_deep_stream", e)
+            await queue.put({"type": "_error", "error": f"{type(e).__name__}: {e}"})
+
+    task = asyncio.create_task(_run())
+    draft = ""
+    try:
+        while True:
+            item = await queue.get()
+            t = item["type"]
+            if t == "tool_step":
+                yield item
+            elif t == "_result":
+                res = item["result"]
+                draft = res.answer if isinstance(res.answer, str) else str(res.answer)
+                yield {"type": "token", "content": draft}
+                try:
+                    async with AsyncSessionLocal() as db:
+                        r = (await db.execute(select(EvidenceGap).where(EvidenceGap.id == gap_id))).scalar_one_or_none()
+                        if r:
+                            r.ai_draft = draft
+                            r.status = "ai_drafted"
+                            await db.commit()
+                except Exception as e:
+                    degraded("evidence_gap_deep_save", e)
+                yield {"type": "done", "iterations": res.iterations, "degraded": res.degraded}
+                break
+            else:
+                yield {"type": "done", "error": item.get("error", "未知错误")}
+                break
+    finally:
+        await task
+
+
 async def edit_answer(gap_id: int, final_answer: str) -> dict:
     """人工编辑保存最终答案，status→confirmed（不同步，待「确认同步」触发入库）。"""
     try:
