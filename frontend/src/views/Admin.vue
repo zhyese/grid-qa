@@ -18,36 +18,41 @@
     <!-- 反馈管理 -->
     <div class="card" v-show="tab === 'persona'">
       <div class="card-header">
-        <h3 class="card-title">🧩 Persona 配置</h3>
+        <h3 class="card-title">🧩 AI 助手配置</h3>
         <button class="btn btn-ghost btn-sm" @click="loadPersonas">🔄 刷新</button>
       </div>
-      <p class="hint" style="margin-top:0">DB 覆盖 code persona 的 prompt/工具/参数（fallback 保留 code，callable 不能入库）。勾选 enabled 生效；删除则恢复 code 默认。</p>
-      <div style="margin:8px 0"><span class="muted">code persona:</span>
-        <span v-for="c in personas.codePersonas" :key="c" class="badge badge-neutral" style="margin:0 4px">{{ c }}</span>
+      <p class="hint" style="margin-top:0;line-height:1.7">
+        <b>在这里调整每个 AI 助手的「角色设定」，保存后立即生效，无需改代码重新部署。</b><br/>
+        可调：① <b>角色指令</b>——告诉 AI 怎么回答（如「回答简洁、突出安全风险」）；② <b>可用工具</b>——它能查哪些资料（运维规程/知识图谱/历史案例/操作票）；③ <b>参数</b>——思考几轮、回答风格、输出格式。<br/>
+        操作：选一个助手 → 改设定 → 保存。勾「启用」才生效；删除则恢复出厂默认。
+      </p>
+      <div style="margin:6px 0 10px"><span class="muted">内置助手（点对应名即可调整）：</span>
+        <span v-for="c in personas.codePersonas" :key="c" class="badge badge-neutral" style="margin:0 4px;cursor:pointer" @click="editPersona({name:c,systemPrompt:'',allowedTools:'',maxIter:null,temperature:null,maxTokens:null,outputFormat:'',enabled:true})">{{ personaLabel(c) }}</span>
       </div>
       <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin:8px 0">
-        <input class="input" v-model="personaForm.name" placeholder="persona 名(diagnose/qa/alert)" style="flex:1;min-width:140px" />
-        <input class="input" v-model.number="personaForm.maxIter" type="number" placeholder="maxIter" style="width:90px" />
-        <input class="input" v-model.number="personaForm.temperature" type="number" step="0.1" placeholder="temp" style="width:80px" />
-        <select class="select" v-model="personaForm.outputFormat" style="width:auto"><option value="">默认</option><option value="text">text</option><option value="json">json</option></select>
-        <label class="ws-toggle"><input type="checkbox" v-model="personaForm.enabled" /> enabled</label>
+        <input class="input" v-model="personaForm.name" placeholder="助手名：qa / diagnose / alert" style="flex:1;min-width:180px" />
+        <label class="ws-toggle" title="AI 最多自主思考几轮（默认 6）">思考轮数<input class="input" v-model.number="personaForm.maxIter" type="number" placeholder="6" style="width:70px" /></label>
+        <label class="ws-toggle" title="回答创意度 0~1，越高越发散（默认 0.2）">风格<input class="input" v-model.number="personaForm.temperature" type="number" step="0.1" placeholder="0.2" style="width:64px" /></label>
+        <select class="select" v-model="personaForm.outputFormat" style="width:auto"><option value="">默认格式</option><option value="text">自然语言</option><option value="json">结构化 JSON</option></select>
+        <label class="ws-toggle"><input type="checkbox" v-model="personaForm.enabled" /> 启用</label>
         <button class="btn btn-primary btn-sm" @click="savePersona">💾 保存</button>
       </div>
-      <textarea class="input edit-area" v-model="personaForm.systemPrompt" placeholder="system prompt（留空=不覆盖）" rows="2" style="margin:6px 0"></textarea>
-      <input class="input" v-model="personaForm.allowedTools" placeholder='allowedTools JSON, 如 ["search_regulation","query_equipment_graph"]' style="margin:6px 0" />
+      <textarea class="input edit-area" v-model="personaForm.systemPrompt" placeholder="角色指令：告诉这个 AI 助手它是谁、怎么回答。例如「你是电网运维专家，回答要简洁专业，突出安全风险，分点说明」（留空 = 用内置默认指令）" rows="3" style="margin:6px 0"></textarea>
+      <input class="input" v-model="personaForm.allowedTools" placeholder='可用工具（JSON 数组，留空=用内置）。如 [&quot;search_regulation&quot;,&quot;query_equipment_graph&quot;,&quot;search_similar_case&quot;]' style="margin:6px 0" />
       <div style="overflow-x:auto;margin-top:8px">
+        <div class="muted" style="margin-bottom:4px;font-size:12px">已保存的自定义配置（启用 = 覆盖内置；删除 = 恢复内置）：</div>
         <table class="tbl">
-          <thead><tr><th>name</th><th>enabled</th><th>prompt摘要</th><th>工具</th><th>参数</th><th>操作</th></tr></thead>
+          <thead><tr><th>助手</th><th>状态</th><th>角色指令(摘要)</th><th>工具</th><th>参数</th><th>操作</th></tr></thead>
           <tbody>
             <tr v-for="p in personas.configs" :key="p.id">
-              <td>{{ p.name }}</td>
-              <td><span class="badge" :class="p.enabled ? 'badge-success' : 'badge-neutral'">{{ p.enabled ? '✅' : '⏸' }}</span></td>
+              <td>{{ personaLabel(p.name) }}</td>
+              <td><span class="badge" :class="p.enabled ? 'badge-success' : 'badge-neutral'">{{ p.enabled ? '✅ 启用' : '⏸ 停用' }}</span></td>
               <td class="muted" style="max-width:240px">{{ (p.systemPrompt || '').slice(0, 60) }}</td>
-              <td class="muted">{{ p.allowedTools || '—' }}</td>
-              <td class="muted">{{ p.maxIter || '—' }} / {{ p.temperature ?? '—' }} / {{ p.outputFormat || '—' }}</td>
+              <td class="muted">{{ p.allowedTools || '内置' }}</td>
+              <td class="muted">{{ p.maxIter || '默认' }}轮 / 风格{{ p.temperature ?? '默认' }} / {{ p.outputFormat || '默认' }}</td>
               <td><button class="btn btn-ghost btn-sm" @click="editPersona(p)">编辑</button> <button class="btn btn-danger btn-sm" @click="removePersona(p.name)">删除</button></td>
             </tr>
-            <tr v-if="!personas.configs.length"><td colspan="6" class="empty">暂无 DB 覆盖配置（用上方表单新增，覆盖 code persona）</td></tr>
+            <tr v-if="!personas.configs.length"><td colspan="6" class="empty">还没有自定义配置（全部用内置默认）。点上方内置助手名，或直接改下方表单试试 →</td></tr>
           </tbody>
         </table>
       </div>
@@ -521,7 +526,11 @@ async function savePersona() {
   if (!personaForm.name.trim()) { toast('请填 persona 名'); return }
   try { await upsertPersona({ ...personaForm }); toast('保存成功（DB 覆盖已生效）'); loadPersonas() } catch (e) { toast('保存失败') }
 }
-async function removePersona(name) { try { await deletePersona(name); toast('已删除（恢复 code 默认）'); loadPersonas() } catch (e) { toast('删除失败') } }
+async function removePersona(name) { try { await deletePersona(name); toast('已删除（恢复内置默认）'); loadPersonas() } catch (e) { toast('删除失败') } }
+function personaLabel(c) {
+  const map = { qa: '💬 问答助手', diagnose: '🔬 诊断助手', alert: '🚨 告警处置助手' }
+  return map[c] ? `${c} · ${map[c]}` : c
+}
 const sevOf = (c = '') => { const m = c.match(/^\[(info|warning|critical)\]/i); return m ? m[1].toLowerCase() : 'info' }
 const sevBadge = (c = '') => ({ critical: 'badge badge-danger', warning: 'badge badge-warning', info: 'badge badge-info' }[sevOf(c)] || 'badge badge-neutral')
 async function loadFeedbacks(fb = 'dislike') { fbFilter.value = fb; try { feedbacks.value = (await getFeedbacks({ feedback: fb, page: 1, size: 30 })).data } catch (e) { toast('加载反馈失败') } }
