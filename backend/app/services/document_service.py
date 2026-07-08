@@ -144,11 +144,20 @@ _PREVIEW_MIME = {
 
 
 async def get_preview(db: AsyncSession, doc_id: str) -> tuple[bytes, str]:
-    """取原文供在线预览，返回 (content_bytes, mime)。不支持格式抛 BizError。"""
+    """取原文供在线预览，返回 (content_bytes, mime)。
+    优先 MinIO 原文(PDF/图片/文本)；FAQ/无扩展名等文字版(minio_object 空 或 格式不支持)→取已解析 Chunk content(text/plain)。"""
     doc = await get_document(db, doc_id)
     mt = _PREVIEW_MIME.get(_ext(doc.doc_name))
-    if mt is None:
-        raise BizError("该格式不支持在线预览（支持 PDF/图片/文本）", 400)
+    # 文字版兜底：无 MIME(无扩展名/不支持格式) 或 minio_object 空(FAQ) → 取已解析的 Chunk 纯文本预览
+    if mt is None or not doc.minio_object:
+        rows = (await db.execute(
+            select(Chunk).where(Chunk.doc_id == doc_id).order_by(Chunk.chunk_idx)
+        )).scalars().all()
+        if rows:
+            text = "\n\n".join(r.content for r in rows)
+            return text.encode("utf-8"), "text/plain; charset=utf-8"
+        if mt is None:  # 无 chunk 又不支持格式 → 原错误
+            raise BizError("该格式不支持在线预览（支持 PDF/图片/文本）", 400)
     content = await asyncio.to_thread(minio_client.get_object_bytes, doc.minio_object)
     return content, mt
 
