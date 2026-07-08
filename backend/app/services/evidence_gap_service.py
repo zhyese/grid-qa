@@ -299,6 +299,7 @@ async def confirm_and_sync(gap_id: int, final_answer: str, operator: str,
 
 async def retag_faq_equipment() -> dict:
     """一次性补全旧 FAQ 的设备标签（扫 equipment_tags 空的 FAQ，从 Chunk content 重新提取）。"""
+    from app.config import settings
     from app.models.chunk import Chunk
     from app.models.document import Document
     from app.services.document_service import _auto_equipment_tags
