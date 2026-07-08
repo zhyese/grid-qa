@@ -159,6 +159,7 @@ async def confirm_and_sync(gap_id: int, final_answer: str, operator: str,
                 minio_object="", file_size=len(final_answer.encode()),
                 upload_user=operator, tenant_id=row.tenant, status="parsed", chunk_count=1,
             ))
+            await db.flush()   # 先把 Document 落库（满足 chunks 外键，避免同 commit flush 顺序致 1452）
             db.add(Chunk(
                 doc_id=doc_id, chunk_idx=0, content=final_answer,
                 char_count=len(final_answer), chunk_type="text", parent_idx=0, section="",
