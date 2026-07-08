@@ -187,6 +187,7 @@ export const getEvidenceTrace = (answer, sources, modelType) =>
 // 证据补全闭环（admin）
 export const getEvidenceGaps = (params) => request.get('/system/evidence-gap', { params })
 export const aiDraftGap = (id, modelType) => request.post(`/system/evidence-gap/${id}/ai-draft`, { modelType })
+export const deepDraftGap = (id, modelType) => request.post(`/system/evidence-gap/${id}/deep-draft`, { modelType })
 export const confirmGap = (id, finalAnswer, modelType) =>
   request.post(`/system/evidence-gap/${id}/confirm`, { finalAnswer, modelType })
 export const ignoreGap = (id) => request.post(`/system/evidence-gap/${id}/ignore`)

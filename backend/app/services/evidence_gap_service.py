@@ -93,6 +93,28 @@ async def ai_draft(gap_id: int, model_type: str | None = None) -> str:
         return ""
 
 
+async def deep_draft(gap_id: int, model_type: str | None = None) -> str:
+    """深度AI补全：Agent 引擎(QA persona)多轮调工具交叉验证，比 ai_draft(single-pass)更深。
+    状态 pending→ai_drafted，结果写 ai_draft。复用 S1 agent_runtime + S5 get_persona。"""
+    from app.services.agent_runtime import run_agent
+    from app.services.persona_store import get_persona
+    try:
+        async with AsyncSessionLocal() as db:
+            row = (await db.execute(select(EvidenceGap).where(EvidenceGap.id == gap_id))).scalar_one_or_none()
+            if not row:
+                return ""
+            persona = await get_persona("qa")
+            result = await run_agent(db, persona, row.query, model_type)
+            draft = result.answer if isinstance(result.answer, str) else str(result.answer)
+            row.ai_draft = draft
+            row.status = "ai_drafted"
+            await db.commit()
+            return draft
+    except Exception as e:
+        degraded("evidence_gap_deep_draft", e)
+        return ""
+
+
 async def edit_answer(gap_id: int, final_answer: str) -> dict:
     """人工编辑保存最终答案，status→confirmed（不同步，待「确认同步」触发入库）。"""
     try:

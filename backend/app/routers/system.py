@@ -361,6 +361,17 @@ async def evidence_gap_ai_draft(
     return success({"aiDraft": draft}, "续写完成")
 
 
+@router.post("/evidence-gap/{gap_id}/deep-draft")
+async def evidence_gap_deep_draft(
+    gap_id: int, model_type: str | None = None,
+    admin: User = Depends(require_admin),
+):
+    """深度AI补全（Agent 引擎多轮调工具交叉验证，比续写更深；复用 🎯深度思考同款引擎）。"""
+    from app.services.evidence_gap_service import deep_draft
+    draft = await deep_draft(gap_id, model_type)
+    return success({"aiDraft": draft}, "深度补全完成")
+
+
 @router.post("/evidence-gap/{gap_id}/edit")
 async def evidence_gap_edit(
     gap_id: int, body: dict,

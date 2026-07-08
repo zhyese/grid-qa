@@ -321,6 +321,7 @@
           <div v-if="g.status==='synced'" class="opt-detail" style="color:var(--success)">最终：{{ (g.finalAnswer || '').slice(0, 100) }}</div>
           <div style="margin-top:6px">
             <button v-if="g.status==='pending'" class="btn btn-primary btn-sm" @click="egDraft(g)">🤖 AI续写</button>
+            <button v-if="g.status==='pending' || g.status==='ai_drafted'" class="btn btn-ghost btn-sm" @click="egDeepDraft(g)" title="用 Agent 引擎多轮调工具交叉验证，比续写更深（复用深度思考同款引擎）">🧠 深度补全</button>
             <button v-if="g.status!=='synced' && g.status!=='ignored'" class="btn btn-ghost btn-sm" @click="egEdit(g)">✏️ 人工编辑</button>
             <button v-if="g.status==='ai_drafted' || g.status==='confirmed'" class="btn btn-success btn-sm" @click="egConfirm(g)">✓ 确认同步</button>
             <button v-if="g.status!=='synced' && g.status!=='ignored'" class="btn btn-ghost btn-sm" @click="egIgnore(g)">忽略</button>
@@ -625,6 +626,10 @@ async function loadEvidenceGaps() {
 async function egDraft(g) {
   try { const r = await request.post(`/system/evidence-gap/${g.id}/ai-draft`); g.aiDraft = (r.data || {}).aiDraft || ''; g.status = 'ai_drafted'; toast('AI续写完成') }
   catch (e) { toast('续写失败') }
+}
+async function egDeepDraft(g) {
+  try { const r = await request.post(`/system/evidence-gap/${g.id}/deep-draft`); g.aiDraft = (r.data || {}).aiDraft || ''; g.status = 'ai_drafted'; toast('深度补全完成（Agent 多轮调工具交叉验证）') }
+  catch (e) { toast('深度补全失败') }
 }
 const egEditing = ref(null); const egEditText = ref(''); const egSaving = ref(false)
 function egEdit(g) {
