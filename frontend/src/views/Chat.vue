@@ -57,17 +57,7 @@
               <a @click="exportWord(m)">📄 导出 Word</a>
             </div>
             <pre v-if="m.streaming" class="streaming-text">{{ m.content }}<span class="cursor">▍</span></pre>
-            <div class="agent-trace" v-if="m.agentSteps && m.agentSteps.length">
-              <div class="trace-head" @click="m._traceOpen = !m._traceOpen">🎯 深度思考 · {{ m.agentSteps.length }}步 <span class="trace-toggle">{{ m._traceOpen ? '收起▾' : '展开▸' }}</span></div>
-              <div v-show="m._traceOpen" class="trace-steps">
-                <div v-for="(st, k) in m.agentSteps" :key="k" class="trace-step" :class="{ 'is-final': !st.tool }">
-                  <span class="trace-iter">第{{ st.iter }}轮</span>
-                  <span v-if="st.tool" class="trace-tool">🔧 {{ st.tool }}<span class="trace-args" v-if="st.args && Object.keys(st.args).length">({{ JSON.stringify(st.args) }})</span></span>
-                  <span v-else class="trace-thought">💭 证据充分，综合作答</span>
-                  <div v-if="st.result" class="trace-result" :class="{ err: st.error }">{{ (st.result || '').slice(0, 220) }}</div>
-                </div>
-              </div>
-            </div>
+            <AgentTrace :steps="m.agentSteps" title="🎯 深度思考" />
             <div class="ans md" v-show="!m.streaming" @click="onAnsClick($event, m)" v-html="renderMd(m.content)"></div>
             <div v-if="m.aborted" class="hint" style="margin-top:8px">⏹ 已停止生成（仅显示已接收内容）</div>
 
@@ -179,6 +169,7 @@
 import { ref, reactive, onMounted, nextTick, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import MarkdownIt from 'markdown-it'
+import AgentTrace from '../components/AgentTrace.vue'
 import hljs from 'highlight.js/lib/core'
 import python from 'highlight.js/lib/languages/python'
 import javascript from 'highlight.js/lib/languages/javascript'
@@ -531,17 +522,6 @@ html.dark .ai-bubble { background: var(--surface); }
 .cite-ref:hover { text-decoration: underline; }
 
 .sources { margin-top: 14px; padding-top: 12px; border-top: 1px dashed var(--border); }
-.agent-trace { margin: 6px 0 10px; padding: 8px 10px; background: rgba(108, 92, 231, 0.06); border: 1px solid var(--border); border-radius: 8px; font-size: 12px; }
-.trace-head { font-weight: 600; color: var(--primary); cursor: pointer; user-select: none; display: flex; justify-content: space-between; }
-.trace-toggle { font-weight: 400; color: var(--text-muted); }
-.trace-steps { margin-top: 6px; display: flex; flex-direction: column; gap: 4px; }
-.trace-step { padding: 4px 6px; background: var(--surface); border-radius: 6px; border-left: 3px solid var(--primary); }
-.trace-step.is-final { border-left-color: #6c5ce7; }
-.trace-iter { color: var(--text-muted); margin-right: 6px; }
-.trace-tool { font-weight: 600; color: var(--text); }
-.trace-args { color: var(--text-muted); font-weight: 400; }
-.trace-result { color: var(--text-soft); margin-top: 2px; white-space: pre-wrap; word-break: break-all; }
-.trace-result.err { color: var(--danger); }
 .src-head { font-size: 12px; font-weight: 700; color: var(--text-muted); margin-bottom: 6px; }
 .src-item { font-size: 12px; color: var(--text-muted); margin: 4px 0; padding: 7px 9px; border-radius: var(--radius-sm); background: var(--surface); border: 1px solid var(--border-soft); cursor: pointer; transition: background .15s; line-height: 1.6; }
 .src-item:hover { background: var(--surface-2); }

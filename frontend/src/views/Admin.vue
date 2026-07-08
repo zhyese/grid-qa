@@ -317,17 +317,7 @@
             <strong class="opt-title">{{ g.query }}</strong>
           </div>
           <div class="opt-detail">原答案：{{ (g.originalAnswer || '').slice(0, 80) }}</div>
-          <div v-if="g.agentSteps && g.agentSteps.length" class="agent-trace" style="margin:6px 0">
-            <div class="trace-head" @click="g._traceOpen = (g._traceOpen === false)">🧠 深度思考 · {{ g.agentSteps.length }}步 <span class="trace-toggle">{{ g._traceOpen === false ? '展开▸' : '收起▾' }}</span></div>
-            <div v-show="g._traceOpen !== false" class="trace-steps">
-              <div v-for="(st, k) in g.agentSteps" :key="k" class="trace-step" :class="{'is-final': !st.tool}">
-                <span class="trace-iter">第{{ st.iter }}轮</span>
-                <span v-if="st.tool" class="trace-tool">🔧 {{ st.tool }}</span>
-                <span v-else class="trace-thought">💭 综合作答</span>
-                <div v-if="st.result" class="trace-result" :class="{err: st.error}">{{ (st.result || '').slice(0, 180) }}</div>
-              </div>
-            </div>
-          </div>
+          <AgentTrace :steps="g.agentSteps" />
           <div v-if="g.aiDraft" class="opt-detail" style="max-height:200px;overflow-y:auto;white-space:pre-wrap"><b>AI草稿{{ g.deepStreaming ? '（生成中…）' : '' }}：</b>{{ g.aiDraft }}</div>
           <div v-if="g.status==='synced'" class="opt-detail" style="color:var(--success)">最终：{{ (g.finalAnswer || '').slice(0, 100) }}</div>
           <div style="margin-top:6px">
@@ -473,6 +463,7 @@
 <script setup>
 import { ref, reactive, onMounted, nextTick } from 'vue'
 import { useAuthStore } from '../stores/auth'
+import AgentTrace from '../components/AgentTrace.vue'
 import * as echarts from 'echarts/core'
 import { PieChart, BarChart, ScatterChart, LineChart } from 'echarts/charts'
 import { TooltipComponent, LegendComponent, GridComponent } from 'echarts/components'
@@ -858,16 +849,6 @@ onMounted(() => { loadLogs(); loadFeedbacks('dislike'); loadFbStats(); loadAlert
 .opt-header { display: flex; align-items: center; gap: 6px; font-size: 13px; margin-bottom: 4px; flex-wrap: wrap; }
 .opt-type { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
 .opt-detail { font-size: 12px; color: var(--text); margin-bottom: 4px; line-height: 1.5; }
-.agent-trace { padding: 6px 8px; background: rgba(108, 92, 231, 0.06); border: 1px solid var(--border); border-radius: 6px; font-size: 12px; }
-.trace-head { font-weight: 600; color: var(--primary); cursor: pointer; user-select: none; display: flex; justify-content: space-between; }
-.trace-toggle { font-weight: 400; color: var(--text-muted); }
-.trace-steps { margin-top: 6px; display: flex; flex-direction: column; gap: 4px; }
-.trace-step { padding: 4px 6px; background: var(--surface); border-radius: 6px; border-left: 3px solid var(--primary); }
-.trace-step.is-final { border-left-color: #6c5ce7; }
-.trace-iter { color: var(--text-muted); margin-right: 6px; }
-.trace-tool { font-weight: 600; color: var(--text); }
-.trace-result { color: var(--text-soft); margin-top: 2px; white-space: pre-wrap; word-break: break-all; }
-.trace-result.err { color: var(--danger); }
 .opt-actions { display: flex; flex-direction: column; gap: 2px; }
 .opt-action { font-size: 12px; color: var(--text-muted); padding-left: 8px; border-left: 2px solid var(--border); margin: 1px 0; }
 </style>
