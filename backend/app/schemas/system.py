@@ -28,3 +28,10 @@ class MilvusConfigRequest(BaseModel):
 class ModelConfigRequest(BaseModel):
     modelType: str
     param: dict = {}
+
+
+class AlertDisposeRequest(BaseModel):
+    severity: str = "warning"            # S3：手动触发告警处置
+    title: str = ""
+    summary: str = ""
+    modelType: Optional[str] = None

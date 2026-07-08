@@ -8,8 +8,9 @@ from app.db.session import get_db
 from app.dependencies import get_current_user, require_admin
 from app.models.user import User
 from app.schemas.auth import LoginRequest, RegisterRequest
-from app.schemas.system import MilvusConfigRequest, ModelConfigRequest
+from app.schemas.system import AlertDisposeRequest, MilvusConfigRequest, ModelConfigRequest
 from app.services import config_service, log_service
+from app.services.alert_disposal_service import list_disposals, trigger_disposal
 from app.services.auth_service import authenticate, register_user
 from app.services.log_service import query_logs, write_log
 from app.services.agent_tool_audit_service import query_tool_calls
@@ -150,6 +151,11 @@ async def alerts_webhook(
             metrics.ALERT_RECEIVED.labels(sev).inc()
         except Exception:
             pass
+        # S3：触发自动处置（写 pending 快，disposal 跑在 bg task，不阻塞 webhook 响应）
+        try:
+            await trigger_disposal(sev, title, summary, source="webhook")
+        except Exception:
+            pass
     return success({"received": len(alerts)}, "告警已接收")
 
 
@@ -176,6 +182,31 @@ async def agent_tool_calls(
 ):
     """Agent 工具调用审计列表（S4，管理员）：谁/何时/哪个 persona/调了啥工具/结果。"""
     data = await query_tool_calls(page, size, persona=persona, tool=tool, username=username)
+    return success(data, "查询成功")
+
+
+@router.post("/alerts/dispose")
+async def alerts_dispose(
+    body: AlertDisposeRequest,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+):
+    """S3：手动触发告警自动处置（演示/测试用）。写 pending → bg task 跑 ALERT_PERSONA。"""
+    disp_id = await trigger_disposal(body.severity, body.title, body.summary,
+                                     source="manual", model_type=body.modelType)
+    await write_log(db, admin.username, "告警处置", f"手动触发 {body.title[:40]} → #{disp_id}")
+    return success({"id": disp_id}, "已触发处置")
+
+
+@router.get("/alerts/disposals")
+async def alerts_disposals(
+    page: int = Query(1, ge=1),
+    size: int = Query(20, ge=1, le=100),
+    status: str | None = Query(None),
+    admin: User = Depends(require_admin),
+):
+    """S3：告警处置记录列表（admin）：告警→诊断→处置→操作票草案。"""
+    data = await list_disposals(page, size, status=status)
     return success(data, "查询成功")
 
 

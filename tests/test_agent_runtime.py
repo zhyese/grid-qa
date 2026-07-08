@@ -428,3 +428,11 @@ def test_alert_disposal_model_importable():
     """S3: AlertDisposal model 可导入（init_db create_all 建表）。"""
     from app.models.alert_disposal import AlertDisposal
     assert AlertDisposal.__tablename__ == "alert_disposal"
+
+
+def test_endpoint_smoke_alert_disposal_routes():
+    """S3: /system/alerts/dispose + /disposals 路由注册。"""
+    from app.routers.system import router
+    paths = {r.path for r in router.routes}
+    assert "/system/alerts/dispose" in paths
+    assert "/system/alerts/disposals" in paths
