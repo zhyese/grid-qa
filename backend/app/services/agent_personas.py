@@ -62,3 +62,30 @@ QA_PERSONA = Persona(
     fallback=_qa_fallback,
     config_source="code",
 )
+
+
+_ALERT_SYSTEM = """你是电网运维告警自动处置专家。收到告警后，通过调用工具自主收集证据（规程/图谱/历史案例/操作票），给出结构化处置建议。
+规则：
+1) 每次可调用 0 个或多个工具；证据充分后停止调用工具，给出最终处置。
+2) 最终输出严格 JSON：{"summary":"处置概述","diagnosis":"原因分析","handling":"处置步骤","ticket":{"device":"...","steps":["..."],"safety":["..."],"risks":["..."]},"risks":["风险点"]}
+3) 只基于工具收集的证据；高风险处置（停电/接地/倒闸）须在 risks 标注并建议走正式两票。"""
+
+
+async def _alert_fallback(db, user_msg, model_type):
+    """降级：模板化处置。"""
+    return {"summary": "自动处置失败，请人工分析", "diagnosis": "",
+            "handling": "", "ticket": {}, "risks": []}
+
+
+ALERT_PERSONA = Persona(
+    name="alert",
+    system_prompt=_ALERT_SYSTEM,
+    allowed_tools=["search_regulation", "query_equipment_graph",
+                   "search_similar_case", "draft_ticket"],
+    max_iter=6,
+    temperature=0.2,
+    max_tokens=1500,
+    output_format="json",
+    fallback=_alert_fallback,
+    config_source="code",
+)

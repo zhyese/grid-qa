@@ -15,6 +15,7 @@ from app.models.operation_log import OperationLog  # noqa: F401  确保表被注
 from app.models.qa_cache import QaCache  # noqa: F401  确保表被注册
 from app.models.user import User  # noqa: F401
 from app.models.agent_tool_call import AgentToolCall  # noqa: F401  S4 工具调用审计
+from app.models.alert_disposal import AlertDisposal  # noqa: F401  S3 告警处置
 
 
 # 现有表加列的幂等迁移（create_all 只建不 ALTER；老库靠这里补列，列已存在则忽略 1060 错误）。

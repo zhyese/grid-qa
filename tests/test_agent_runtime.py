@@ -413,3 +413,18 @@ def test_qa_answer_request_has_agent_mode():
     req = QaAnswerRequest(query="x", agentMode=True)
     assert req.agentMode is True
     assert QaAnswerRequest(query="x").agentMode is False  # 默认关
+
+
+# ===== S3: 告警处置 =====
+def test_alert_persona_config():
+    from app.services.agent_personas import ALERT_PERSONA
+    assert ALERT_PERSONA.name == "alert"
+    assert ALERT_PERSONA.output_format == "json"
+    assert "draft_ticket" in ALERT_PERSONA.allowed_tools  # 告警处置可生成操作票
+    assert "search_regulation" in ALERT_PERSONA.allowed_tools
+
+
+def test_alert_disposal_model_importable():
+    """S3: AlertDisposal model 可导入（init_db create_all 建表）。"""
+    from app.models.alert_disposal import AlertDisposal
+    assert AlertDisposal.__tablename__ == "alert_disposal"
