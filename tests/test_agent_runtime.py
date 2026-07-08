@@ -344,3 +344,31 @@ def test_endpoint_smoke_agent_tool_calls_route():
     from app.routers.system import router
     paths = {r.path for r in router.routes}
     assert "/system/agent/tool-calls" in paths
+
+
+# ===== S2: 问答 Agent =====
+from app.services.agent_personas import QA_PERSONA
+
+
+def test_qa_persona_config():
+    assert QA_PERSONA.name == "qa"
+    assert QA_PERSONA.output_format == "text"
+    assert "draft_ticket" not in QA_PERSONA.allowed_tools  # 问答不需要操作票
+    assert "search_regulation" in QA_PERSONA.allowed_tools
+
+
+def test_run_agent_on_step_callback_fires(monkeypatch):
+    """S2: on_step 每步触发（工具步 + 收尾步）；默认 None 零回归。"""
+    captured = []
+    async def h(db, mt, **a): return "e"
+    persona = Persona(name="qa", system_prompt="s", allowed_tools=["h1"], output_format="text")
+    fake = FakeProvider([
+        {"content": "查", "tool_calls": [{"id": "1", "name": "h1", "arguments": {}}]},
+        {"content": "答案", "tool_calls": None},
+    ])
+    monkeypatch.setattr(agent_runtime, "get_llm_provider", lambda mt: fake)
+    asyncio.run(run_agent(None, persona, "q", registry=_reg_with("h1", h),
+                          on_step=lambda s: captured.append(s)))
+    assert len(captured) == 2  # 1 工具步 + 1 收尾步
+    assert captured[0]["tool"] == "h1"
+    assert captured[1]["tool"] is None

@@ -160,11 +160,14 @@ def _inc_metrics(persona: str, iterations: int) -> None:
 async def run_agent(db: AsyncSession, persona: Persona, user_msg: str,
                     model_type: Optional[str] = None,
                     registry: Optional[ToolRegistry] = None,
-                    ctx: Optional[dict] = None) -> AgentResult:
+                    ctx: Optional[dict] = None,
+                    on_step: Optional[Callable[[dict], None]] = None) -> AgentResult:
     """通用 ReAct 引擎：LLM 自主调工具多轮验证，persona 驱动全流程。
 
     ctx: {username, tenant, role} 可选，透传给 ToolRegistry.run 做审计+权限（S4）。
     ctx=None 时无审计/权限（diagnose 老链路零回归）。
+    on_step: 每完成一步（工具步/收尾步）后回调 step dict（S2 流式思考链用）。
+    on_step=None 时无回调（默认，零回归）。
     """
     if registry is None:
         from app.services.agent_tools import DEFAULT_REGISTRY
@@ -186,6 +189,8 @@ async def run_agent(db: AsyncSession, persona: Persona, user_msg: str,
             if not resp.get("tool_calls"):
                 steps.append({"iter": i, "thought": resp.get("content"), "tool": None,
                               "args": None, "result": None, "error": False})
+                if on_step:
+                    on_step(steps[-1])
                 break
             messages.append({"role": "assistant", "content": resp.get("content") or "",
                              "tool_calls": _to_openai_tool_calls(resp["tool_calls"])})
@@ -194,6 +199,8 @@ async def run_agent(db: AsyncSession, persona: Persona, user_msg: str,
                 result, err = await registry.run(db, model_type, tc["name"], tc.get("arguments"), ctx=step_ctx)
                 steps.append({"iter": i, "thought": resp.get("content"), "tool": tc["name"],
                               "args": tc.get("arguments"), "result": (result or "")[:600], "error": err})
+                if on_step:
+                    on_step(steps[-1])
                 try:
                     from app.core import metrics
                     metrics.AGENT_TOOL_CALLS.labels(persona.name, tc["name"]).inc()

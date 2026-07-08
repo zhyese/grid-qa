@@ -32,3 +32,33 @@ DIAGNOSE_PERSONA = Persona(
     fallback=_diagnose_fallback,
     config_source="code",
 )
+
+
+_QA_SYSTEM = """你是电网运维智能问答助手。通过调用工具自主收集证据（规程/图谱/历史案例）后，用自然语言回答用户的运维问题。
+规则：
+1) 每次可调用 0 个或多个工具；证据充分后停止调用工具，直接给出最终答案。
+2) 答案须基于工具收集的证据，客观准确；引用关键规程/案例时简述来源；证据不足如实说明。
+3) 涉及高风险操作（停电/接地/倒闸）时，提示风险并建议查阅正式规程或两票。"""
+
+
+async def _qa_fallback(db, user_msg, model_type):
+    """降级：走 qa_service.answer 原链路，返回答案文本。"""
+    from app.services import qa_service
+    try:
+        res = await qa_service.answer(db, user_msg, model_type=model_type)
+        return res.get("answer", "")
+    except Exception:
+        return ""
+
+
+QA_PERSONA = Persona(
+    name="qa",
+    system_prompt=_QA_SYSTEM,
+    allowed_tools=["search_regulation", "query_equipment_graph", "search_similar_case"],
+    max_iter=6,
+    temperature=0.2,
+    max_tokens=1500,
+    output_format="text",
+    fallback=_qa_fallback,
+    config_source="code",
+)
