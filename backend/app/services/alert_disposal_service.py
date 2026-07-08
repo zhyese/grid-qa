@@ -35,8 +35,9 @@ async def _run_disposal(disp_id: int, alert_text: str, model_type: str | None) -
     """bg task：跑 ALERT_PERSONA → 拆 diagnosis/handling/ticket → 更新 disposed。"""
     try:
         from app.services.agent_runtime import run_agent
-        from app.services.agent_personas import ALERT_PERSONA
-        res = await run_agent(None, ALERT_PERSONA, f"告警：{alert_text}", model_type)
+        from app.services.persona_store import get_persona
+        alert_persona = await get_persona("alert")
+        res = await run_agent(None, alert_persona, f"告警：{alert_text}", model_type)
         ans = res.answer if isinstance(res.answer, dict) else {"summary": str(res.answer)[:500]}
         handling = ans.get("summary", "") if isinstance(ans, dict) else ""
         ticket = ans.get("ticket") or {} if isinstance(ans, dict) else {}

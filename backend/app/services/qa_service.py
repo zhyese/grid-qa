@@ -359,7 +359,7 @@ async def _stream_agent(db, query, model_type, conversation_id, username, tenant
     """S2: Agent 流式（meta→tool_step×N→token→done）。run_agent on_step→asyncio.Queue 桥接。"""
     import asyncio
     from app.services.agent_runtime import run_agent
-    from app.services.agent_personas import QA_PERSONA
+    from app.services.persona_store import get_persona
 
     if not conversation_id:
         conv = await conversation_service.create_conversation(db, username, query)
@@ -370,8 +370,9 @@ async def _stream_agent(db, query, model_type, conversation_id, username, tenant
 
     async def _run():
         try:
+            qa_persona = await get_persona("qa")
             res = await run_agent(
-                db, QA_PERSONA, query, model_type,
+                db, qa_persona, query, model_type,
                 ctx={"username": username, "tenant": tenant},
                 on_step=lambda s: queue.put_nowait({"type": "tool_step", "step": s}),
             )

@@ -436,3 +436,51 @@ def test_endpoint_smoke_alert_disposal_routes():
     paths = {r.path for r in router.routes}
     assert "/system/alerts/dispose" in paths
     assert "/system/alerts/disposals" in paths
+
+
+# ===== S5: persona DB 覆盖 =====
+def test_get_persona_db_override_merges(monkeypatch):
+    """S5: DB enabled 配置覆盖 code persona 的 prompt/工具/参数；fallback 保留 code。"""
+    from app.services import persona_store
+    from app.services.agent_personas import DIAGNOSE_PERSONA
+
+    class FakeCfg:
+        enabled = True
+        system_prompt = "DB覆盖的prompt"
+        allowed_tools = '["search_regulation"]'
+        max_iter = 3
+        temperature = 0.5
+        max_tokens = None
+        output_format = None
+
+    class FakeSession:
+        async def __aenter__(self): return self
+        async def __aexit__(self, *a): pass
+        async def execute(self, q):
+            class _R:
+                def scalar_one_or_none(_s): return FakeCfg()
+            return _R()
+    monkeypatch.setattr(persona_store, "AsyncSessionLocal", lambda: FakeSession())
+    p = asyncio.run(persona_store.get_persona("diagnose"))
+    assert p.system_prompt == "DB覆盖的prompt"
+    assert p.allowed_tools == ["search_regulation"]
+    assert p.max_iter == 3 and p.temperature == 0.5
+    assert p.config_source == "db"
+    assert p.fallback is DIAGNOSE_PERSONA.fallback  # fallback 保留 code 的
+
+
+def test_get_persona_no_db_config_returns_code(monkeypatch):
+    """S5: 无 DB 配置 → 返 code persona（config_source=code）。"""
+    from app.services import persona_store
+
+    class FakeSession:
+        async def __aenter__(self): return self
+        async def __aexit__(self, *a): pass
+        async def execute(self, q):
+            class _R:
+                def scalar_one_or_none(_s): return None
+            return _R()
+    monkeypatch.setattr(persona_store, "AsyncSessionLocal", lambda: FakeSession())
+    p = asyncio.run(persona_store.get_persona("qa"))
+    assert p.name == "qa"
+    assert p.config_source == "code"
