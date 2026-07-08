@@ -46,3 +46,7 @@ class PersonaConfigRequest(BaseModel):
     maxTokens: Optional[int] = None
     outputFormat: Optional[str] = None   # json | text
     enabled: bool = True
+
+
+class AiDraftUpdateRequest(BaseModel):
+    aiDraft: str = ""                    # 就地编辑保存 AI 草稿（点击文本直接改）

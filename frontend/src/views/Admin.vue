@@ -318,7 +318,14 @@
           </div>
           <div class="opt-detail">原答案：{{ (g.originalAnswer || '').slice(0, 80) }}</div>
           <AgentTrace :steps="g.agentSteps" />
-          <div v-if="g.aiDraft" class="opt-detail" style="max-height:200px;overflow-y:auto;white-space:pre-wrap"><b>AI草稿{{ g.deepStreaming ? '（生成中…）' : '' }}：</b>{{ g.aiDraft }}</div>
+          <div v-if="g.aiDraft" class="opt-detail" style="margin-top:6px">
+            <b>AI草稿{{ g.deepStreaming ? '（生成中…）' : '（点击下方文本可直接编辑）' }}：</b>
+            <div v-if="g._editing" style="margin-top:4px">
+              <textarea v-model="g.aiDraft" rows="8" class="input" style="width:100%;font-size:12px"></textarea>
+              <div style="margin-top:4px"><button class="btn btn-success btn-sm" @click="saveAiDraftInline(g)">💾 保存草稿</button> <button class="btn btn-ghost btn-sm" @click="g._editing = false">取消</button></div>
+            </div>
+            <div v-else @click="!g.deepStreaming && (g._editing = true)" style="cursor:text;white-space:pre-wrap;margin-top:4px;padding:8px 10px;background:var(--surface);border-radius:6px;min-height:50px;max-height:240px;overflow-y:auto;border:1px dashed var(--border)" title="点击编辑">{{ g.aiDraft }}</div>
+          </div>
           <div v-if="g.status==='synced'" class="opt-detail" style="color:var(--success)">最终：{{ (g.finalAnswer || '').slice(0, 100) }}</div>
           <div style="margin-top:6px">
             <button v-if="g.status==='pending'" class="btn btn-primary btn-sm" @click="egDraft(g)">🤖 AI续写</button>
@@ -663,6 +670,12 @@ async function egDeepDraft(g) {
     }
   } catch (e) { toast('深度补全失败') }
   finally { g.deepStreaming = false }
+}
+async function saveAiDraftInline(g) {
+  const t = g.aiDraft || ''
+  g._editing = false
+  try { await request.put(`/system/evidence-gap/${g.id}/ai-draft`, { aiDraft: t }); toast('草稿已保存') }
+  catch (e) { toast('保存失败') }
 }
 const egEditing = ref(null); const egEditText = ref(''); const egSaving = ref(false)
 function egEdit(g) {

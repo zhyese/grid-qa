@@ -175,6 +175,22 @@ async def deep_draft_stream(gap_id: int, model_type: str | None = None):
         await task
 
 
+async def update_ai_draft(gap_id: int, ai_draft: str) -> dict:
+    """就地编辑保存 AI 草稿（更新 ai_draft，status 保持 ai_drafted）。"""
+    try:
+        async with AsyncSessionLocal() as db:
+            row = (await db.execute(select(EvidenceGap).where(EvidenceGap.id == gap_id))).scalar_one_or_none()
+            if not row:
+                return {"ok": False, "msg": "记录不存在"}
+            row.ai_draft = ai_draft or ""
+            row.status = "ai_drafted"
+            await db.commit()
+            return {"ok": True}
+    except Exception as e:
+        degraded("evidence_gap_update_ai_draft", e)
+        return {"ok": False, "msg": str(e)}
+
+
 async def edit_answer(gap_id: int, final_answer: str) -> dict:
     """人工编辑保存最终答案，status→confirmed（不同步，待「确认同步」触发入库）。"""
     try:

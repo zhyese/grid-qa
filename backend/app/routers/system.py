@@ -8,7 +8,7 @@ from app.db.session import get_db
 from app.dependencies import get_current_user, require_admin
 from app.models.user import User
 from app.schemas.auth import LoginRequest, RegisterRequest
-from app.schemas.system import AlertDisposeRequest, PersonaConfigRequest, MilvusConfigRequest, ModelConfigRequest
+from app.schemas.system import AlertDisposeRequest, AiDraftUpdateRequest, PersonaConfigRequest, MilvusConfigRequest, ModelConfigRequest
 from app.services import config_service, log_service
 from app.services.alert_disposal_service import list_disposals, trigger_disposal
 from app.services.persona_store import delete_config, list_configs, upsert_config
@@ -359,6 +359,17 @@ async def evidence_gap_ai_draft(
     from app.services.evidence_gap_service import ai_draft
     draft = await ai_draft(gap_id, model_type)
     return success({"aiDraft": draft}, "续写完成")
+
+
+@router.put("/evidence-gap/{gap_id}/ai-draft")
+async def evidence_gap_update_ai_draft(
+    gap_id: int, body: AiDraftUpdateRequest,
+    admin: User = Depends(require_admin),
+):
+    """就地编辑保存 AI 草稿（点击草稿文本直接改，失焦保存）。"""
+    from app.services.evidence_gap_service import update_ai_draft
+    data = await update_ai_draft(gap_id, body.aiDraft)
+    return success(data, "草稿已保存")
 
 
 @router.post("/evidence-gap/{gap_id}/deep-draft")
