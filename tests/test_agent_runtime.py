@@ -233,3 +233,50 @@ def test_diagnose_fallback_strips_prefix_and_calls_domain(monkeypatch):
         db=None, user_msg="故障症状：1号主变油温高", model_type=None))
     assert captured["symptom"] == "1号主变油温高"  # 前缀已剥离
     assert out == {"summary": "s", "causes": []}
+
+
+# ===== Task 6: 迁移不变性黄金回归 =====
+from app.services import diagnose_agent_service
+
+
+def test_diagnose_agent_migration_returns_stable_schema(monkeypatch):
+    """黄金回归：迁移后 diagnose_agent 返回 schema 与原实现一致；mock 工具下游避免真实 DB。"""
+    async def fake_mixed(db, q, topk, model_type=None):
+        return [{"docName": "规程A", "chunk": "油温高处置..."}]
+    async def fake_graph(entity, limit):
+        return ["风扇故障→过热"]
+    async def fake_case(db, symptom, mt, topk):
+        return {"cases": [{"docName": "案例B", "text": "历史风扇故障"}]}
+    async def fake_ticket(db, task, mt, topk):
+        return {"ticket": {"device": "1号主变", "steps": ["停机"], "safety": [], "risks": []}}
+    monkeypatch.setattr(agent_tools.retrieval_service, "mixed_search", fake_mixed)
+    monkeypatch.setattr(agent_tools.kg_service, "graph_context", fake_graph)
+    monkeypatch.setattr(agent_tools.domain_service, "similar_case", fake_case)
+    monkeypatch.setattr(agent_tools.domain_service, "generate_ticket", fake_ticket)
+
+    fake = FakeProvider([
+        {"content": "查规程", "tool_calls": [
+            {"id": "1", "name": "search_regulation", "arguments": {"query": "油温高"}}]},
+        {"content": "查图谱", "tool_calls": [
+            {"id": "2", "name": "query_equipment_graph", "arguments": {"entity": "1号主变"}}]},
+        {"content": '{"causes":[{"name":"风扇故障","likelihood":"高","evidence":"e","handling":"h"}],'
+                    '"summary":"过热","risks":["负载高"]}', "tool_calls": None},
+    ])
+    monkeypatch.setattr(agent_runtime, "get_llm_provider", lambda mt: fake)
+    out = asyncio.run(diagnose_agent_service.diagnose_agent(
+        db=None, symptom="1号主变油温高", model_type=None))
+    assert set(out.keys()) == {"symptom", "diagnosis", "steps", "iterations",
+                               "degraded", "degradeReason", "latencyMs"}
+    assert out["symptom"] == "1号主变油温高"
+    assert out["degraded"] is False and out["degradeReason"] is None
+    assert out["iterations"] == 3
+    assert out["diagnosis"]["summary"] == "过热"
+    assert out["diagnosis"]["causes"][0]["name"] == "风扇故障"
+    assert [s["tool"] for s in out["steps"]] == ["search_regulation", "query_equipment_graph", None]
+
+
+def test_endpoint_smoke_diagnose_agent_route():
+    """端点 smoke：路由模块可导入，/domain/diagnose-agent 路径不变。"""
+    from app.routers.domain import router
+    paths = {r.path for r in router.routes}
+    assert "/domain/diagnose-agent" in paths
