@@ -1,0 +1,71 @@
+{
+  "uid": "agent-runtime",
+  "title": "Agent 引擎决策看板",
+  "schemaVersion": 38,
+  "version": 1,
+  "refresh": "10s",
+  "time": { "from": "now-15m", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Agent 调用数（按 persona）",
+      "type": "stat",
+      "datasource": { "type": "prometheus" },
+      "targets": [
+        { "expr": "sum(grid_agent_calls_total) by (persona)", "legendFormat": "{{persona}}", "refId": "A" }
+      ],
+      "gridPos": { "x": 0, "y": 0, "w": 8, "h": 7 }
+    },
+    {
+      "id": 2,
+      "title": "Agent 工具调用数（按 工具）",
+      "type": "stat",
+      "datasource": { "type": "prometheus" },
+      "targets": [
+        { "expr": "sum(grid_agent_tool_calls_total) by (tool)", "legendFormat": "{{tool}}", "refId": "A" }
+      ],
+      "gridPos": { "x": 8, "y": 0, "w": 8, "h": 7 }
+    },
+    {
+      "id": 3,
+      "title": "工具权限拒绝（按 工具）",
+      "type": "stat",
+      "datasource": { "type": "prometheus" },
+      "targets": [
+        { "expr": "sum(grid_agent_tool_calls_denied_total) by (tool)", "legendFormat": "{{tool}}", "refId": "A" }
+      ],
+      "gridPos": { "x": 16, "y": 0, "w": 8, "h": 7 }
+    },
+    {
+      "id": 4,
+      "title": "Agent 调用速率（按 persona，/min）",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus" },
+      "targets": [
+        { "expr": "sum(rate(grid_agent_calls_total[1m])) by (persona) * 60", "legendFormat": "{{persona}}", "refId": "A" }
+      ],
+      "gridPos": { "x": 0, "y": 7, "w": 12, "h": 8 }
+    },
+    {
+      "id": 5,
+      "title": "工具调用速率（按 工具，/min）",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus" },
+      "targets": [
+        { "expr": "sum(rate(grid_agent_tool_calls_total[1m])) by (tool) * 60", "legendFormat": "{{tool}}", "refId": "A" }
+      ],
+      "gridPos": { "x": 12, "y": 7, "w": 12, "h": 8 }
+    },
+    {
+      "id": 6,
+      "title": "Agent 迭代轮数分布（P50 / P95）",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus" },
+      "targets": [
+        { "expr": "histogram_quantile(0.5, sum(rate(grid_agent_iters_bucket[5m])) by (le))", "legendFormat": "P50", "refId": "A" },
+        { "expr": "histogram_quantile(0.95, sum(rate(grid_agent_iters_bucket[5m])) by (le))", "legendFormat": "P95", "refId": "B" }
+      ],
+      "gridPos": { "x": 0, "y": 15, "w": 24, "h": 8 }
+    }
+  ]
+}
