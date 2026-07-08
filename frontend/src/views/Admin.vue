@@ -303,6 +303,7 @@
       <div class="card" v-show="tab === 'evidence'">
         <div class="card-header">
           <h3 class="card-title">📝 证据补全（medium/refused 人工兜底回流）</h3>
+          <button class="btn btn-ghost btn-sm" @click="retagFaq" title="补全旧FAQ的设备标签（从答案提取）">🏷️ 补设备标签</button>
           <select v-model="egFilter" @change="loadEvidenceGaps" class="btn btn-ghost btn-sm">
             <option value="">全部</option><option value="pending">待处理</option>
             <option value="ai_drafted">已续写</option><option value="synced">已同步</option>
@@ -692,6 +693,10 @@ function confBadgeClass(c) {
 async function saveConf(g) {
   try { await request.put(`/system/evidence-gap/${g.id}/confidence`, { confidence: g.confidence }); toast('标注已保存') }
   catch (e) { toast('保存失败') }
+}
+async function retagFaq() {
+  try { const r = await request.post('/system/evidence-gap/retag'); toast(`已补全 ${r.data.updated} 条设备标签`) }
+  catch (e) { toast('补全失败') }
 }
 const egEditing = ref(null); const egEditText = ref(''); const egSaving = ref(false)
 function egEdit(g) {

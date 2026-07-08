@@ -295,3 +295,31 @@ async def confirm_and_sync(gap_id: int, final_answer: str, operator: str,
     except Exception as e:
         degraded("evidence_gap_sync", e)
         return {"ok": False, "msg": str(e)}
+
+
+async def retag_faq_equipment() -> dict:
+    """一次性补全旧 FAQ 的设备标签（扫 equipment_tags 空的 FAQ，从 Chunk content 重新提取）。"""
+    from app.models.chunk import Chunk
+    from app.models.document import Document
+    from app.services.document_service import _auto_equipment_tags
+    n = 0
+    try:
+        async with AsyncSessionLocal() as db:
+            rows = (await db.execute(
+                select(Document).where(
+                    Document.doc_type == settings.EVIDENCE_GAP_FAQ_DOCTYPE,
+                    (Document.equipment_tags == "") | (Document.equipment_tags.is_(None)),
+                )
+            )).scalars().all()
+            for doc in rows:
+                chunks = (await db.execute(
+                    select(Chunk).where(Chunk.doc_id == doc.id).order_by(Chunk.chunk_idx)
+                )).scalars().all()
+                text = "\n".join(c.content for c in chunks)
+                doc.equipment_tags = _auto_equipment_tags(text)
+                n += 1
+            await db.commit()
+        return {"updated": n}
+    except Exception as e:
+        degraded("evidence_gap_retag", e)
+        return {"updated": 0, "error": str(e)}

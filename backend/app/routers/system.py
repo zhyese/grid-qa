@@ -383,6 +383,14 @@ async def evidence_gap_update_confidence(
     return success(data, "标注已保存")
 
 
+@router.post("/evidence-gap/retag")
+async def evidence_gap_retag(admin: User = Depends(require_admin)):
+    """一次性补全旧 FAQ 的设备标签（扫 equipment_tags 空的 FAQ，从 Chunk content 提取）。"""
+    from app.services.evidence_gap_service import retag_faq_equipment
+    data = await retag_faq_equipment()
+    return success(data, "补全完成")
+
+
 @router.post("/evidence-gap/{gap_id}/deep-draft")
 async def evidence_gap_deep_draft(
     gap_id: int, model_type: str | None = None,
