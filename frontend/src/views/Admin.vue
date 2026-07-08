@@ -444,8 +444,8 @@
         <div class="card-header"><h3 class="card-title">📊 检索质量评测趋势</h3><button class="btn btn-ghost btn-sm" @click="loadEval">🔄 刷新</button></div>
         <div v-if="evalTrend">
           <div class="stats-grid" style="margin-bottom:14px;grid-template-columns:repeat(4,1fr)">
-            <div class="stat stat-accent"><div class="stat-val">{{ ((evalTrend.latestOverall||0)*100).toFixed(1) }}%</div><div class="stat-lbl">最新综合</div></div>
-            <div class="stat stat-accent"><div class="stat-val">{{ evalAvg() }}</div><div class="stat-lbl">区间均分</div></div>
+            <div class="stat stat-accent ring-stat"><div class="ring" :style="{ background: `conic-gradient(var(--primary) 0 ${((evalTrend.latestOverall||0)*100).toFixed(1)}%, var(--surface-2) ${((evalTrend.latestOverall||0)*100).toFixed(1)}% 100%)` }"><div class="ring-hole"><div class="ring-val">{{ ((evalTrend.latestOverall||0)*100).toFixed(1) }}%</div><div class="ring-lbl">最新综合</div></div></div></div>
+            <div class="stat stat-accent ring-stat"><div class="ring" :style="{ background: `conic-gradient(#6c5ce7 0 ${parseFloat(evalAvg())||0}%, var(--surface-2) ${parseFloat(evalAvg())||0}% 100%)` }"><div class="ring-hole"><div class="ring-val">{{ evalAvg() }}</div><div class="ring-lbl">区间均分</div></div></div></div>
             <div class="stat stat-accent"><div class="stat-val">{{ evalTrend.trends?.length || 0 }}</div><div class="stat-lbl">采样天数</div></div>
             <div class="stat stat-accent"><div class="stat-val">{{ evalSamples() }}</div><div class="stat-lbl">采样总数</div></div>
           </div>
@@ -878,6 +878,11 @@ onMounted(() => { loadLogs(); loadFeedbacks('dislike'); loadFbStats(); loadAlert
 .opt-header { display: flex; align-items: center; gap: 6px; font-size: 13px; margin-bottom: 4px; flex-wrap: wrap; }
 .opt-type { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
 .opt-detail { font-size: 12px; color: var(--text); margin-bottom: 4px; line-height: 1.5; }
+.ring-stat { display: flex; align-items: center; justify-content: center; }
+.ring { width: 98px; height: 98px; border-radius: 50%; display: flex; align-items: center; justify-content: center; }
+.ring-hole { width: 74px; height: 74px; border-radius: 50%; background: var(--surface); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; }
+.ring-val { font-size: 17px; font-weight: 700; color: var(--primary); }
+.ring-lbl { font-size: 11px; color: var(--text-muted); }
 .opt-actions { display: flex; flex-direction: column; gap: 2px; }
 .opt-action { font-size: 12px; color: var(--text-muted); padding-left: 8px; border-left: 2px solid var(--border); margin: 1px 0; }
 </style>
