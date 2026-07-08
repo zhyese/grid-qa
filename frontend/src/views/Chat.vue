@@ -68,7 +68,7 @@
                 </div>
               </div>
             </div>
-            <div v-else class="ans md" @click="onAnsClick($event, m)" v-html="renderMd(m.content)"></div>
+            <div class="ans md" v-show="!m.streaming" @click="onAnsClick($event, m)" v-html="renderMd(m.content)"></div>
             <div v-if="m.aborted" class="hint" style="margin-top:8px">⏹ 已停止生成（仅显示已接收内容）</div>
 
             <div class="sources" v-if="m.sources && m.sources.length">
