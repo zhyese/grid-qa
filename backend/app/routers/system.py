@@ -8,9 +8,10 @@ from app.db.session import get_db
 from app.dependencies import get_current_user, require_admin
 from app.models.user import User
 from app.schemas.auth import LoginRequest, RegisterRequest
-from app.schemas.system import AlertDisposeRequest, MilvusConfigRequest, ModelConfigRequest
+from app.schemas.system import AlertDisposeRequest, PersonaConfigRequest, MilvusConfigRequest, ModelConfigRequest
 from app.services import config_service, log_service
 from app.services.alert_disposal_service import list_disposals, trigger_disposal
+from app.services.persona_store import delete_config, list_configs, upsert_config
 from app.services.auth_service import authenticate, register_user
 from app.services.log_service import query_logs, write_log
 from app.services.agent_tool_audit_service import query_tool_calls
@@ -208,6 +209,39 @@ async def alerts_disposals(
     """S3：告警处置记录列表（admin）：告警→诊断→处置→操作票草案。"""
     data = await list_disposals(page, size, status=status)
     return success(data, "查询成功")
+
+
+@router.get("/agent/personas")
+async def agent_personas(admin: User = Depends(require_admin)):
+    """S5：persona 配置列表（code persona 清单 + DB 覆盖配置）。"""
+    data = await list_configs()
+    return success(data, "查询成功")
+
+
+@router.post("/agent/personas")
+async def agent_persona_upsert(
+    body: PersonaConfigRequest,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+):
+    """S5：新增/更新 persona 配置（DB 覆盖 code 的 prompt/工具/参数，fallback 保留 code）。"""
+    data = await upsert_config(body.name, body.systemPrompt, body.allowedTools,
+                               body.maxIter, body.temperature, body.maxTokens,
+                               body.outputFormat, body.enabled)
+    await write_log(db, admin.username, "persona配置", f"{body.name} enabled={body.enabled}")
+    return success(data, "保存成功")
+
+
+@router.delete("/agent/personas")
+async def agent_persona_delete(
+    name: str = Query(...),
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+):
+    """S5：删除 persona DB 覆盖配置（恢复 code 默认）。"""
+    data = await delete_config(name)
+    await write_log(db, admin.username, "persona配置", f"删除 {name}")
+    return success(data, "删除成功")
 
 
 # ===== 反馈驱动优化闭环 =====

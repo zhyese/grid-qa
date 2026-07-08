@@ -484,3 +484,10 @@ def test_get_persona_no_db_config_returns_code(monkeypatch):
     p = asyncio.run(persona_store.get_persona("qa"))
     assert p.name == "qa"
     assert p.config_source == "code"
+
+
+def test_endpoint_smoke_persona_routes():
+    """S5: /system/agent/personas 路由注册(GET/POST/DELETE)。"""
+    from app.routers.system import router
+    paths = {r.path for r in router.routes}
+    assert "/system/agent/personas" in paths
