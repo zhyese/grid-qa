@@ -203,7 +203,7 @@ hljs.registerLanguage('html', xml)
 hljs.registerLanguage('markdown', markdown)
 hljs.registerLanguage('md', markdown)
 
-const md = new MarkdownIt({ html: false, linkify: true, breaks: true,
+const md = new MarkdownIt({ html: true, linkify: true, breaks: true,
   highlight(str, lang) {
     if (lang && hljs.getLanguage(lang)) {
       try { return `<pre class="hljs"><code>${hljs.highlight(str, { language: lang }).value}</code></pre>` } catch (e) {}
@@ -213,7 +213,9 @@ const md = new MarkdownIt({ html: false, linkify: true, breaks: true,
 })
 function renderMd(text) {
   if (!text) return ''
-  return md.render(String(text)).replace(/\[(\d+)\]/g, '<sup class="cite-ref" data-idx="$1">[$1]</sup>')
+  return md.render(String(text))
+    .replace(/<script[\s\S]*?<\/script>/gi, '')   // html:true 后剥 <script> 防 XSS
+    .replace(/\[(\d+)\]/g, '<sup class="cite-ref" data-idx="$1">[$1]</sup>')
 }
 
 const auth = useAuthStore()
