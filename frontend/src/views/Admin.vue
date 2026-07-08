@@ -313,9 +313,13 @@
         <div class="opt-card" v-for="g in egList" :key="g.id" :class="g.confidence==='refused'?'sev-high':'sev-medium'">
           <div class="opt-header">
             <select v-model="g.confidence" @change="saveConf(g)" class="badge" :class="confBadgeClass(g.confidence)" title="点击标注 confidence">
+              <option value="sufficient">证据充足</option>
               <option value="medium">证据有限</option>
               <option value="refused">证据不足</option>
-              <option value="sufficient">证据充足</option>
+              <option value="outdated">证据过时</option>
+              <option value="conflict">证据冲突</option>
+              <option value="verify">需人工核实</option>
+              <option value="expired">已过保</option>
             </select>
             <span class="badge" :class="{pending:'badge-info',ai_drafted:'badge-warning',synced:'badge-success',ignored:'badge-neutral'}[g.status]">{{ {pending:'待处理',ai_drafted:'已续写',synced:'已同步',ignored:'已忽略'}[g.status] }}</span>
             <strong class="opt-title">{{ g.query }}</strong>
@@ -682,7 +686,8 @@ async function saveAiDraftInline(g) {
   catch (e) { toast('保存失败') }
 }
 function confBadgeClass(c) {
-  return { refused: 'badge-danger', medium: 'badge-warning', sufficient: 'badge-success' }[c] || 'badge-neutral'
+  return { sufficient: 'badge-success', medium: 'badge-warning', refused: 'badge-danger',
+           outdated: 'badge-neutral', conflict: 'badge-danger', verify: 'badge-info', expired: 'badge-neutral' }[c] || 'badge-neutral'
 }
 async function saveConf(g) {
   try { await request.put(`/system/evidence-gap/${g.id}/confidence`, { confidence: g.confidence }); toast('标注已保存') }
