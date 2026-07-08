@@ -112,3 +112,98 @@ def test_agent_metrics_preregistered_in_registry():
     assert "grid_agent_tool_calls_total" in text
     for t in ("search_regulation", "query_equipment_graph", "search_similar_case", "draft_ticket"):
         assert f'persona="diagnose",tool="{t}"' in text
+
+
+# ===== Task 4: run_agent 引擎循环 =====
+from app.services import agent_runtime
+from app.services.agent_runtime import Persona, Tool, ToolRegistry, run_agent
+
+
+class FakeProvider:
+    """脚本化 chat_with_tools：按顺序返回预设响应。"""
+    def __init__(self, script):
+        self.script = script
+        self.i = 0
+        self.calls = 0
+
+    async def chat_with_tools(self, messages, tools, tool_choice="auto",
+                              temperature=0.2, max_tokens=2048, **kw):
+        self.calls += 1
+        resp = self.script[min(self.i, len(self.script) - 1)]
+        self.i += 1
+        return {"content": resp.get("content"), "tool_calls": resp.get("tool_calls")}
+
+
+def _reg_with(tool_name, handler):
+    reg = ToolRegistry()
+    reg.register(Tool(tool_name, "d", {"type": "object"}, handler))
+    return reg
+
+
+def test_run_agent_normal_path_breaks_when_no_tool_calls(monkeypatch):
+    async def h(db, mt, **a):
+        return "证据:xxx"
+    persona = Persona(name="qa", system_prompt="s", allowed_tools=["h1"], output_format="text")
+    fake = FakeProvider([
+        {"content": "查一下", "tool_calls": [{"id": "1", "name": "h1", "arguments": {}}]},
+        {"content": "最终答案", "tool_calls": None},
+    ])
+    monkeypatch.setattr(agent_runtime, "get_llm_provider", lambda mt: fake)
+    res = asyncio.run(run_agent(db=None, persona=persona, user_msg="q",
+                                registry=_reg_with("h1", h)))
+    assert res.degraded is False and res.iterations == 2
+    assert res.answer == "最终答案"
+    assert res.tools_used == ["h1"]
+    assert res.steps[0]["tool"] == "h1" and res.steps[0]["error"] is False
+    assert res.steps[1]["tool"] is None  # 收尾思考步
+
+
+def test_run_agent_json_output_format_extracts(monkeypatch):
+    async def h(db, mt, **a):
+        return "e"
+    persona = Persona(name="diagnose", system_prompt="s", allowed_tools=["h1"], output_format="json")
+    fake = FakeProvider([{"content": '前缀 {"causes":[],"summary":"ok"}', "tool_calls": None}])
+    monkeypatch.setattr(agent_runtime, "get_llm_provider", lambda mt: fake)
+    res = asyncio.run(run_agent(None, persona, "q", registry=_reg_with("h1", h)))
+    assert res.answer == {"causes": [], "summary": "ok"}
+
+
+def test_run_agent_max_iter_degrades_to_fallback(monkeypatch):
+    async def h(db, mt, **a):
+        return "e"
+    async def fb(db, msg, mt):
+        return {"summary": "降级结果"}
+    persona = Persona(name="qa", system_prompt="s", allowed_tools=["h1"],
+                      max_iter=2, fallback=fb)
+    # 每轮都返回 tool_calls → 永不 break → 超限降级
+    fake = FakeProvider([{"content": "继续", "tool_calls": [{"id": "1", "name": "h1", "arguments": {}}]}])
+    monkeypatch.setattr(agent_runtime, "get_llm_provider", lambda mt: fake)
+    res = asyncio.run(run_agent(None, persona, "q", registry=_reg_with("h1", h)))
+    assert res.degraded is True and res.degrade_reason == "max_iter"
+    assert res.answer == {"summary": "降级结果"}
+
+
+def test_run_agent_provider_exception_degrades(monkeypatch):
+    class Boom:
+        async def chat_with_tools(self, *a, **k):
+            raise RuntimeError("net")
+    async def fb(db, msg, mt):
+        return {"summary": "fb"}
+    persona = Persona(name="qa", system_prompt="s", allowed_tools=[], fallback=fb)
+    monkeypatch.setattr(agent_runtime, "get_llm_provider", lambda mt: Boom())
+    res = asyncio.run(run_agent(None, persona, "q", registry=ToolRegistry()))
+    assert res.degraded is True and "exception" in res.degrade_reason
+
+
+def test_run_agent_per_tool_error_isolated(monkeypatch):
+    async def boom(db, mt, **a):
+        raise ValueError("bad")
+    persona = Persona(name="qa", system_prompt="s", allowed_tools=["h1"])
+    fake = FakeProvider([
+        {"content": "c", "tool_calls": [{"id": "1", "name": "h1", "arguments": {}}]},
+        {"content": "final", "tool_calls": None},
+    ])
+    monkeypatch.setattr(agent_runtime, "get_llm_provider", lambda mt: fake)
+    res = asyncio.run(run_agent(None, persona, "q", registry=_reg_with("h1", boom)))
+    assert res.degraded is False  # 工具失败不崩循环
+    assert res.steps[0]["error"] is True and "执行失败" in res.steps[0]["result"]

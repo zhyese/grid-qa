@@ -109,3 +109,94 @@ def _to_openai_tool_calls(tool_calls):
              "function": {"name": tc["name"],
                           "arguments": json.dumps(tc.get("arguments") or {}, ensure_ascii=False)}}
             for tc in tool_calls]
+
+
+def _inc_metrics(persona: str, iterations: int) -> None:
+    try:
+        from app.core import metrics
+        metrics.AGENT_CALLS.labels(persona).inc()
+        metrics.AGENT_ITERS.observe(iterations)
+    except Exception:
+        pass
+
+
+async def run_agent(db: AsyncSession, persona: Persona, user_msg: str,
+                    model_type: Optional[str] = None,
+                    registry: Optional[ToolRegistry] = None) -> AgentResult:
+    """通用 ReAct 引擎：LLM 自主调工具多轮验证，persona 驱动全流程。"""
+    if registry is None:
+        from app.services.agent_tools import DEFAULT_REGISTRY
+        registry = DEFAULT_REGISTRY
+    t0 = time.perf_counter()
+    provider = get_llm_provider(model_type)
+    messages = [
+        {"role": "system", "content": persona.system_prompt},
+        {"role": "user", "content": user_msg},
+    ]
+    steps: list[dict] = []
+    resp = None
+    answer = None
+    try:
+        for i in range(1, persona.max_iter + 1):
+            resp = await provider.chat_with_tools(
+                messages, registry.schemas_for(persona.allowed_tools),
+                temperature=persona.temperature, max_tokens=persona.max_tokens)
+            if not resp.get("tool_calls"):
+                steps.append({"iter": i, "thought": resp.get("content"), "tool": None,
+                              "args": None, "result": None, "error": False})
+                break
+            messages.append({"role": "assistant", "content": resp.get("content") or "",
+                             "tool_calls": _to_openai_tool_calls(resp["tool_calls"])})
+            for tc in resp["tool_calls"]:
+                result, err = await registry.run(db, model_type, tc["name"], tc.get("arguments"))
+                steps.append({"iter": i, "thought": resp.get("content"), "tool": tc["name"],
+                              "args": tc.get("arguments"), "result": (result or "")[:600], "error": err})
+                try:
+                    from app.core import metrics
+                    metrics.AGENT_TOOL_CALLS.labels(persona.name, tc["name"]).inc()
+                except Exception:
+                    pass
+                messages.append({"role": "tool", "tool_call_id": tc["id"], "content": result})
+        else:
+            # for-else：break 未触发 → 超 max_iter
+            degraded("agent_max_iter", RuntimeError(f"persona={persona.name} max_iter={persona.max_iter}"))
+            return await _fallback(db, persona, user_msg, model_type, steps, t0, "max_iter")
+
+        if persona.output_format == "json":
+            answer = _extract_json(resp.get("content") or "") or \
+                {"summary": (resp.get("content") or "")[:500]}
+        else:
+            answer = resp.get("content") or ""
+    except Exception as e:
+        degraded("agent_error", e)
+        return await _fallback(db, persona, user_msg, model_type, steps, t0, f"exception:{type(e).__name__}")
+
+    iters = len(steps)
+    _inc_metrics(persona.name, iters)
+    return AgentResult(
+        answer=answer, steps=steps, iterations=iters,
+        degraded=False, degrade_reason=None,
+        latency_ms=int((time.perf_counter() - t0) * 1000),
+        persona=persona.name,
+        tools_used=sorted({s["tool"] for s in steps if s["tool"]}),
+    )
+
+
+async def _fallback(db, persona: Persona, user_msg: str, model_type,
+                    steps: list[dict], t0: float, reason: str) -> AgentResult:
+    """降级：调 persona.fallback；失败再退到最小化结果。保留已收集 steps。"""
+    answer = None
+    if persona.fallback:
+        try:
+            answer = await persona.fallback(db, user_msg, model_type)
+        except Exception as e:
+            degraded("agent_fallback", e)
+    _inc_metrics(persona.name, len(steps))
+    return AgentResult(
+        answer=answer or {"summary": "agent 降级，未能生成结果", "degradeReason": reason},
+        steps=steps, iterations=len(steps),
+        degraded=True, degrade_reason=reason,
+        latency_ms=int((time.perf_counter() - t0) * 1000),
+        persona=persona.name,
+        tools_used=sorted({s["tool"] for s in steps if s["tool"]}),
+    )
