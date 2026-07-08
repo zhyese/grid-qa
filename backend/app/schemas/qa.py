@@ -8,6 +8,7 @@ class QaAnswerRequest(BaseModel):
     query: str
     modelType: Optional[str] = None       # deepseek | qwen | doubao
     conversationId: Optional[str] = None  # 多轮对话 id（首次不传则新建）
+    agentMode: bool = False               # S2：深度思考(Agent)模式，走通用 Agent 引擎
 
 
 class QaAnswerData(BaseModel):

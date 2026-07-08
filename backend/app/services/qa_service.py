@@ -355,16 +355,78 @@ async def answer(
     return result
 
 
+async def _stream_agent(db, query, model_type, conversation_id, username, tenant, t0):
+    """S2: Agent 流式（meta→tool_step×N→token→done）。run_agent on_step→asyncio.Queue 桥接。"""
+    import asyncio
+    from app.services.agent_runtime import run_agent
+    from app.services.agent_personas import QA_PERSONA
+
+    if not conversation_id:
+        conv = await conversation_service.create_conversation(db, username, query)
+        conversation_id = conv.id
+    yield {"type": "meta", "sources": [], "conversationId": conversation_id, "agentMode": True}
+
+    queue: asyncio.Queue = asyncio.Queue()
+
+    async def _run():
+        try:
+            res = await run_agent(
+                db, QA_PERSONA, query, model_type,
+                ctx={"username": username, "tenant": tenant},
+                on_step=lambda s: queue.put_nowait({"type": "tool_step", "step": s}),
+            )
+            await queue.put({"type": "_result", "result": res})
+        except Exception as e:
+            degraded("qa_agent_stream", e)
+            await queue.put({"type": "_error", "error": f"{type(e).__name__}: {e}"})
+
+    task = asyncio.create_task(_run())
+    try:
+        while True:
+            item = await queue.get()
+            t = item["type"]
+            if t == "tool_step":
+                yield item
+            elif t == "_result":
+                res = item["result"]
+                ans = res.answer if isinstance(res.answer, str) else str(res.answer)
+                yield {"type": "token", "content": ans}
+                try:
+                    await conversation_service.save_message(db, conversation_id, "user", query)
+                    await conversation_service.save_message(db, conversation_id, "assistant", ans)
+                except Exception as e:
+                    degraded("agent_conv_save", e)
+                yield {"type": "done", "responseTime": round(time.time() - t0, 3),
+                       "conversationId": conversation_id, "agentMode": True,
+                       "iterations": res.iterations, "degraded": res.degraded,
+                       "toolsUsed": res.tools_used}
+                break
+            else:  # _error
+                yield {"type": "done", "responseTime": round(time.time() - t0, 3),
+                       "conversationId": conversation_id, "agentMode": True,
+                       "degraded": True, "error": item["error"]}
+                break
+    finally:
+        await task
+
+
 async def stream_answer(
     db: AsyncSession, query: str, model_type: str | None = None,
     topk: int = 5, conversation_id: str | None = None, username: str = "",
-    tenant: str = "default", regen: bool = False,
+    tenant: str = "default", regen: bool = False, agent_mode: bool = False,
 ):
-    """流式问答：单轮查热点缓存(命中则快流不调LLM) → 否则 meta/token/done 三段。"""
+    """流式问答：单轮查热点缓存(命中则快流不调LLM) → 否则 meta/token/done 三段。
+
+    agent_mode=True（S2）：走通用 Agent 引擎(QA_PERSONA)，流式推 meta→tool_step×N→token→done。
+    """
     t0 = time.time()
     nq = term_service.normalize(query)
     _p = model_type or settings.LLM_PROVIDER
     safety.guard_query(query)  # 入站 prompt injection 告警（D4）
+    if agent_mode:
+        async for ev in _stream_agent(db, query, model_type, conversation_id, username, tenant, t0):
+            yield ev
+        return
     is_single = not conversation_id  # 仅单轮查/写缓存（多轮上下文变化不缓存）
 
     # Self-RAG：非运维问题跳过检索直接拒答

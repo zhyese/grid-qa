@@ -372,3 +372,44 @@ def test_run_agent_on_step_callback_fires(monkeypatch):
     assert len(captured) == 2  # 1 工具步 + 1 收尾步
     assert captured[0]["tool"] == "h1"
     assert captured[1]["tool"] is None
+
+
+def test_stream_agent_event_sequence(monkeypatch):
+    """S2: _stream_agent 事件序列 meta→tool_step→token→done。"""
+    from app.services import qa_service
+    from app.services.agent_runtime import AgentResult
+
+    async def fake_run(db, persona, msg, mt, ctx=None, on_step=None, registry=None):
+        if on_step:
+            on_step({"iter": 1, "tool": "search_regulation", "args": {},
+                     "result": "证据", "error": False})
+        return AgentResult(answer="最终答案", steps=[], iterations=1, degraded=False,
+                           degrade_reason=None, latency_ms=10, persona="qa",
+                           tools_used=["search_regulation"])
+
+    monkeypatch.setattr("app.services.agent_runtime.run_agent", fake_run)
+
+    class _C: id = "c1"
+    async def fake_create(db, username, query): return _C()
+    async def fake_save(db, cid, role, text): pass
+    monkeypatch.setattr(qa_service.conversation_service, "create_conversation", fake_create)
+    monkeypatch.setattr(qa_service.conversation_service, "save_message", fake_save)
+
+    events = []
+    async def collect():
+        async for ev in qa_service._stream_agent(None, "问", None, None, "u", "t", 0):
+            events.append(ev)
+    asyncio.run(collect())
+    types = [e["type"] for e in events]
+    assert types[0] == "meta" and types[-1] == "done"
+    assert "tool_step" in types
+    token_ev = [e for e in events if e["type"] == "token"][0]
+    assert token_ev["content"] == "最终答案"
+
+
+def test_qa_answer_request_has_agent_mode():
+    """S2: QaAnswerRequest 支持 agentMode 字段。"""
+    from app.schemas.qa import QaAnswerRequest
+    req = QaAnswerRequest(query="x", agentMode=True)
+    assert req.agentMode is True
+    assert QaAnswerRequest(query="x").agentMode is False  # 默认关

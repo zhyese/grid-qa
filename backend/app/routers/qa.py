@@ -62,7 +62,7 @@ async def answer_stream(
         async for item in qa_service.stream_answer(
             db, body.query, body.modelType,
             conversation_id=body.conversationId, username=user.username, tenant=user.tenant_id,
-            regen=regen,
+            regen=regen, agent_mode=body.agentMode,
         ):
             yield f"data: {json.dumps(item, ensure_ascii=False)}\n\n"
         yield "data: [DONE]\n\n"
