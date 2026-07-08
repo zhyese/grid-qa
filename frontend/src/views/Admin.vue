@@ -90,6 +90,39 @@
           </tbody>
         </table>
       </div>
+
+      <!-- S3 告警自动处置（ALERT_PERSONA 自动调工具分析） -->
+      <div class="disposal-section" style="margin-top:18px;border-top:1px dashed var(--border);padding-top:12px">
+        <div class="card-header" style="margin-bottom:8px">
+          <h4 class="card-title" style="font-size:14px;margin:0">🤖 自动处置 <span class="badge badge-neutral">{{ disposals.total }}</span></h4>
+          <button class="btn btn-ghost btn-sm" @click="loadDisposals">🔄 刷新</button>
+        </div>
+        <p class="hint" style="margin:0 0 10px">手动触发或 Grafana 告警进来后，AI 自动调工具(规程/图谱/案例/操作票)分析 → 生成诊断/处置/操作票草案。</p>
+        <div class="disp-form" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+          <select class="select" v-model="dispForm.severity" style="width:auto">
+            <option value="info">info</option><option value="warning">warning</option><option value="critical">critical</option>
+          </select>
+          <input class="input" v-model="dispForm.title" placeholder="告警标题（如：主变油温高）" style="flex:1;min-width:160px" />
+          <button class="btn btn-primary btn-sm" @click="doDispose">🤖 触发处置</button>
+        </div>
+        <input class="input" v-model="dispForm.summary" placeholder="告警详情描述（可选，英文/中文均可）" style="margin:6px 0" />
+        <div style="overflow-x:auto;margin-top:8px">
+          <table class="tbl">
+            <thead><tr><th>状态</th><th>告警</th><th>处置概述</th><th>操作票</th><th>来源</th><th>时间</th></tr></thead>
+            <tbody>
+              <tr v-for="d in disposals.list" :key="d.id">
+                <td><span class="badge" :class="d.status === 'disposed' ? 'badge-success' : 'badge-neutral'">{{ d.status === 'disposed' ? '✅已处置' : '⏳处理中' }}</span></td>
+                <td><span class="badge" :class="{ 'badge-danger': d.severity==='critical', 'badge-success': d.severity==='info', 'badge-neutral': d.severity==='warning' }">{{ d.severity }}</span> {{ d.title || '(无标题)' }}</td>
+                <td class="muted" style="max-width:260px">{{ (d.handling || parseDispDiag(d.diagnosis)?.summary || '—').slice(0, 90) }}</td>
+                <td class="muted">{{ (() => { const t = parseDispDiag(d.ticketDraft); return t && t.steps ? `${t.device || ''}·${t.steps.length}步` : '—' })() }}</td>
+                <td class="muted">{{ d.source }}</td>
+                <td class="muted">{{ d.createdAt }}</td>
+              </tr>
+              <tr v-if="!disposals.list.length"><td colspan="6" class="empty">暂无处置记录（点「触发处置」试试）</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
 
     <!-- 系统配置 -->
@@ -388,7 +421,7 @@ import * as echarts from 'echarts/core'
 import { PieChart, BarChart, ScatterChart, LineChart } from 'echarts/charts'
 import { TooltipComponent, LegendComponent, GridComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
-import { getLogs, getAlerts, configMilvus, configModel, getMilvusConfig, getModelConfig, getProviderHealth, rebuildBm25, getFeedbacks, markFeedbackGolden, getFeedbackStats } from '../api'
+import { getLogs, getAlerts, configMilvus, configModel, getMilvusConfig, getModelConfig, getProviderHealth, rebuildBm25, getFeedbacks, markFeedbackGolden, getFeedbackStats, alertDispose, getAlertDisposals } from '../api'
 import request from '../api/request'
 
 echarts.use([PieChart, BarChart, ScatterChart, LineChart, TooltipComponent, LegendComponent, GridComponent, CanvasRenderer])
@@ -396,6 +429,8 @@ echarts.use([PieChart, BarChart, ScatterChart, LineChart, TooltipComponent, Lege
 const tab = ref('feedback')
 const logs = ref({ total: 0, list: [] })
 const alerts = ref({ total: 0, list: [] })
+const disposals = ref({ total: 0, list: [] })          // S3 告警自动处置记录
+const dispForm = reactive({ severity: 'critical', title: '', summary: '' })
 const feedbacks = ref({ total: 0, list: [] })
 const fbStats = ref(null)
 const fbFilter = ref('dislike')
@@ -428,7 +463,18 @@ function retrievalBadge(q) {
 }
 
 async function loadLogs() { logs.value = (await getLogs({ page: 1, size: 20 })).data }
-async function loadAlerts() { try { alerts.value = (await getAlerts({ page: 1, size: 30 })).data } catch (e) { toast('加载告警失败') } }
+async function loadAlerts() { try { alerts.value = (await getAlerts({ page: 1, size: 30 })).data } catch (e) { toast('加载告警失败') } loadDisposals() }
+async function loadDisposals() { try { disposals.value = (await getAlertDisposals({ page: 1, size: 20 })).data } catch (e) {} }
+async function doDispose() {
+  if (!dispForm.summary.trim() && !dispForm.title.trim()) { toast('请填告警标题或描述'); return }
+  try {
+    const r = (await alertDispose(dispForm.severity, dispForm.title, dispForm.summary)).data
+    toast(`已触发处置 #${r.id}（后台 AI 分析中，稍后刷新查看）`)
+    dispForm.title = ''; dispForm.summary = ''
+    setTimeout(loadDisposals, 300)
+  } catch (e) { toast('触发失败') }
+}
+function parseDispDiag(d) { try { return JSON.parse(d) } catch { return null } }
 const sevOf = (c = '') => { const m = c.match(/^\[(info|warning|critical)\]/i); return m ? m[1].toLowerCase() : 'info' }
 const sevBadge = (c = '') => ({ critical: 'badge badge-danger', warning: 'badge badge-warning', info: 'badge badge-info' }[sevOf(c)] || 'badge badge-neutral')
 async function loadFeedbacks(fb = 'dislike') { fbFilter.value = fb; try { feedbacks.value = (await getFeedbacks({ feedback: fb, page: 1, size: 30 })).data } catch (e) { toast('加载反馈失败') } }

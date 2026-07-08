@@ -57,6 +57,17 @@
               <a @click="exportWord(m)">📄 导出 Word</a>
             </div>
             <pre v-if="m.streaming" class="streaming-text">{{ m.content }}<span class="cursor">▍</span></pre>
+            <div class="agent-trace" v-if="m.agentSteps && m.agentSteps.length">
+              <div class="trace-head" @click="m._traceOpen = !m._traceOpen">🎯 深度思考 · {{ m.agentSteps.length }}步 <span class="trace-toggle">{{ m._traceOpen ? '收起▾' : '展开▸' }}</span></div>
+              <div v-show="m._traceOpen" class="trace-steps">
+                <div v-for="(st, k) in m.agentSteps" :key="k" class="trace-step" :class="{ 'is-final': !st.tool }">
+                  <span class="trace-iter">第{{ st.iter }}轮</span>
+                  <span v-if="st.tool" class="trace-tool">🔧 {{ st.tool }}<span class="trace-args" v-if="st.args && Object.keys(st.args).length">({{ JSON.stringify(st.args) }})</span></span>
+                  <span v-else class="trace-thought">💭 证据充分，综合作答</span>
+                  <div v-if="st.result" class="trace-result" :class="{ err: st.error }">{{ (st.result || '').slice(0, 220) }}</div>
+                </div>
+              </div>
+            </div>
             <div v-else class="ans md" @click="onAnsClick($event, m)" v-html="renderMd(m.content)"></div>
             <div v-if="m.aborted" class="hint" style="margin-top:8px">⏹ 已停止生成（仅显示已接收内容）</div>
 
@@ -154,6 +165,7 @@
           <option value="doubao">豆包</option>
         </select>
         <label class="ws-toggle" title="WebSocket 双向流式（默认 SSE）"><input type="checkbox" v-model="useWS" /> WS</label>
+        <label class="ws-toggle" title="深度思考：AI 自主多轮调工具(检索/图谱/案例)交叉验证后作答（仅 SSE）"><input type="checkbox" v-model="agentMode" /> 🎯深度</label>
         <input class="input" v-model="query" placeholder="输入运维问题，如：主变压器温度异常如何处置..." @keyup.enter="ask" :disabled="loading" />
         <button v-if="loading && !useWS" class="btn btn-danger send-btn" @click="stopGen">⏹ 停止</button>
         <button v-else class="btn btn-primary send-btn" @click="ask" :disabled="loading">{{ loading ? '生成中...' : '发送' }}</button>
@@ -223,6 +235,7 @@ const editingId = ref('')
 const editingTitle = ref('')
 const convCollapsed = ref(localStorage.getItem('conv-collapsed') === '1')
 const useWS = ref(false)
+const agentMode = ref(false)   // S2 深度思考(Agent)：仅 SSE，AI 多轮调工具交叉验证
 const abortCtrl = ref(null)   // 流式生成 AbortController（停止生成用）
 const toastMsg = ref('')
 let toastTimer = null
@@ -276,11 +289,12 @@ async function ask() {
 async function runStream(q, opts = {}) {
   const { regen = false, cid } = opts
   loading.value = true
-  const msg = reactive({ role: 'assistant', content: '', sources: [], time: 0, halluc: 0, route: '', routeReason: '', modelType: '', conversationId: cid || currentConvId.value || '', query: q, fb: '', streaming: true, aborted: false })
+  const msg = reactive({ role: 'assistant', content: '', sources: [], time: 0, halluc: 0, route: '', routeReason: '', modelType: '', conversationId: cid || currentConvId.value || '', query: q, fb: '', streaming: true, aborted: false, agentSteps: [], agentMode: false, _traceOpen: true })
   messages.value.push(msg)
   nextTick(() => { if (msgListEl.value) msgListEl.value.scrollTop = msgListEl.value.scrollHeight })
   const onStreamEvent = (ev) => {
     if (ev.type === 'meta') { msg.sources = ev.sources || []; if (ev.conversationId) msg.conversationId = ev.conversationId }
+    else if (ev.type === 'tool_step') { msg.agentMode = true; (msg.agentSteps ||= []).push(ev.step || {}); nextTick(() => { if (msgListEl.value) msgListEl.value.scrollTop = msgListEl.value.scrollHeight }) }
     else if (ev.type === 'token') { msg.content += ev.content || ''; nextTick(() => { if (msgListEl.value) msgListEl.value.scrollTop = msgListEl.value.scrollHeight }) }
     else if (ev.type === 'aborted') { msg.aborted = true; msg.streaming = false; loading.value = false }   // 停止生成：保留已收内容
     else if (ev.type === 'done' || ev.type === 'error') {
@@ -311,7 +325,7 @@ async function runStream(q, opts = {}) {
       streamAnswerWS(q, modelType.value || undefined, currentConvId.value || undefined, onStreamEvent)
     } else {
       abortCtrl.value = new AbortController()
-      await streamAnswer(q, modelType.value || undefined, currentConvId.value || undefined, onStreamEvent, abortCtrl.value.signal, regen)
+      await streamAnswer(q, modelType.value || undefined, currentConvId.value || undefined, onStreamEvent, abortCtrl.value.signal, regen, agentMode.value)
     }
   } catch (e) {
     msg.content += (msg.content ? '\n' : '') + '（流式中断：' + (e.message || '') + '）'
@@ -515,6 +529,17 @@ html.dark .ai-bubble { background: var(--surface); }
 .cite-ref:hover { text-decoration: underline; }
 
 .sources { margin-top: 14px; padding-top: 12px; border-top: 1px dashed var(--border); }
+.agent-trace { margin: 6px 0 10px; padding: 8px 10px; background: rgba(108, 92, 231, 0.06); border: 1px solid var(--border); border-radius: 8px; font-size: 12px; }
+.trace-head { font-weight: 600; color: var(--primary); cursor: pointer; user-select: none; display: flex; justify-content: space-between; }
+.trace-toggle { font-weight: 400; color: var(--text-muted); }
+.trace-steps { margin-top: 6px; display: flex; flex-direction: column; gap: 4px; }
+.trace-step { padding: 4px 6px; background: var(--surface); border-radius: 6px; border-left: 3px solid var(--primary); }
+.trace-step.is-final { border-left-color: #6c5ce7; }
+.trace-iter { color: var(--text-muted); margin-right: 6px; }
+.trace-tool { font-weight: 600; color: var(--text); }
+.trace-args { color: var(--text-muted); font-weight: 400; }
+.trace-result { color: var(--text-soft); margin-top: 2px; white-space: pre-wrap; word-break: break-all; }
+.trace-result.err { color: var(--danger); }
 .src-head { font-size: 12px; font-weight: 700; color: var(--text-muted); margin-bottom: 6px; }
 .src-item { font-size: 12px; color: var(--text-muted); margin: 4px 0; padding: 7px 9px; border-radius: var(--radius-sm); background: var(--surface); border: 1px solid var(--border-soft); cursor: pointer; transition: background .15s; line-height: 1.6; }
 .src-item:hover { background: var(--surface-2); }
