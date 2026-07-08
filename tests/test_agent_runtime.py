@@ -280,3 +280,28 @@ def test_endpoint_smoke_diagnose_agent_route():
     from app.routers.domain import router
     paths = {r.path for r in router.routes}
     assert "/domain/diagnose-agent" in paths
+
+
+# ===== S4: 工具审计 =====
+from app.models.agent_tool_call import AgentToolCall
+from app.services import agent_tool_audit_service
+
+
+def test_log_tool_call_writes_record(monkeypatch):
+    class FakeSession:
+        def __init__(self): self.records = []
+        async def __aenter__(self): return self
+        async def __aexit__(self, *a): pass
+        def add(self, obj): self.records.append(obj)
+        async def commit(self): pass
+    fake = FakeSession()
+    monkeypatch.setattr(agent_tool_audit_service, "AsyncSessionLocal", lambda: fake)
+    asyncio.run(agent_tool_audit_service.log_tool_call(
+        persona="diagnose", tool="search_regulation", iter=1,
+        args={"query": "油温高"}, result="证据摘要", error=False,
+        username="alice", tenant="t1", role="user"))
+    rec = fake.records[0]
+    assert isinstance(rec, AgentToolCall)
+    assert rec.persona == "diagnose" and rec.tool == "search_regulation"
+    assert rec.username == "alice" and rec.tenant == "t1" and rec.role == "user"
+    assert rec.error is False and "油温高" in rec.args_json
