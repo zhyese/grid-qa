@@ -356,11 +356,53 @@ async def answer(
 
 
 async def _stream_agent(db, query, model_type, conversation_id, username, tenant, t0):
-    """S2: Agent 流式（meta→tool_step×N→token→done）。run_agent on_step→asyncio.Queue 桥接。"""
+    """S2: Agent 流式（meta→tool_step×N→token→done）。run_agent on_step→asyncio.Queue 桥接。
+    单轮缓存（Redis L1 + MySQL qa_cache L2，复用三级缓存）：命中跳过 agent；done 后写。"""
     import asyncio
     from app.services.agent_runtime import run_agent
     from app.services.persona_store import get_persona
 
+    is_single = not conversation_id
+    nq = term_service.normalize(query)
+    key = _cache_key(model_type, nq)
+    _p = model_type or settings.LLM_PROVIDER
+
+    # 单轮查缓存（L1 Redis → L2 MySQL），命中→流式返缓存答案（不跑 agent，秒级）
+    if is_single:
+        cached = None
+        try:
+            cached = await redis_client.cache_get_json(key)
+        except Exception as e:
+            degraded("agent_cache_get", e)
+        if not cached and getattr(settings, "CACHE_PERSIST_ENABLE", False):
+            try:
+                from app.services.cache_persist import cache_get_mysql
+                cached = await cache_get_mysql(db, model_type, nq)
+            except Exception as e:
+                degraded("agent_cache_mysql", e)
+        if cached and cached.get("answer"):
+            conv = await conversation_service.create_conversation(db, username, query)
+            cid = conv.id
+            try:
+                await conversation_service.save_message(db, cid, "user", query)
+                await conversation_service.save_message(db, cid, "assistant", cached["answer"])
+            except Exception as e:
+                degraded("agent_cache_conv", e)
+            yield {"type": "meta", "sources": cached.get("retrievalSource", []),
+                   "conversationId": cid, "agentMode": True, "cached": True,
+                   "cacheLayer": cached.get("cacheLayer", "redis")}
+            yield {"type": "token", "content": cached["answer"]}
+            try:
+                metrics.QA_TOTAL.labels(_p, "true").inc()
+                metrics.cache_hit_inc(cached.get("cacheLayer", "redis") or "redis")
+            except Exception:
+                pass
+            yield {"type": "done", "responseTime": round(time.time() - t0, 3),
+                   "conversationId": cid, "agentMode": True, "cached": True,
+                   "cacheLayer": cached.get("cacheLayer", "redis")}
+            return
+
+    # miss → 跑 agent
     if not conversation_id:
         conv = await conversation_service.create_conversation(db, username, query)
         conversation_id = conv.id
@@ -391,6 +433,23 @@ async def _stream_agent(db, query, model_type, conversation_id, username, tenant
             elif t == "_result":
                 res = item["result"]
                 ans = res.answer if isinstance(res.answer, str) else str(res.answer)
+                # 单轮 + 非降级 → 写缓存（agent 多轮验证质量高，默认 high；与普通问答共享 key）
+                if is_single and not res.degraded:
+                    cache_result = {
+                        "answer": ans, "retrievalSource": [], "confidence": "high",
+                        "responseTime": round(time.time() - t0, 3), "hallucinationRate": 0.0,
+                        "cached": True, "cacheLayer": "redis", "agentMode": True,
+                    }
+                    if getattr(settings, "CACHE_PERSIST_ENABLE", False):
+                        try:
+                            from app.services.cache_persist import cache_set_mysql
+                            await cache_set_mysql(db, model_type, nq, query, cache_result)
+                        except Exception as e:
+                            degraded("agent_cache_mysql_set", e)
+                    try:
+                        await redis_client.cache_set_json(key, cache_result, settings.QA_CACHE_TTL)
+                    except Exception as e:
+                        degraded("agent_cache_set", e)
                 yield {"type": "token", "content": ans}
                 try:
                     await conversation_service.save_message(db, conversation_id, "user", query)
@@ -400,7 +459,7 @@ async def _stream_agent(db, query, model_type, conversation_id, username, tenant
                 yield {"type": "done", "responseTime": round(time.time() - t0, 3),
                        "conversationId": conversation_id, "agentMode": True,
                        "iterations": res.iterations, "degraded": res.degraded,
-                       "toolsUsed": res.tools_used}
+                       "toolsUsed": res.tools_used, "cached": False}
                 break
             else:  # _error
                 yield {"type": "done", "responseTime": round(time.time() - t0, 3),
