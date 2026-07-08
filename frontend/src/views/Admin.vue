@@ -12,9 +12,47 @@
       <button class="tab" :class="{ active: tab === 'quality' }" @click="loadQuality(); tab = 'quality'">📚 知识库质量</button>
       <button class="tab" :class="{ active: tab === 'eval' }" @click="loadEval(); tab = 'eval'">📊 评测趋势</button>
       <button class="tab" :class="{ active: tab === 'abtest' }" @click="loadABTest(); tab = 'abtest'">🧪 A/B测试</button>
+      <button class="tab" :class="{ active: tab === 'persona' }" @click="loadPersonas(); tab = 'persona'">🧩 Persona</button>
     </div>
 
     <!-- 反馈管理 -->
+    <div class="card" v-show="tab === 'persona'">
+      <div class="card-header">
+        <h3 class="card-title">🧩 Persona 配置</h3>
+        <button class="btn btn-ghost btn-sm" @click="loadPersonas">🔄 刷新</button>
+      </div>
+      <p class="hint" style="margin-top:0">DB 覆盖 code persona 的 prompt/工具/参数（fallback 保留 code，callable 不能入库）。勾选 enabled 生效；删除则恢复 code 默认。</p>
+      <div style="margin:8px 0"><span class="muted">code persona:</span>
+        <span v-for="c in personas.codePersonas" :key="c" class="badge badge-neutral" style="margin:0 4px">{{ c }}</span>
+      </div>
+      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin:8px 0">
+        <input class="input" v-model="personaForm.name" placeholder="persona 名(diagnose/qa/alert)" style="flex:1;min-width:140px" />
+        <input class="input" v-model.number="personaForm.maxIter" type="number" placeholder="maxIter" style="width:90px" />
+        <input class="input" v-model.number="personaForm.temperature" type="number" step="0.1" placeholder="temp" style="width:80px" />
+        <select class="select" v-model="personaForm.outputFormat" style="width:auto"><option value="">默认</option><option value="text">text</option><option value="json">json</option></select>
+        <label class="ws-toggle"><input type="checkbox" v-model="personaForm.enabled" /> enabled</label>
+        <button class="btn btn-primary btn-sm" @click="savePersona">💾 保存</button>
+      </div>
+      <textarea class="input edit-area" v-model="personaForm.systemPrompt" placeholder="system prompt（留空=不覆盖）" rows="2" style="margin:6px 0"></textarea>
+      <input class="input" v-model="personaForm.allowedTools" placeholder='allowedTools JSON, 如 ["search_regulation","query_equipment_graph"]' style="margin:6px 0" />
+      <div style="overflow-x:auto;margin-top:8px">
+        <table class="tbl">
+          <thead><tr><th>name</th><th>enabled</th><th>prompt摘要</th><th>工具</th><th>参数</th><th>操作</th></tr></thead>
+          <tbody>
+            <tr v-for="p in personas.configs" :key="p.id">
+              <td>{{ p.name }}</td>
+              <td><span class="badge" :class="p.enabled ? 'badge-success' : 'badge-neutral'">{{ p.enabled ? '✅' : '⏸' }}</span></td>
+              <td class="muted" style="max-width:240px">{{ (p.systemPrompt || '').slice(0, 60) }}</td>
+              <td class="muted">{{ p.allowedTools || '—' }}</td>
+              <td class="muted">{{ p.maxIter || '—' }} / {{ p.temperature ?? '—' }} / {{ p.outputFormat || '—' }}</td>
+              <td><button class="btn btn-ghost btn-sm" @click="editPersona(p)">编辑</button> <button class="btn btn-danger btn-sm" @click="removePersona(p.name)">删除</button></td>
+            </tr>
+            <tr v-if="!personas.configs.length"><td colspan="6" class="empty">暂无 DB 覆盖配置（用上方表单新增，覆盖 code persona）</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
     <div class="card" v-show="tab === 'feedback'">
       <div class="card-header">
         <h3 class="card-title">坏 case 看板 <span class="badge badge-neutral">{{ feedbacks.total }}</span></h3>
@@ -421,7 +459,7 @@ import * as echarts from 'echarts/core'
 import { PieChart, BarChart, ScatterChart, LineChart } from 'echarts/charts'
 import { TooltipComponent, LegendComponent, GridComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
-import { getLogs, getAlerts, configMilvus, configModel, getMilvusConfig, getModelConfig, getProviderHealth, rebuildBm25, getFeedbacks, markFeedbackGolden, getFeedbackStats, alertDispose, getAlertDisposals } from '../api'
+import { getLogs, getAlerts, configMilvus, configModel, getMilvusConfig, getModelConfig, getProviderHealth, rebuildBm25, getFeedbacks, markFeedbackGolden, getFeedbackStats, alertDispose, getAlertDisposals, getPersonas, upsertPersona, deletePersona } from '../api'
 import request from '../api/request'
 
 echarts.use([PieChart, BarChart, ScatterChart, LineChart, TooltipComponent, LegendComponent, GridComponent, CanvasRenderer])
@@ -431,6 +469,8 @@ const logs = ref({ total: 0, list: [] })
 const alerts = ref({ total: 0, list: [] })
 const disposals = ref({ total: 0, list: [] })          // S3 告警自动处置记录
 const dispForm = reactive({ severity: 'critical', title: '', summary: '' })
+const personas = ref({ codePersonas: [], configs: [] })  // S5 persona 配置
+const personaForm = reactive({ name: '', systemPrompt: '', allowedTools: '', maxIter: null, temperature: null, maxTokens: null, outputFormat: '', enabled: true })
 const feedbacks = ref({ total: 0, list: [] })
 const fbStats = ref(null)
 const fbFilter = ref('dislike')
@@ -475,6 +515,13 @@ async function doDispose() {
   } catch (e) { toast('触发失败') }
 }
 function parseDispDiag(d) { try { return JSON.parse(d) } catch { return null } }
+async function loadPersonas() { try { personas.value = (await getPersonas()).data } catch (e) { toast('加载persona失败') } }
+function editPersona(p) { Object.assign(personaForm, { name: p.name, systemPrompt: p.systemPrompt || '', allowedTools: p.allowedTools || '', maxIter: p.maxIter, temperature: p.temperature, maxTokens: p.maxTokens, outputFormat: p.outputFormat || '', enabled: p.enabled }) }
+async function savePersona() {
+  if (!personaForm.name.trim()) { toast('请填 persona 名'); return }
+  try { await upsertPersona({ ...personaForm }); toast('保存成功（DB 覆盖已生效）'); loadPersonas() } catch (e) { toast('保存失败') }
+}
+async function removePersona(name) { try { await deletePersona(name); toast('已删除（恢复 code 默认）'); loadPersonas() } catch (e) { toast('删除失败') } }
 const sevOf = (c = '') => { const m = c.match(/^\[(info|warning|critical)\]/i); return m ? m[1].toLowerCase() : 'info' }
 const sevBadge = (c = '') => ({ critical: 'badge badge-danger', warning: 'badge badge-warning', info: 'badge badge-info' }[sevOf(c)] || 'badge badge-neutral')
 async function loadFeedbacks(fb = 'dislike') { fbFilter.value = fb; try { feedbacks.value = (await getFeedbacks({ feedback: fb, page: 1, size: 30 })).data } catch (e) { toast('加载反馈失败') } }

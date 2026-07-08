@@ -101,6 +101,10 @@ export const streamAnswer = async (query, modelType, conversationId, onEvent, si
 export const alertDispose = (severity, title, summary, modelType) =>
   request.post('/system/alerts/dispose', { severity, title, summary, modelType })
 export const getAlertDisposals = (params) => request.get('/system/alerts/disposals', { params })
+// S5 persona 配置管理（admin）
+export const getPersonas = () => request.get('/system/agent/personas')
+export const upsertPersona = (data) => request.post('/system/agent/personas', data)
+export const deletePersona = (name) => request.delete('/system/agent/personas', { params: { name } })
 export const sendFeedback = (query, answer, feedback, conversationId, reason, sources = []) =>
   request.post('/qa/feedback', { query, answer, feedback, conversationId, reason, retrievalSources: (sources || []).map(s => typeof s === 'string' ? s : (s?.docName || '')).filter(Boolean).join(',') })
 
