@@ -243,11 +243,20 @@ async def confirm_and_sync(gap_id: int, final_answer: str, operator: str,
             nq = row.query
             if not (final_answer or "").strip():
                 return {"ok": False, "msg": "final_answer 为空"}
-            # 1) FAQ 文档（不走 MinIO/parse，直接 parsed + 1 chunk）
+            # 1) FAQ 文档：答案(markdown)存为 .md 上传 MinIO → 标准文档(预览/下载/版本走统一流程)
+            import asyncio as _asyncio
+            from app.clients import minio_client
             doc_id = uuid.uuid4().hex
+            object_name = f"faq/{doc_id}.md"
+            md_bytes = (final_answer or "").encode("utf-8")
+            try:
+                await _asyncio.to_thread(
+                    minio_client.put_object, object_name, md_bytes, len(md_bytes), "text/markdown")
+            except Exception as e:
+                degraded("evidence_gap_faq_put", e)
             db.add(Document(
-                id=doc_id, doc_name=f"FAQ:{nq[:40]}", doc_type=settings.EVIDENCE_GAP_FAQ_DOCTYPE,
-                minio_object="", file_size=len(final_answer.encode()),
+                id=doc_id, doc_name=f"FAQ:{nq[:40]}.md", doc_type=settings.EVIDENCE_GAP_FAQ_DOCTYPE,
+                minio_object=object_name, file_size=len(md_bytes),
                 upload_user=operator, tenant_id=row.tenant, status="parsed", chunk_count=1,
             ))
             await db.flush()   # 先把 Document 落库（满足 chunks 外键，避免同 commit flush 顺序致 1452）
