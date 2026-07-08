@@ -50,3 +50,7 @@ class PersonaConfigRequest(BaseModel):
 
 class AiDraftUpdateRequest(BaseModel):
     aiDraft: str = ""                    # 就地编辑保存 AI 草稿（点击文本直接改）
+
+
+class ConfidenceUpdateRequest(BaseModel):
+    confidence: str = ""                 # 后台标注 confidence（medium/refused/sufficient/...）

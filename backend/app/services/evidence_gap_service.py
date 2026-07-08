@@ -191,6 +191,21 @@ async def update_ai_draft(gap_id: int, ai_draft: str) -> dict:
         return {"ok": False, "msg": str(e)}
 
 
+async def update_confidence(gap_id: int, confidence: str) -> dict:
+    """后台标注/修改 confidence（如 refused→充足 sufficient）。"""
+    try:
+        async with AsyncSessionLocal() as db:
+            row = (await db.execute(select(EvidenceGap).where(EvidenceGap.id == gap_id))).scalar_one_or_none()
+            if not row:
+                return {"ok": False, "msg": "记录不存在"}
+            row.confidence = confidence or ""
+            await db.commit()
+            return {"ok": True}
+    except Exception as e:
+        degraded("evidence_gap_update_confidence", e)
+        return {"ok": False, "msg": str(e)}
+
+
 async def edit_answer(gap_id: int, final_answer: str) -> dict:
     """人工编辑保存最终答案，status→confirmed（不同步，待「确认同步」触发入库）。"""
     try:

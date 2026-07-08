@@ -8,7 +8,7 @@ from app.db.session import get_db
 from app.dependencies import get_current_user, require_admin
 from app.models.user import User
 from app.schemas.auth import LoginRequest, RegisterRequest
-from app.schemas.system import AlertDisposeRequest, AiDraftUpdateRequest, PersonaConfigRequest, MilvusConfigRequest, ModelConfigRequest
+from app.schemas.system import AlertDisposeRequest, AiDraftUpdateRequest, ConfidenceUpdateRequest, PersonaConfigRequest, MilvusConfigRequest, ModelConfigRequest
 from app.services import config_service, log_service
 from app.services.alert_disposal_service import list_disposals, trigger_disposal
 from app.services.persona_store import delete_config, list_configs, upsert_config
@@ -370,6 +370,17 @@ async def evidence_gap_update_ai_draft(
     from app.services.evidence_gap_service import update_ai_draft
     data = await update_ai_draft(gap_id, body.aiDraft)
     return success(data, "草稿已保存")
+
+
+@router.put("/evidence-gap/{gap_id}/confidence")
+async def evidence_gap_update_confidence(
+    gap_id: int, body: ConfidenceUpdateRequest,
+    admin: User = Depends(require_admin),
+):
+    """后台标注 confidence（如 refused→充足 sufficient，admin 人工修正）。"""
+    from app.services.evidence_gap_service import update_confidence
+    data = await update_confidence(gap_id, body.confidence)
+    return success(data, "标注已保存")
 
 
 @router.post("/evidence-gap/{gap_id}/deep-draft")

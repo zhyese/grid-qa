@@ -189,6 +189,7 @@ export const getEvidenceGaps = (params) => request.get('/system/evidence-gap', {
 export const aiDraftGap = (id, modelType) => request.post(`/system/evidence-gap/${id}/ai-draft`, { modelType })
 export const deepDraftGap = (id, modelType) => request.post(`/system/evidence-gap/${id}/deep-draft`, { modelType })
 export const updateAiDraftGap = (id, aiDraft) => request.put(`/system/evidence-gap/${id}/ai-draft`, { aiDraft })
+export const updateConfGap = (id, confidence) => request.put(`/system/evidence-gap/${id}/confidence`, { confidence })
 export const confirmGap = (id, finalAnswer, modelType) =>
   request.post(`/system/evidence-gap/${id}/confirm`, { finalAnswer, modelType })
 export const ignoreGap = (id) => request.post(`/system/evidence-gap/${id}/ignore`)
