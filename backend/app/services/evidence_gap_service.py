@@ -254,10 +254,17 @@ async def confirm_and_sync(gap_id: int, final_answer: str, operator: str,
                     minio_client.put_object, object_name, md_bytes, len(md_bytes), "text/markdown")
             except Exception as e:
                 degraded("evidence_gap_faq_put", e)
+            _tags = ""
+            try:
+                from app.services.document_service import _auto_equipment_tags
+                _tags = _auto_equipment_tags(final_answer or "")
+            except Exception as e:
+                degraded("evidence_gap_faq_equipment_tags", e)
             db.add(Document(
                 id=doc_id, doc_name=f"FAQ:{nq[:40]}.md", doc_type=settings.EVIDENCE_GAP_FAQ_DOCTYPE,
                 minio_object=object_name, file_size=len(md_bytes),
                 upload_user=operator, tenant_id=row.tenant, status="parsed", chunk_count=1,
+                equipment_tags=_tags,
             ))
             await db.flush()   # 先把 Document 落库（满足 chunks 外键，避免同 commit flush 顺序致 1452）
             db.add(Chunk(
