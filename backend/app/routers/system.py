@@ -12,6 +12,7 @@ from app.schemas.system import MilvusConfigRequest, ModelConfigRequest
 from app.services import config_service, log_service
 from app.services.auth_service import authenticate, register_user
 from app.services.log_service import query_logs, write_log
+from app.services.agent_tool_audit_service import query_tool_calls
 
 router = APIRouter(prefix="/system", tags=["系统-用户/权限/配置"])
 
@@ -161,6 +162,20 @@ async def alerts(
 ):
     """告警列表（操作日志中 operate_type=告警），管理员。"""
     data = await query_logs(db, page, size, operate_type="告警")
+    return success(data, "查询成功")
+
+
+@router.get("/agent/tool-calls")
+async def agent_tool_calls(
+    page: int = Query(1, ge=1),
+    size: int = Query(20, ge=1, le=100),
+    persona: str | None = Query(None),
+    tool: str | None = Query(None),
+    username: str | None = Query(None),
+    admin: User = Depends(require_admin),
+):
+    """Agent 工具调用审计列表（S4，管理员）：谁/何时/哪个 persona/调了啥工具/结果。"""
+    data = await query_tool_calls(page, size, persona=persona, tool=tool, username=username)
     return success(data, "查询成功")
 
 

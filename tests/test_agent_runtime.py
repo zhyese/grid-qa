@@ -337,3 +337,10 @@ def test_tool_registry_ctx_none_skips_permission_and_audit():
     reg.register(Tool("draft_ticket", "d", {"type": "object"}, h))
     result, err = asyncio.run(reg.run(None, None, "draft_ticket", {"task": "x"}))  # 无 ctx
     assert err is False and result == "ok"
+
+
+def test_endpoint_smoke_agent_tool_calls_route():
+    """S4: /system/agent/tool-calls 审计接口路由注册。"""
+    from app.routers.system import router
+    paths = {r.path for r in router.routes}
+    assert "/system/agent/tool-calls" in paths
