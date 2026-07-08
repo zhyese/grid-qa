@@ -305,3 +305,35 @@ def test_log_tool_call_writes_record(monkeypatch):
     assert rec.persona == "diagnose" and rec.tool == "search_regulation"
     assert rec.username == "alice" and rec.tenant == "t1" and rec.role == "user"
     assert rec.error is False and "油温高" in rec.args_json
+
+
+def test_tool_registry_permission_denied_for_non_admin():
+    """S4: draft_ticket 非 admin → 拒绝，handler 不被调。"""
+    reg = ToolRegistry()
+    async def h(db, mt, **a): return "should not reach"
+    reg.register(Tool("draft_ticket", "d", {"type": "object"}, h))
+    result, err = asyncio.run(reg.run(None, None, "draft_ticket", {"task": "x"},
+                                      ctx={"role": "user", "username": "bob"}))
+    assert err is True
+    assert "权限不足" in result
+
+
+def test_tool_registry_permission_allowed_for_admin(monkeypatch):
+    """S4: draft_ticket admin → 正常执行。monkeypatch 审计避免真 DB。"""
+    async def _noop(*a, **k): pass
+    monkeypatch.setattr("app.services.agent_tool_audit_service.log_tool_call", _noop)
+    reg = ToolRegistry()
+    async def h(db, mt, **a): return "ok"
+    reg.register(Tool("draft_ticket", "d", {"type": "object"}, h))
+    result, err = asyncio.run(reg.run(None, None, "draft_ticket", {"task": "x"},
+                                      ctx={"role": "admin", "username": "alice"}))
+    assert err is False and result == "ok"
+
+
+def test_tool_registry_ctx_none_skips_permission_and_audit():
+    """S4: ctx=None 时跳过权限+审计（diagnose 老链路零回归；draft_ticket 也直通）。"""
+    reg = ToolRegistry()
+    async def h(db, mt, **a): return "ok"
+    reg.register(Tool("draft_ticket", "d", {"type": "object"}, h))
+    result, err = asyncio.run(reg.run(None, None, "draft_ticket", {"task": "x"}))  # 无 ctx
+    assert err is False and result == "ok"

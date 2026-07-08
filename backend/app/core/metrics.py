@@ -73,6 +73,8 @@ AGENT_ITERS = Histogram("grid_agent_iters", "诊断 agent 循环深度(轮)",
 # 通用 Agent 引擎（S1）：persona 调用次数 + persona×工具 调用次数（为 S6 决策看板铺路）
 AGENT_CALLS = Counter("grid_agent_calls_total", "Agent 引擎调用次数", ["persona"])
 AGENT_TOOL_CALLS = Counter("grid_agent_tool_calls_total", "Agent 工具调用次数", ["persona", "tool"])
+# S4：工具调用权限拒绝次数（高风险工具按 role 限）
+AGENT_TOOL_DENIED = Counter("grid_agent_tool_calls_denied_total", "Agent 工具权限拒绝", ["tool"])
 # 告警闭环：Grafana alerting webhook 回调接收到的告警数（按 severity）
 ALERT_RECEIVED = Counter("grid_alert_received_total", "告警接收总数(Grafana回调)", ["severity"])
 # 缓存分层命中（Redis / MySQL / LLM）—— Phase 2 三级缓存可见性
@@ -202,6 +204,7 @@ def init_metric_series() -> None:
         for _agent_tool in ("search_regulation", "query_equipment_graph",
                             "search_similar_case", "draft_ticket"):
             AGENT_TOOL_CALLS.labels("diagnose", _agent_tool).inc(0)
+        AGENT_TOOL_DENIED.labels("draft_ticket").inc(0)
     except Exception:
         # 预注册失败不影响服务启动
         pass

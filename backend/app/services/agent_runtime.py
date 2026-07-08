@@ -17,6 +17,11 @@ from app.providers.factory import get_llm_provider
 
 MAX_ITER_DEFAULT = 6
 
+# S4：高风险工具按 role 限制（未列出的全员可调）。仅 ctx 提供时生效（ctx=None 零回归）。
+tool_permissions: dict[str, list[str]] = {
+    "draft_ticket": ["admin"],
+}
+
 
 @dataclass
 class Tool:
@@ -53,17 +58,49 @@ class ToolRegistry:
                 out.append(t.schema)
         return out
 
-    async def run(self, db, model_type, name: str, args: dict) -> tuple[str, bool]:
-        """执行工具，返回 (result_text, error)。失败不抛，循环不崩。"""
+    async def run(self, db, model_type, name: str, args: dict,
+                  ctx: dict | None = None) -> tuple[str, bool]:
+        """执行工具，返回 (result_text, error)。权限检查(S4) + 审计(S4) + 失败不抛。
+
+        ctx: {username, tenant, role, persona, iter} 可选。
+        ctx=None 时跳过权限与审计（diagnose 等老链路零回归）。
+        """
+        # 权限检查（仅 ctx 提供时；高风险工具按 role 限）
+        allowed_roles = tool_permissions.get(name)
+        if ctx is not None and allowed_roles:
+            role = ctx.get("role", "")
+            if role not in allowed_roles:
+                try:
+                    from app.core import metrics
+                    metrics.AGENT_TOOL_DENIED.labels(name).inc()
+                except Exception:
+                    pass
+                return f"权限不足：工具 {name} 需 {allowed_roles} 角色", True
         t = self._tools.get(name)
         if not t:
             return f"未知工具: {name}", True
+        error = False
         try:
             result = await t.handler(db, model_type, **(args or {}))
-            return result, False
         except Exception as e:
             degraded(f"agent_tool_{name}", e)
-            return f"工具 {name} 执行失败: {type(e).__name__}: {e}", True
+            result = f"工具 {name} 执行失败: {type(e).__name__}: {e}"
+            error = True
+        # 审计（fire-and-forget bg task，仅 ctx 提供时；仿 rewrite_event 独立 session）
+        if ctx is not None:
+            try:
+                import asyncio
+                from app.services.agent_tool_audit_service import log_tool_call
+                asyncio.ensure_future(log_tool_call(
+                    persona=ctx.get("persona", ""), tool=name,
+                    iter=ctx.get("iter", 0), args=args or {}, result=result or "",
+                    error=error, username=ctx.get("username", ""),
+                    tenant=ctx.get("tenant", "default"), role=ctx.get("role", ""),
+                    degraded_flag=error,
+                ))
+            except Exception:
+                pass
+        return result, error
 
 
 @dataclass
@@ -122,8 +159,13 @@ def _inc_metrics(persona: str, iterations: int) -> None:
 
 async def run_agent(db: AsyncSession, persona: Persona, user_msg: str,
                     model_type: Optional[str] = None,
-                    registry: Optional[ToolRegistry] = None) -> AgentResult:
-    """通用 ReAct 引擎：LLM 自主调工具多轮验证，persona 驱动全流程。"""
+                    registry: Optional[ToolRegistry] = None,
+                    ctx: Optional[dict] = None) -> AgentResult:
+    """通用 ReAct 引擎：LLM 自主调工具多轮验证，persona 驱动全流程。
+
+    ctx: {username, tenant, role} 可选，透传给 ToolRegistry.run 做审计+权限（S4）。
+    ctx=None 时无审计/权限（diagnose 老链路零回归）。
+    """
     if registry is None:
         from app.services.agent_tools import DEFAULT_REGISTRY
         registry = DEFAULT_REGISTRY
@@ -148,7 +190,8 @@ async def run_agent(db: AsyncSession, persona: Persona, user_msg: str,
             messages.append({"role": "assistant", "content": resp.get("content") or "",
                              "tool_calls": _to_openai_tool_calls(resp["tool_calls"])})
             for tc in resp["tool_calls"]:
-                result, err = await registry.run(db, model_type, tc["name"], tc.get("arguments"))
+                step_ctx = {**(ctx or {}), "persona": persona.name, "iter": i}
+                result, err = await registry.run(db, model_type, tc["name"], tc.get("arguments"), ctx=step_ctx)
                 steps.append({"iter": i, "thought": resp.get("content"), "tool": tc["name"],
                               "args": tc.get("arguments"), "result": (result or "")[:600], "error": err})
                 try:
