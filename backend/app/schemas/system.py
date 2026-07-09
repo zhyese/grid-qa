@@ -45,6 +45,7 @@ class PersonaConfigRequest(BaseModel):
     temperature: Optional[float] = None
     maxTokens: Optional[int] = None
     outputFormat: Optional[str] = None   # json | text
+    fallbackKey: Optional[str] = None    # 纯DB persona(code无)的 fallback 映射: qa/diagnose/alert/none
     enabled: bool = True
 
 

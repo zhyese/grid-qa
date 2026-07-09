@@ -34,6 +34,7 @@
         <label class="ws-toggle" title="AI 最多自主思考几轮（默认 6）">思考轮数<input class="input" v-model.number="personaForm.maxIter" type="number" placeholder="6" style="width:70px" /></label>
         <label class="ws-toggle" title="回答创意度 0~1，越高越发散（默认 0.2）">风格<input class="input" v-model.number="personaForm.temperature" type="number" step="0.1" placeholder="0.2" style="width:64px" /></label>
         <select class="select" v-model="personaForm.outputFormat" style="width:auto"><option value="">默认格式</option><option value="text">自然语言</option><option value="json">结构化 JSON</option></select>
+        <select class="select" v-model="personaForm.fallbackKey" style="width:auto" title="仅自定义 persona(code无)需选 fallback 降级映射；覆盖 code 的无需选"><option value="">fallback(覆盖code无需)</option><option value="qa">降级走qa</option><option value="diagnose">降级走diagnose</option><option value="alert">降级走alert</option><option value="none">无降级</option></select>
         <label class="ws-toggle"><input type="checkbox" v-model="personaForm.enabled" /> 启用</label>
         <button class="btn btn-primary btn-sm" @click="savePersona">💾 保存</button>
       </div>
@@ -495,7 +496,7 @@ const alerts = ref({ total: 0, list: [] })
 const disposals = ref({ total: 0, list: [] })          // S3 告警自动处置记录
 const dispForm = reactive({ severity: 'critical', title: '', summary: '' })
 const personas = ref({ codePersonas: [], configs: [] })  // S5 persona 配置
-const personaForm = reactive({ name: '', systemPrompt: '', allowedTools: '', maxIter: null, temperature: null, maxTokens: null, outputFormat: '', enabled: true })
+const personaForm = reactive({ name: '', systemPrompt: '', allowedTools: '', maxIter: null, temperature: null, maxTokens: null, outputFormat: '', fallbackKey: '', enabled: true })
 const feedbacks = ref({ total: 0, list: [] })
 const fbStats = ref(null)
 const fbFilter = ref('dislike')
@@ -541,7 +542,7 @@ async function doDispose() {
 }
 function parseDispDiag(d) { try { return JSON.parse(d) } catch { return null } }
 async function loadPersonas() { try { personas.value = (await getPersonas()).data } catch (e) { toast('加载persona失败') } }
-function editPersona(p) { Object.assign(personaForm, { name: p.name, systemPrompt: p.systemPrompt || '', allowedTools: p.allowedTools || '', maxIter: p.maxIter, temperature: p.temperature, maxTokens: p.maxTokens, outputFormat: p.outputFormat || '', enabled: p.enabled }) }
+function editPersona(p) { Object.assign(personaForm, { name: p.name, systemPrompt: p.systemPrompt || '', allowedTools: p.allowedTools || '', maxIter: p.maxIter, temperature: p.temperature, maxTokens: p.maxTokens, outputFormat: p.outputFormat || '', fallbackKey: p.fallbackKey || '', enabled: p.enabled }) }
 async function savePersona() {
   if (!personaForm.name.trim()) { toast('请填 persona 名'); return }
   try { await upsertPersona({ ...personaForm }); toast('保存成功（DB 覆盖已生效）'); loadPersonas() } catch (e) { toast('保存失败') }

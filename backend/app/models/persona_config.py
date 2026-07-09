@@ -21,5 +21,6 @@ class PersonaConfig(Base):
     temperature: Mapped[float | None] = mapped_column(Float, nullable=True)
     max_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
     output_format: Mapped[str | None] = mapped_column(String(16), nullable=True)  # json/text
+    fallback_key: Mapped[str | None] = mapped_column(String(32), nullable=True)  # 纯DB persona 的 fallback 映射(qa/diagnose/alert/none)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())

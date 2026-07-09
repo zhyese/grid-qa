@@ -227,7 +227,7 @@ async def agent_persona_upsert(
     """S5：新增/更新 persona 配置（DB 覆盖 code 的 prompt/工具/参数，fallback 保留 code）。"""
     data = await upsert_config(body.name, body.systemPrompt, body.allowedTools,
                                body.maxIter, body.temperature, body.maxTokens,
-                               body.outputFormat, body.enabled)
+                               body.outputFormat, body.enabled, body.fallbackKey or "")
     await write_log(db, admin.username, "persona配置", f"{body.name} enabled={body.enabled}")
     return success(data, "保存成功")
 

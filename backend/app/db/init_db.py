@@ -33,6 +33,7 @@ _COLUMN_MIGRATIONS = [
     ("users", "tenant_id", "VARCHAR(64) NOT NULL DEFAULT 'default'"),
     ("conversations", "is_deleted", "TINYINT(1) NOT NULL DEFAULT 0"),
     ("messages", "is_deleted", "TINYINT(1) NOT NULL DEFAULT 0"),
+    ("persona_config", "fallback_key", "VARCHAR(32)"),  # S5 纯DB persona 的 fallback 映射
 ]
 
 
