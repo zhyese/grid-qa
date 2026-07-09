@@ -55,3 +55,9 @@ class AiDraftUpdateRequest(BaseModel):
 
 class ConfidenceUpdateRequest(BaseModel):
     confidence: str = ""                 # 后台标注 confidence（medium/refused/sufficient/...）
+
+
+class AgentRunRequest(BaseModel):
+    persona: str                         # 通用 agent 入口：persona 名（diagnose/qa/alert/自定义）
+    query: str
+    modelType: Optional[str] = None

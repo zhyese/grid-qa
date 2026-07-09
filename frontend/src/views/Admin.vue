@@ -51,7 +51,7 @@
               <td class="muted" style="max-width:240px">{{ (p.systemPrompt || '').slice(0, 60) }}</td>
               <td class="muted">{{ p.allowedTools || '内置' }}</td>
               <td class="muted">{{ p.maxIter || '默认' }}轮 / 风格{{ p.temperature ?? '默认' }} / {{ p.outputFormat || '默认' }}</td>
-              <td><button class="btn btn-ghost btn-sm" @click="editPersona(p)">编辑</button> <button class="btn btn-danger btn-sm" @click="removePersona(p.name)">删除</button></td>
+              <td><button class="btn btn-ghost btn-sm" @click="testPersona(p.name)">🧪 测试</button> <button class="btn btn-ghost btn-sm" @click="editPersona(p)">编辑</button> <button class="btn btn-danger btn-sm" @click="removePersona(p.name)">删除</button></td>
             </tr>
             <tr v-if="!personas.configs.length"><td colspan="6" class="empty">还没有自定义配置（全部用内置默认）。点上方内置助手名，或直接改下方表单试试 →</td></tr>
           </tbody>
@@ -485,7 +485,7 @@ import * as echarts from 'echarts/core'
 import { PieChart, BarChart, ScatterChart, LineChart } from 'echarts/charts'
 import { TooltipComponent, LegendComponent, GridComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
-import { getLogs, getAlerts, configMilvus, configModel, getMilvusConfig, getModelConfig, getProviderHealth, rebuildBm25, getFeedbacks, markFeedbackGolden, getFeedbackStats, alertDispose, getAlertDisposals, getPersonas, upsertPersona, deletePersona } from '../api'
+import { getLogs, getAlerts, configMilvus, configModel, getMilvusConfig, getModelConfig, getProviderHealth, rebuildBm25, getFeedbacks, markFeedbackGolden, getFeedbackStats, alertDispose, getAlertDisposals, getPersonas, upsertPersona, deletePersona, agentRun } from '../api'
 import request from '../api/request'
 
 echarts.use([PieChart, BarChart, ScatterChart, LineChart, TooltipComponent, LegendComponent, GridComponent, CanvasRenderer])
@@ -548,6 +548,16 @@ async function savePersona() {
   try { await upsertPersona({ ...personaForm }); toast('保存成功（DB 覆盖已生效）'); loadPersonas() } catch (e) { toast('保存失败') }
 }
 async function removePersona(name) { try { await deletePersona(name); toast('已删除（恢复内置默认）'); loadPersonas() } catch (e) { toast('删除失败') } }
+async function testPersona(name) {
+  const q = window.prompt('测试 persona "' + name + '"，输入问题：')
+  if (!q) return
+  toast('运行中（agent 多轮调工具）…')
+  try {
+    const r = await agentRun(name, q)
+    const d = r.data || {}
+    alert('persona: ' + d.persona + '\n轮数: ' + d.iterations + ' | 工具: ' + (d.toolsUsed || []).join(',') + ' | 降级: ' + d.degraded + '\n\n答案:\n' + (typeof d.answer === 'string' ? d.answer : JSON.stringify(d.answer, null, 2)))
+  } catch (e) { toast('运行失败') }
+}
 function personaLabel(c) {
   const map = { qa: '💬 问答助手', diagnose: '🔬 诊断助手', alert: '🚨 告警处置助手' }
   return map[c] ? `${c} · ${map[c]}` : c

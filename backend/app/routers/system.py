@@ -8,7 +8,7 @@ from app.db.session import get_db
 from app.dependencies import get_current_user, require_admin
 from app.models.user import User
 from app.schemas.auth import LoginRequest, RegisterRequest
-from app.schemas.system import AlertDisposeRequest, AiDraftUpdateRequest, ConfidenceUpdateRequest, PersonaConfigRequest, MilvusConfigRequest, ModelConfigRequest
+from app.schemas.system import AlertDisposeRequest, AgentRunRequest, AiDraftUpdateRequest, ConfidenceUpdateRequest, PersonaConfigRequest, MilvusConfigRequest, ModelConfigRequest
 from app.services import config_service, log_service
 from app.services.alert_disposal_service import list_disposals, trigger_disposal
 from app.services.persona_store import delete_config, list_configs, upsert_config
@@ -184,6 +184,29 @@ async def agent_tool_calls(
     """Agent 工具调用审计列表（S4，管理员）：谁/何时/哪个 persona/调了啥工具/结果。"""
     data = await query_tool_calls(page, size, persona=persona, tool=tool, username=username)
     return success(data, "查询成功")
+
+
+@router.post("/agent/run")
+async def agent_run(
+    body: AgentRunRequest,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """通用 agent 入口：按 persona 名跑 run_agent（支持自定义 DB persona）。返回 answer+steps。"""
+    from app.services.persona_store import get_persona
+    from app.services.agent_runtime import run_agent
+    persona = await get_persona(body.persona)
+    if persona is None:
+        raise BizError(f"persona '{body.persona}' 不存在", 404)
+    result = await run_agent(db, persona, body.query, body.modelType,
+                             ctx={"username": user.username, "tenant": user.tenant_id})
+    return success({
+        "persona": body.persona,
+        "answer": result.answer if isinstance(result.answer, str) else result.answer,
+        "steps": result.steps, "iterations": result.iterations,
+        "degraded": result.degraded, "toolsUsed": result.tools_used,
+        "latencyMs": result.latency_ms,
+    }, "完成")
 
 
 @router.post("/alerts/dispose")
