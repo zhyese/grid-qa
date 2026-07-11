@@ -116,9 +116,10 @@ async def _dense_and_sparse(
         embedding_service.embed_query(dense_q, settings.EMB_PROVIDER),
         embedding_service.embed_query(dense_q, "bge"),
     )
+    _ef = max(config_service.rt_ef(), cand)  # HNSW ef ≥ 召回窗口，保证精度
     dense_cloud, dense_bge = await asyncio.gather(
-        asyncio.to_thread(milvus_client.search, settings.MILVUS_COLLECTION, qvec_cloud, cand),
-        asyncio.to_thread(milvus_client.search, settings.MILVUS_COLLECTION_BGE, qvec_bge, cand),
+        asyncio.to_thread(milvus_client.search, settings.MILVUS_COLLECTION, qvec_cloud, cand, _ef),
+        asyncio.to_thread(milvus_client.search, settings.MILVUS_COLLECTION_BGE, qvec_bge, cand, _ef),
     )
     dense_hits = []
     for d in dense_cloud:
@@ -203,9 +204,10 @@ async def mixed_search(
                 embedding_service.embed_query(dense_q, settings.EMB_PROVIDER),
                 embedding_service.embed_query(dense_q, "bge"),
             )
+            _ef = max(config_service.rt_ef(), cand)  # HNSW ef ≥ 召回窗口，保证精度
             dense_cloud, dense_bge = await asyncio.gather(
-                asyncio.to_thread(milvus_client.search, settings.MILVUS_COLLECTION, qvec_cloud, cand),
-                asyncio.to_thread(milvus_client.search, settings.MILVUS_COLLECTION_BGE, qvec_bge, cand),
+                asyncio.to_thread(milvus_client.search, settings.MILVUS_COLLECTION, qvec_cloud, cand, _ef),
+                asyncio.to_thread(milvus_client.search, settings.MILVUS_COLLECTION_BGE, qvec_bge, cand, _ef),
             )
             for src, results in (("dense_cloud", dense_cloud), ("dense_bge", dense_bge)):
                 for d in results:
@@ -237,7 +239,8 @@ async def mixed_search(
             h["srcs"] = _src_map.get(h.get("key"), list(h.get("srcs", [])))
     else:
         # hybrid / sparse_first: RRF 融合
-        fused = rrf.rrf_fuse([all_dense, all_sparse], key_fn=lambda h: h["key"])
+        fused = rrf.rrf_fuse([all_dense, all_sparse], key_fn=lambda h: h["key"],
+                             k=settings.RRF_K, weights=[settings.RRF_DENSE_WEIGHT, settings.RRF_SPARSE_WEIGHT])
         _src_map = _aggregate_srcs(all_dense, all_sparse)
         for h in fused:
             h["srcs"] = _src_map.get(h.get("key"), [])
@@ -424,7 +427,8 @@ async def debug_search(
     _step("retrieve", perQuery=per_query, denseTotal=len(all_dense), bm25Total=len(all_sparse))
 
     # 2) RRF 融合
-    fused = rrf.rrf_fuse([all_dense, all_sparse], key_fn=lambda h: h["key"])
+    fused = rrf.rrf_fuse([all_dense, all_sparse], key_fn=lambda h: h["key"],
+                         k=settings.RRF_K, weights=[settings.RRF_DENSE_WEIGHT, settings.RRF_SPARSE_WEIGHT])
     rrf_map = {h["key"]: float(h.get("score", 0.0) or 0.0) for h in fused}
     _step("rrf_fuse", fusedCount=len(fused))
 

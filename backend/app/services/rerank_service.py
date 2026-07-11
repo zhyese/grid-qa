@@ -11,6 +11,28 @@ from app.config import settings
 
 _URL = "https://dashscope.aliyuncs.com/api/v1/services/rerank/text-rerank/text-rerank"
 
+# 模块级共享连接池：避免每次 rerank 新建 AsyncClient 重做 TLS 握手（rerank 是链路最慢一环）。
+# lazy 创建（首次调用时 event loop 已就绪）；main.py lifespan shutdown 调 close_client 释放。
+_client: Optional[httpx.AsyncClient] = None
+
+
+def _get_client() -> httpx.AsyncClient:
+    global _client
+    if _client is None or _client.is_closed:
+        _client = httpx.AsyncClient(
+            timeout=30,
+            limits=httpx.Limits(max_connections=20, max_keepalive_connections=10),
+        )
+    return _client
+
+
+async def close_client() -> None:
+    """应用关闭时释放连接池（main.py lifespan shutdown 调用）。"""
+    global _client
+    if _client is not None and not _client.is_closed:
+        await _client.aclose()
+    _client = None
+
 
 class Reranker:
     def __init__(self):
@@ -22,21 +44,20 @@ class Reranker:
             return [(i, 0.0) for i in range(min(top_n, len(documents)))]
         import time
         _t0 = time.time()
-        async with httpx.AsyncClient(timeout=30) as c:
-            resp = await c.post(
-                _URL,
-                headers={
-                    "Authorization": f"Bearer {settings.DASHSCOPE_API_KEY}",
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "model": self.model,
-                    "input": {"query": query, "documents": documents},
-                    "parameters": {"return_documents": False, "top_n": top_n},
-                },
-            )
-            resp.raise_for_status()
-            results = resp.json().get("output", {}).get("results", [])
+        resp = await _get_client().post(
+            _URL,
+            headers={
+                "Authorization": f"Bearer {settings.DASHSCOPE_API_KEY}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "model": self.model,
+                "input": {"query": query, "documents": documents},
+                "parameters": {"return_documents": False, "top_n": top_n},
+            },
+        )
+        resp.raise_for_status()
+        results = resp.json().get("output", {}).get("results", [])
         try:
             from app.core import metrics
             metrics.RERANK_CALLS.inc()

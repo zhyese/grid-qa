@@ -74,6 +74,13 @@ async def _crag_correct(
         except Exception as e:
             degraded("crag_rewrite", e)
 
+    # ambiguous 档邻域扩展：证据有限时捞相邻 chunk 补全上下文（默认关，开关 CRAG_NEIGHBOR_EXPAND_ENABLE）
+    if grade == crag.GRADE_AMBIGUOUS and getattr(settings, "CRAG_NEIGHBOR_EXPAND_ENABLE", False):
+        try:
+            contexts = await _expand_neighbors(db, contexts, getattr(settings, "CRAG_NEIGHBOR_WINDOW", 1))
+        except Exception as e:
+            degraded("crag_neighbor_expand", e)
+
     confidence = crag.confidence_of(grade, action == "rewritten")
     if grade == crag.GRADE_INCORRECT and action == "rewritten":
         action = "refused"
@@ -85,6 +92,47 @@ async def _crag_correct(
     except Exception:
         pass
     return contexts, confidence, action, grade
+
+
+async def _expand_neighbors(db: AsyncSession, contexts: list[dict], window: int = 1, max_add: int = 4) -> list[dict]:
+    """ambiguous 档邻域扩展：对 top 命中 chunk，捞同文档相邻 chunk_idx±window 补进 contexts。
+
+    去重（不重复已命中），数量限 max_add。补全证据完整性（关键信息被切到邻块时捞回）。
+    与检索层 small-to-big(_expand_parents) 互补：本层在 CRAG 证据不足时触发，开关独立。
+    """
+    from sqlalchemy import and_, or_, select
+    from app.models.chunk import Chunk
+    from app.models.document import Document
+
+    seeds = [(c.get("docId"), c.get("chunkIdx")) for c in contexts[:3]
+             if c.get("docId") and c.get("chunkIdx") is not None]
+    if not seeds:
+        return contexts
+    conds = []
+    for doc_id, cidx in seeds:
+        for off in range(-int(window), int(window) + 1):
+            if off == 0:
+                continue
+            conds.append((doc_id, int(cidx) + off))
+    if not conds:
+        return contexts
+    existing = {(c.get("docId"), c.get("chunkIdx")) for c in contexts}
+    rows = (await db.execute(
+        select(Chunk, Document).join(Document, Chunk.doc_id == Document.id).where(
+            or_(*[and_(Chunk.doc_id == d, Chunk.chunk_idx == ci) for d, ci in conds])
+        )
+    )).all()
+    added = []
+    for c, d in rows:
+        if (c.doc_id, c.chunk_idx) in existing:
+            continue
+        added.append({
+            "chunk": c.content or "", "score": 0.0, "docId": c.doc_id,
+            "docName": d.doc_name or "", "docType": d.doc_type or "",
+            "chunkIdx": c.chunk_idx, "sources": ["neighbor"],
+        })
+        existing.add((c.doc_id, c.chunk_idx))
+    return contexts + added[:max_add]
 
 
 async def _search_query_for_retrieve(

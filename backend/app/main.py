@@ -122,6 +122,11 @@ async def lifespan(app: FastAPI):
         await neo4j_client.close()
     except Exception:
         pass
+    try:
+        from app.services.rerank_service import close_client
+        await close_client()  # 释放 rerank 共享 httpx 连接池
+    except Exception:
+        pass
 
 
 app = FastAPI(title=settings.APP_NAME, version=settings.APP_VERSION, lifespan=lifespan)

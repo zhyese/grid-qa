@@ -285,6 +285,12 @@ async def vectorize_document(db: AsyncSession, doc_id: str) -> dict:
         _t.add_done_callback(_bg_tasks.discard)
     except Exception as e:
         degraded("kg_extract_dispatch", e)
+    # BM25 增量钩子：新文档入向量库后标记脏，下次检索时重建
+    try:
+        from app.services import bm25_service
+        bm25_service.mark_dirty()
+    except Exception:
+        pass
     return {
         "docId": doc_id, "vectorCount": len(vectors),
         "milvusCollection": collection, "embeddingRoute": route, "docChars": total_chars,
@@ -332,6 +338,12 @@ async def delete_document(db: AsyncSession, doc_id: str) -> None:
     try:
         from app.services.cache_persist import cache_invalidate_for_doc_async
         await cache_invalidate_for_doc_async(doc_id)
+    except Exception:
+        pass
+    # BM25 增量钩子：文档删除后标记脏，下次检索时重建
+    try:
+        from app.services import bm25_service
+        bm25_service.mark_dirty()
     except Exception:
         pass
 

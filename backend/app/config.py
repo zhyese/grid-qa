@@ -54,6 +54,7 @@ class Settings(BaseSettings):
     LLM_PROVIDER: str = "deepseek"      # deepseek | qwen | doubao
     EMB_PROVIDER: str = "qwen"          # qwen | doubao
     EMBEDDING_DIM: int = 1024
+    EMB_BATCH_CONCURRENCY: int = 3      # 云 embedding 批次并发度（防 429，文档批量向量化加速）
 
     # --- DeepSeek ---
     DEEPSEEK_API_KEY: str = ""
@@ -98,7 +99,11 @@ class Settings(BaseSettings):
 
     # ---------- 检索质量 ----------
     MMR_ENABLE: bool = True          # MMR 多样性重排
-    MMR_LAMBDA: float = 0.6          # 相关性 vs 多样性 权衡
+    MMR_LAMBDA: float = 0.5          # 相关性 vs 多样性 权衡（0.5 多样性更均衡）
+    # ---------- RRF 融合（多路检索排名融合）----------
+    RRF_K: int = 60                       # RRF 平滑常数（越小头部越集中）
+    RRF_DENSE_WEIGHT: float = 1.0         # 稠密向量路权重
+    RRF_SPARSE_WEIGHT: float = 1.0        # BM25 稀疏路权重（电网术语精确匹配可调高）
     RAPTOR_ENABLE: bool = False      # RAPTOR 层次化摘要检索（多粒度融合，默认关）
     SEMANTIC_CACHE_ENABLE: bool = False  # 语义缓存（embedding相似度命中，默认关）
     QUERY_REWRITE_ENABLE: bool = False  # LLM 改写 query（增延迟，默认关）
@@ -113,6 +118,8 @@ class Settings(BaseSettings):
 
     # ---------- Corrective RAG（检索自纠错闭环）----------
     CRAG_ENABLE: bool = True     # 检索后分级+纠错(低相关触发query改写重检索/拒答)
+    CRAG_NEIGHBOR_EXPAND_ENABLE: bool = False  # ambiguous 档邻域 chunk 扩展（补证据完整性，默认关）
+    CRAG_NEIGHBOR_WINDOW: int = 1              # 邻域窗口（±N 个 chunk_idx）
     CRAG_HIGH: float = 0.6       # top1 rerank分>=此值=correct(证据充分)
     CRAG_LOW: float = 0.3        # top1 rerank分<此值=incorrect(触发纠错)
     CRAG_PERDOC_ENABLE: bool = False  # CRAG v2：LLM 逐条评估证据相关性（非仅 top1，增延迟，默认关）
