@@ -55,6 +55,12 @@ async def _judge_bg(feedback_id: str, query: str, answer: str, retrieval_sources
     retrieval_label = None
     try:
         judge_res = await judge.judge_hallucination(answer, [query], settings.LLM_PROVIDER)
+        if judge_res:
+            try:
+                from app.core import metrics
+                metrics.HALLUC.observe(judge_res.get("hallucination", 1.0) or 1.0)  # dislike 触发 judge 实测进 HALLUC
+            except Exception:
+                pass
     except Exception as e:
         degraded("feedback_judge", e)
 

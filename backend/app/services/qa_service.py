@@ -323,7 +323,7 @@ async def answer(
     _halluc = citation.estimate_hallucination(ans, len(contexts))
     try:
         from app.core import metrics
-        metrics.HALLUC.observe(_halluc)
+        metrics.UNGROUNDED_RATIO.observe(_halluc)   # 启发式未引用率(廉价代理)；HALLUC 留给 LLM-judge 真值
     except Exception:
         pass
     result = {
@@ -774,7 +774,7 @@ async def stream_answer(
     halluc = citation.estimate_hallucination(annotated, len(contexts))
     try:
         from app.core import metrics
-        metrics.HALLUC.observe(halluc)
+        metrics.UNGROUNDED_RATIO.observe(halluc)   # 启发式未引用率(廉价代理)；HALLUC 留给 LLM-judge 真值
     except Exception:
         pass
     cache_data = {

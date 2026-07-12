@@ -85,7 +85,8 @@
             <div class="meta" v-if="m.time">
               <span>⏱ {{ m.time }}s</span>
               <span v-if="m.cached" class="badge" :class="cacheBadge(m.cacheLayer)" :title="'命中缓存：' + cacheTitle(m.cacheLayer)">⚡ {{ cacheLabel(m.cacheLayer) }}</span>
-              <span>· 幻觉率 {{ m.halluc }}</span>
+              <span v-if="m.halluc != null">· 未引用率 {{ Math.round((m.halluc || 0) * 100) }}%</span>
+              <span v-if="m.judgeHalluc != null" class="badge badge-warning" :title="(m.judgeReason ? 'LLM-judge：' + m.judgeReason : 'LLM-judge 实测幻觉率（异步）')">幻觉率{{ Math.round((m.judgeHalluc || 0) * 100) }}%</span>
               <span v-if="m.route" class="badge" :class="routeBadge(m.route)" :title="m.routeReason || ''">🧭 {{ routeLabel(m.route) }}</span>
               <span v-if="m.graphCount" class="badge badge-info">🔗 图谱{{ m.graphCount }}</span>
               <span v-if="m.highRisk && m.highRisk.length" class="badge badge-danger" :title="'高风险：' + m.highRisk.join('、')">⚠ {{ m.highRisk.slice(0, 3).join('、') }}</span>
@@ -252,7 +253,7 @@ async function loadRelated(m) {
 async function loadFaithfulness(m) {
   try {
     const r = await getFaithfulness(m.content, m.sources, modelType.value || undefined)
-    if (r && r.data && typeof r.data.hallucination === 'number') { m.halluc = r.data.hallucination; m.judgeReason = r.data.reason || '' }
+    if (r && r.data && typeof r.data.hallucination === 'number') { m.judgeHalluc = r.data.hallucination; m.judgeReason = r.data.reason || '' }
   } catch (e) {}
 }
 

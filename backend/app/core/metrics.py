@@ -39,8 +39,13 @@ ERRORS = Counter("grid_errors_total", "系统错误总数", ["type", "code"])
 EMBED_LATENCY = Histogram("grid_embed_latency_seconds", "Embedding 调用延迟(秒)", ["provider"])
 RERANK_LATENCY = Histogram("grid_rerank_latency_seconds", "Rerank 调用延迟(秒)")
 # 质量：幻觉率分布 + 用户反馈
+# HALLUC = LLM-judge 实测幻觉率（采样/离线/dislike 触发，真值）；UNGROUNDED_RATIO = 启发式未引用率（每次问答，廉价代理）
 HALLUC = Histogram(
-    "grid_hallucination_rate", "答案幻觉率分布",
+    "grid_hallucination_rate", "答案幻觉率分布(LLM-judge 实测,采样)",
+    buckets=(0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, float("inf")),
+)
+UNGROUNDED_RATIO = Histogram(
+    "grid_ungrounded_ratio", "未引用率(启发式:未被引用资料占比,每次问答的廉价代理)",
     buckets=(0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, float("inf")),
 )
 FEEDBACK = Counter("grid_feedback_total", "问答反馈(👍/👎)", ["feedback"])
