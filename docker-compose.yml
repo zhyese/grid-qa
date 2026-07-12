@@ -171,6 +171,8 @@ services:
       - "host.docker.internal:host-gateway"
     ports:
       - "8001:8001"
+    volumes:
+      - grid-backend-data:/app/data   # 持久化 data/（运行日志 + 数据备份 .sql），容器重建不丢
 
   # ---------- 前端（nginx）----------
   frontend:
@@ -216,4 +218,5 @@ services:
 
 volumes:
   mysql-data:
+  grid-backend-data:
 
