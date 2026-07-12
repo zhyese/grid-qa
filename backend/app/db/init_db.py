@@ -18,6 +18,7 @@ from app.models.agent_tool_call import AgentToolCall  # noqa: F401  S4 工具调
 from app.models.alert_disposal import AlertDisposal  # noqa: F401  S3 告警处置
 from app.models.persona_config import PersonaConfig  # noqa: F401  S5 persona 配置覆盖
 from app.models.permission import RolePermission  # noqa: F401  RBAC 角色权限覆盖
+from app.models.favorite import Favorite  # noqa: F401  个人收藏夹
 
 
 # 现有表加列的幂等迁移（create_all 只建不 ALTER；老库靠这里补列，列已存在则忽略 1060 错误）。

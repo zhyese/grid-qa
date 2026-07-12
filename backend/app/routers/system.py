@@ -1,5 +1,5 @@
 """系统接口：登录 / 注册 / 操作日志（角色+时间过滤） / 配置（管理员，Redis 持久化）。"""
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, Query, Request, WebSocket
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -267,6 +267,13 @@ async def alerts_webhook(
         await write_log(db, "Grafana", "告警", content[:500])
         try:
             metrics.ALERT_RECEIVED.labels(sev).inc()
+        except Exception:
+            pass
+        # 实时推送：广播给 /ws/alerts 订阅端（Admin 告警 Tab 不再轮询）
+        try:
+            from app.core import ws_manager
+            await ws_manager.broadcast({"type": "alert", "severity": sev, "title": title,
+                                        "summary": summary, "state": state, "time": content[-26:]})
         except Exception:
             pass
         # S3：触发自动处置（写 pending 快，disposal 跑在 bg task，不阻塞 webhook 响应）
@@ -802,6 +809,59 @@ async def plugin_toggle(
     if not ok:
         raise BizError(f"插件 {name} 不存在", 404)
     return success({"name": name, "enabled": (body or {}).get("enabled", False)}, "已更新")
+
+
+# ===== 语义增强规则自定义（BRD §4.1.3）=====
+
+@router.get("/semantic-rules")
+async def sem_rules_list(admin: User = Depends(require_admin)):
+    """列全部语义增强规则（维度→关键词→标签）。"""
+    from app.services.semantic_rule_service import list_rules
+    return success(list_rules(), "查询成功")
+
+
+@router.post("/semantic-rules")
+async def sem_rules_add(body: dict, admin: User = Depends(require_admin), db: AsyncSession = Depends(get_db)):
+    """新增规则 {dimension, tag, keywords:[]}。"""
+    from app.services.semantic_rule_service import add_rule
+    data = add_rule(body.get("dimension", ""), body.get("tag", ""), body.get("keywords", []))
+    await write_log(db, admin.username, "语义规则", f"{data['dimension']}→{data['tag']}")
+    return success(data, "已保存")
+
+
+@router.delete("/semantic-rules/{idx}")
+async def sem_rules_del(idx: int, admin: User = Depends(require_admin), db: AsyncSession = Depends(get_db)):
+    """按下标删除规则。"""
+    from app.services.semantic_rule_service import delete_rule
+    data = delete_rule(idx)
+    await write_log(db, admin.username, "语义规则", f"删除#{idx}")
+    return success(data, "已删除")
+
+
+# ===== 告警实时推送 WebSocket（BRD §5.4 + 告警实时性）=====
+
+@router.websocket("/ws/alerts")
+async def alerts_ws(ws: WebSocket):
+    """告警实时推送订阅。?token=JWT 鉴权；webhook 收到告警即广播。"""
+    from app.core.security import decode_token
+    from app.core import ws_manager
+    token = ws.query_params.get("token", "")
+    try:
+        decode_token(token)
+    except Exception:
+        await ws.accept()
+        await ws.send_json({"type": "error", "message": "未认证或 token 无效"})
+        await ws.close()
+        return
+    await ws_manager.connect(ws)
+    try:
+        await ws.send_json({"type": "ready", "clients": ws_manager.client_count()})
+        while True:
+            await ws.receive_text()   # 保活（客户端可周期 ping）
+    except Exception:
+        pass
+    finally:
+        ws_manager.disconnect(ws)
 
 
 # ===== 词表管理（BRD §4.1.4）=====

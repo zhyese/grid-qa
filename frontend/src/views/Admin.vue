@@ -16,6 +16,7 @@
       <button class="tab" :class="{ active: tab === 'persona' }" @click="loadPersonas(); tab = 'persona'" v-if="can('system:config')">🧩 Persona</button>
       <button class="tab" :class="{ active: tab === 'backup' }" @click="loadBackups(); tab = 'backup'" v-if="can('system:config')">💾 备份恢复</button>
       <button class="tab" :class="{ active: tab === 'terms' }" @click="loadTerms(); tab = 'terms'" v-if="can('system:config')">📖 词表管理</button>
+      <button class="tab" :class="{ active: tab === 'srules' }" @click="loadSrules(); tab = 'srules'" v-if="can('system:config')">🏷️ 语义规则</button>
       <button class="tab" :class="{ active: tab === 'prompt' }" @click="loadPrompt(); tab = 'prompt'" v-if="can('system:config')">📝 Prompt模板</button>
     </div>
 
@@ -584,12 +585,32 @@
         <p class="hint" style="margin-top:0">电网运维问答的 system prompt。改后<b>即改即生效</b>（下次问答即用，热读缓存）。空保存=恢复 code 默认。</p>
         <textarea class="input" v-model="promptText" rows="14" style="width:100%;font-family:inherit;resize:vertical;margin-top:8px" placeholder="留空保存即恢复默认"></textarea>
       </div>
+      <!-- 语义增强规则 -->
+      <div class="card" v-show="tab === 'srules'">
+        <div class="card-header"><h3 class="card-title">🏷️ 语义增强规则 <span class="badge badge-neutral">{{ srules.length }}</span></h3></div>
+        <p class="hint" style="margin-top:0">自定义「维度→关键词→标签」规则，给文档/分块文本打语义维度（如 作业场景=倒闸操作、安全等级=高风险）。</p>
+        <div class="row" style="gap:8px;margin:8px 0;flex-wrap:wrap">
+          <input class="input" v-model="srForm.dimension" placeholder="维度（作业场景/安全等级）" style="width:150px" />
+          <input class="input" v-model="srForm.tag" placeholder="标签（倒闸操作/高风险）" style="width:150px" />
+          <input class="input" v-model="srForm.kws" placeholder="关键词（逗号分隔）" style="flex:1;min-width:200px" />
+          <button class="btn btn-primary btn-sm" @click="doAddSrule">＋ 新增</button>
+        </div>
+        <div style="overflow-x:auto">
+          <table class="tbl">
+            <thead><tr><th>维度</th><th>标签</th><th>关键词</th><th>操作</th></tr></thead>
+            <tbody>
+              <tr v-for="(r, i) in srules" :key="i"><td>{{ r.dimension }}</td><td>{{ r.tag }}</td><td class="muted">{{ (r.keywords||[]).join('、') }}</td><td><button class="btn btn-danger btn-sm" @click="doDelSrule(i)">删除</button></td></tr>
+              <tr v-if="!srules.length"><td colspan="4" class="empty">暂无规则</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
       <div class="toast" v-if="toastMsg">{{ toastMsg }}</div>
   </div>
 </template>
 
 <script setup>
-import { ref, reactive, onMounted, nextTick, computed } from 'vue'
+import { ref, reactive, onMounted, onUnmounted, nextTick, computed } from 'vue'
 import { useAuthStore } from '../stores/auth'
 import { hasPerm } from '../utils/perm'
 import AgentTrace from '../components/AgentTrace.vue'
@@ -597,7 +618,7 @@ import * as echarts from 'echarts/core'
 import { PieChart, BarChart, ScatterChart, LineChart } from 'echarts/charts'
 import { TooltipComponent, LegendComponent, GridComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
-import { getLogs, getAlerts, configMilvus, configModel, getMilvusConfig, getModelConfig, getProviderHealth, rebuildBm25, getFeedbacks, markFeedbackGolden, getFeedbackStats, alertDispose, getAlertDisposals, getPersonas, upsertPersona, deletePersona, agentRun, getUsers, updateUserRole, updateUserStatus, deleteUser, resetUserPassword, backupDB, listBackups, restoreDB, removeBackup, getLogArchiveStats, archiveLogs, getTerms, addTerm, deleteTerm, getPromptConfig, updatePromptConfig } from '../api'
+import { getLogs, getAlerts, configMilvus, configModel, getMilvusConfig, getModelConfig, getProviderHealth, rebuildBm25, getFeedbacks, markFeedbackGolden, getFeedbackStats, alertDispose, getAlertDisposals, getPersonas, upsertPersona, deletePersona, agentRun, getUsers, updateUserRole, updateUserStatus, deleteUser, resetUserPassword, backupDB, listBackups, restoreDB, removeBackup, getLogArchiveStats, archiveLogs, getTerms, addTerm, deleteTerm, getPromptConfig, updatePromptConfig, getSemanticRules, addSemanticRule, deleteSemanticRule } from '../api'
 import request from '../api/request'
 
 echarts.use([PieChart, BarChart, ScatterChart, LineChart, TooltipComponent, LegendComponent, GridComponent, CanvasRenderer])
@@ -617,6 +638,8 @@ const backupLoading = ref(false)
 const archiveStat = ref(null)               // 日志归档统计
 const termsList = ref([])                   // 词表
 const termForm = reactive({ alias: '', standard: '' })
+const srules = ref([])
+const srForm = reactive({ dimension: '', tag: '', kws: '' })
 const promptText = ref('')
 const promptDefault = ref('')
 const personaForm = reactive({ name: '', systemPrompt: '', allowedTools: '', maxIter: null, temperature: null, maxTokens: null, outputFormat: '', fallbackKey: '', enabled: true })
@@ -707,6 +730,13 @@ async function doAddTerm() {
   catch (e) { toast('保存失败') }
 }
 async function doDeleteTerm(alias) { if (!confirm(`删除词条「${alias}」？`)) return; try { await deleteTerm(alias); toast('已删除'); await loadTerms() } catch (e) { toast('删除失败') } }
+async function loadSrules() { try { srules.value = (await getSemanticRules()).data || [] } catch (e) { /* silent */ } }
+async function doAddSrule() {
+  const kws = srForm.kws.split(',').map(s => s.trim()).filter(Boolean)
+  if (!srForm.dimension.trim() || !srForm.tag.trim() || !kws.length) { toast('维度/标签/关键词都必填'); return }
+  try { await addSemanticRule(srForm.dimension.trim(), srForm.tag.trim(), kws); toast('已保存'); srForm.dimension = srForm.tag = srForm.kws = ''; await loadSrules() } catch (e) { toast('保存失败') }
+}
+async function doDelSrule(idx) { if (!confirm('删除该规则？')) return; try { await deleteSemanticRule(idx); toast('已删除'); await loadSrules() } catch (e) { toast('删除失败') } }
 async function loadPrompt() { try { const d = (await getPromptConfig()).data; promptDefault.value = d.default || ''; promptText.value = d.systemPrompt || '' } catch (e) { /* silent */ } }
 async function savePrompt() { try { await updatePromptConfig(promptText.value); toast('Prompt 已保存（下次问答生效）') } catch (e) { toast('保存失败') } }
 async function doArchiveLogs() {
@@ -1056,9 +1086,23 @@ function renderEvalChart() {
 async function loadABTest() { try { abConfig.value = (await request.get('/system/routing/config')).data } catch (e) { toast('加载失败') } }
 onMounted(() => {
   loadLogs(); loadFeedbacks('dislike'); loadFbStats()
-  if (can('alert:read')) loadAlerts()           // 审计员/管理员
+  if (can('alert:read')) { loadAlerts(); connectAlertsWs() }   // 审计员/管理员：告警实时推送
   if (can('system:config')) { loadConfig(); loadArchiveStats() }  // 仅管理员（系统配置/日志归档）
 })
+onUnmounted(() => { try { alertWs && alertWs.close() } catch (e) {} })
+let alertWs = null
+function connectAlertsWs() {
+  try {
+    const proto = location.protocol === 'https:' ? 'wss' : 'ws'
+    alertWs = new WebSocket(`${proto}://${location.host}/api/system/ws/alerts?token=${auth.token}`)
+    alertWs.onmessage = (e) => {
+      try {
+        const d = JSON.parse(e.data)
+        if (d.type === 'alert') { toast(`🚨 新告警：${d.title}`); loadAlerts() }
+      } catch (_) {}
+    }
+  } catch (e) {}
+}
 </script>
 
 <style scoped>

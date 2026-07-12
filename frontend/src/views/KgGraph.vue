@@ -12,6 +12,7 @@
       <button class="tab" :class="{ active: tab === 'graph' }" @click="tab = 'graph'">🔗 关系图谱</button>
       <button class="tab" :class="{ active: tab === 'path' }" @click="tab = 'path'">🔀 多跳影响链</button>
       <button class="tab" :class="{ active: tab === 'hub' }" @click="switchHub">⭐ 枢纽实体</button>
+      <button class="tab" :class="{ active: tab === 'manage' }" @click="loadTriples(); tab = 'manage'" v-if="can('kg:edit')">🛠️ 三元组管理</button>
     </div>
 
     <!-- 关系图谱 -->
@@ -66,6 +67,22 @@
         </div>
       </div>
     </div>
+    <!-- 三元组管理 -->
+    <div v-show="tab === 'manage'" style="margin-top:12px">
+      <div class="row" style="justify-content:space-between;align-items:center;margin-bottom:8px">
+        <b>三元组管理（{{ triples.total }}）</b>
+        <div class="row" style="gap:6px"><input class="input" v-model="tripleKw" placeholder="关键词筛" style="width:160px" @keyup.enter="loadTriples" /><button class="btn btn-ghost btn-sm" @click="loadTriples">🔍</button></div>
+      </div>
+      <div style="overflow-x:auto">
+        <table class="tbl">
+          <thead><tr><th>主体</th><th>关系</th><th>客体</th><th>来源</th><th>操作</th></tr></thead>
+          <tbody>
+            <tr v-for="t in triples.list" :key="t.id"><td>{{ t.subject }}</td><td>{{ t.relation }}</td><td>{{ t.object }}</td><td class="muted">{{ (t.docName||'').slice(0,20) }}</td><td><button class="btn btn-danger btn-sm" @click="delTriple(t)">删除</button></td></tr>
+            <tr v-if="!triples.list.length"><td colspan="5" class="empty">暂无三元组</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
     <transition name="fade"><div class="toast" v-if="toast">{{ toast }}</div></transition>
   </div>
 </template>
@@ -76,7 +93,7 @@ import * as echarts from 'echarts/core'
 import { GraphChart } from 'echarts/charts'
 import { TooltipComponent, LegendComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
-import { extractKg, getKgGraph, getKgStats, getKgPaths, getKgInfluence, listDocs } from '../api'
+import { extractKg, getKgGraph, getKgStats, getKgPaths, getKgInfluence, listDocs, listTriples, deleteTriple } from '../api'
 import { useAuthStore } from '../stores/auth'
 import { hasPerm } from '../utils/perm'
 
@@ -100,6 +117,10 @@ const pathEntity = ref('')
 const depth = ref(3)
 const paths = ref([])
 const hubs = ref([])
+const triples = ref({ total: 0, list: [] })
+const tripleKw = ref('')
+async function loadTriples() { try { triples.value = (await listTriples({ page: 1, size: 50, kw: tripleKw.value || undefined })).data } catch (e) { show('加载失败') } }
+async function delTriple(t) { if (!confirm(`删除三元组「${t.subject}-${t.relation}->${t.object}」？`)) return; try { await deleteTriple(t.id); show('已删除'); loadTriples() } catch (e) { show('删除失败') } }
 let toastTimer = null
 function show(msg) { toast.value = msg; clearTimeout(toastTimer); toastTimer = setTimeout(() => (toast.value = ''), 2600) }
 

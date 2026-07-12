@@ -3,6 +3,14 @@
     <!-- 对话历史栏 -->
     <aside class="conv-bar" :class="{ collapsed: convCollapsed }">
       <button class="btn btn-primary new-btn" @click="newChat">＋ 新建对话</button>
+      <button class="btn btn-ghost btn-sm" style="margin:6px 0" @click="toggleFavPanel">⭐ 我的收藏</button>
+      <div v-if="showFavPanel" class="fav-panel" style="border:1px solid var(--border);border-radius:8px;padding:8px;margin-bottom:8px;max-height:240px;overflow:auto">
+        <div v-if="!favList.length" class="hint">暂无收藏（答案下方⭐收藏）</div>
+        <div v-for="f in favList" :key="f.id" class="fav-item" style="padding:6px;border-bottom:1px dashed var(--border);cursor:pointer;display:flex;justify-content:space-between;gap:6px" @click="useFav(f)">
+          <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ f.query }}</span>
+          <a @click.stop="delFav(f.id)" style="color:var(--danger)">✕</a>
+        </div>
+      </div>
       <input class="input" v-model="searchKw" placeholder="🔍 搜索对话..." @input="onSearch" />
       <div class="conv-batch" v-if="conversations.length">
         <label class="msg-check"><input type="checkbox" :checked="allConvsSelected" @change="toggleAllConvs($event.target.checked)" /> 全选</label>
@@ -55,6 +63,7 @@
               <a @click="regenerate(m)">🔄 重新生成</a>
               <a @click="copyAnswer(m)">📋 复制</a>
               <a @click="exportWord(m)">📄 导出 Word</a>
+              <a v-if="m.content && !m.streaming" @click="saveFavorite(m)">⭐ 收藏</a>
             </div>
             <pre v-if="m.streaming" class="streaming-text">{{ m.content }}<span class="cursor">▍</span></pre>
             <AgentTrace :steps="m.agentSteps" title="🎯 深度思考" />
@@ -180,7 +189,7 @@ import sql from 'highlight.js/lib/languages/sql'
 import xml from 'highlight.js/lib/languages/xml'
 import markdown from 'highlight.js/lib/languages/markdown'
 import { useAuthStore } from '../stores/auth'
-import { streamAnswer, streamAnswerWS, sendFeedback, getFaithfulness, getRelatedQuestions, getConversations, getHistory, deleteConversation, renameConversation, batchDeleteConversations, batchDeleteMessages, exportAnswer, getEvidenceTrace, reportEvidenceGap } from '../api'
+import { streamAnswer, streamAnswerWS, sendFeedback, getFaithfulness, getRelatedQuestions, getConversations, getHistory, deleteConversation, renameConversation, batchDeleteConversations, batchDeleteMessages, exportAnswer, getEvidenceTrace, reportEvidenceGap, addFavorite, listFavorites, deleteFavorite } from '../api'
 
 hljs.registerLanguage('python', python)
 hljs.registerLanguage('javascript', javascript)
@@ -381,6 +390,12 @@ function leaveSource(m) {
   document.querySelectorAll('.cite-ref.cite-hot').forEach(el => el.classList.remove('cite-hot'))
 }
 async function copyAnswer(m) { try { await navigator.clipboard.writeText(m.content); toast('答案已复制') } catch (e) { toast('复制失败') } }
+async function saveFavorite(m) { try { await addFavorite(m.query, m.content); toast('已收藏到个人收藏夹') } catch (e) { toast('收藏失败') } }
+const showFavPanel = ref(false)
+const favList = ref([])
+async function toggleFavPanel() { showFavPanel.value = !showFavPanel.value; if (showFavPanel.value) { try { favList.value = (await listFavorites()).data || [] } catch (e) {} } }
+async function delFav(id) { try { await deleteFavorite(id); favList.value = favList.value.filter(f => f.id !== id) } catch (e) { toast('删除失败') } }
+function useFav(f) { showFavPanel.value = false; query.value = f.query }
 async function exportWord(m) {
   try {
     const blob = await exportAnswer(m.query, m.content, m.sources, { confidence: m.confidence, hallucinationRate: m.halluc, responseTime: m.time })

@@ -208,6 +208,18 @@ export const getFaultPrediction = (days = 30) => request.get('/system/fault-pred
 export const getTerms = () => request.get('/system/terms')
 export const addTerm = (alias, standard) => request.post('/system/terms', { alias, standard })
 export const deleteTerm = (alias) => request.delete('/system/terms', { params: { alias } })
+// 语义增强规则（admin）
+export const getSemanticRules = () => request.get('/system/semantic-rules')
+export const addSemanticRule = (dimension, tag, keywords) => request.post('/system/semantic-rules', { dimension, tag, keywords })
+export const deleteSemanticRule = (idx) => request.delete(`/system/semantic-rules/${idx}`)
+// 收藏夹（个人）
+export const addFavorite = (query, answer) => request.post('/qa/favorites', { query, answer })
+export const listFavorites = (keyword) => request.get('/qa/favorites', { params: keyword ? { keyword } : {} })
+export const deleteFavorite = (id) => request.delete(`/qa/favorites/${id}`)
+// 图谱三元组管理（editor/admin）
+export const listTriples = (params) => request.get('/kg/triples', { params })
+export const updateTriple = (id, patch) => request.put(`/kg/triples/${id}`, patch)
+export const deleteTriple = (id) => request.delete(`/kg/triples/${id}`)
 
 // P4-⑮ 证据溯源
 export const getEvidenceTrace = (answer, sources, modelType) =>

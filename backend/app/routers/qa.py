@@ -22,7 +22,7 @@ from app.schemas.qa import (
     RenameRequest,
     TermRequest,
 )
-from app.services import conversation_service, feedback_service, qa_service, term_service
+from app.services import conversation_service, favorite_service, feedback_service, qa_service, term_service
 from app.services.log_service import write_log
 
 router = APIRouter(prefix="/qa", tags=["检索与问答"])
@@ -279,6 +279,26 @@ async def mark_golden(
     data = await feedback_service.mark_golden(db, feedback_id)
     msg = "已加入 golden 集" if data.get("added") else (data.get("reason") or "未加入")
     return success(data, msg)
+
+
+@router.post("/favorites")
+async def add_favorite(body: dict, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
+    """收藏问题（+答案快照）到个人收藏夹。"""
+    data = await favorite_service.add_favorite(db, user.id, user.username, body.get("query", ""), body.get("answer", ""))
+    return success(data, "已收藏")
+
+
+@router.get("/favorites")
+async def list_favorites(keyword: str = "", db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
+    """列出我的收藏（可按关键词筛）。"""
+    return success(await favorite_service.list_favorites(db, user.id, keyword), "查询成功")
+
+
+@router.delete("/favorites/{favorite_id}")
+async def delete_favorite(favorite_id: str, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
+    """删除一条收藏（仅本人）。"""
+    data = await favorite_service.delete_favorite(db, favorite_id, user.id)
+    return success(data, "已删除")
 
 
 @router.websocket("/answer/ws")

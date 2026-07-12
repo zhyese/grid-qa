@@ -129,7 +129,14 @@ async def _dense_and_sparse(
 
     await bm25_service.ensure_built(db)
     sparse_hits = []
-    for s in bm25_service.search(q, topk=cand):
+    _bm25_q = q
+    if getattr(settings, "SYNONYM_EXPAND_ENABLE", False):
+        try:
+            from app.services import term_service
+            _bm25_q = term_service.expand_synonyms(q)   # 同义词扩展（BRD §4.3.1）提升 BM25 召回
+        except Exception:
+            pass
+    for s in bm25_service.search(_bm25_q, topk=cand):
         c = bm25_service.get_chunk(s["idx"])
         if not c:
             continue

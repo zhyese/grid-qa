@@ -74,3 +74,24 @@ def _save_terms(terms: dict) -> None:
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(json.dumps(terms, ensure_ascii=False, indent=2), encoding="utf-8")
     _load_terms.cache_clear()
+
+
+def expand_synonyms(query: str) -> str:
+    """同义词扩展检索（BRD §4.3.1）：query 含某标准词时，追加其同义别名提升 BM25 召回。
+
+    与 normalize 的区别：normalize 把别名统一成标准词（精准）；expand 额外塞回同义别名
+    （召回更广，"SF6断路器" 也能召回 "六氟化硫断路器" 文本）。用于检索侧 OR 扩展。
+    """
+    if not query:
+        return query
+    terms = _load_terms()
+    std2alias: dict[str, list[str]] = {}
+    for alias, std in terms.items():
+        std2alias.setdefault(std, []).append(alias)
+    extra = []
+    for std, aliases in std2alias.items():
+        if std in query:
+            for a in aliases:
+                if a not in query and a not in extra:
+                    extra.append(a)
+    return query + (" " + " ".join(extra) if extra else "")
