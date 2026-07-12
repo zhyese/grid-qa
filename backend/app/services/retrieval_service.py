@@ -353,7 +353,14 @@ async def mixed_search(
         metrics.RETRIEVAL_LATENCY.observe(time.time() - _t0)
     except Exception:
         pass
-    return [_to_item(h) for h in pool]
+    items = [_to_item(h) for h in pool]
+    # 插件扩展点 · retrieval_filter：第三方可注册检索结果过滤/重排（BRD §5.3.1）
+    try:
+        from app.services import plugin_registry
+        items = plugin_registry.run_hook("retrieval_filter", items, {"query": q, "tenant": tenant})
+    except Exception:
+        pass
+    return items
 
 
 async def debug_search(

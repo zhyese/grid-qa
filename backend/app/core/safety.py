@@ -159,8 +159,16 @@ def mask_pii(text: str) -> str:
     """答案敏感信息脱敏（PII_MASK_ENABLE 开启时由 qa 后处理调用）。"""
     if not text:
         return text
+    masked = 0
     for pat, rep in _PII_PATTERNS:
-        text = pat.sub(rep, text)
+        text, n = pat.subn(rep, text)
+        masked += n
+    if masked:
+        try:
+            from app.core import metrics
+            metrics.SAFETY_BLOCK.labels(kind="pii_mask").inc(masked)
+        except Exception:
+            pass
     return text
 
 
