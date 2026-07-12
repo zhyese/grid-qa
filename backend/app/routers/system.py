@@ -766,6 +766,44 @@ async def fault_prediction(
     return success(data, "查询成功")
 
 
+# ===== 双 RAG 框架热备（BRD §5.2.3）=====
+
+@router.get("/rag/health")
+async def rag_health(user: User = Depends(require_perm(METRIC_READ))):
+    """主副两路健康探活：主路 Milvus 是否连通、双框架开关状态。"""
+    from app.config import settings
+    from app.services.rag_router import primary_health
+    primary = await primary_health()
+    return success({
+        "dualEnable": getattr(settings, "DUAL_RAG_ENABLE", False),
+        "primary": primary,
+        "secondary": "BM25+LLM（always-on，独立于 Milvus）",
+    }, "查询成功")
+
+
+# ===== 插件 / 扩展框架（BRD §5.3.1）=====
+
+@router.get("/plugins")
+async def plugins_list(user: User = Depends(require_perm(METRIC_READ))):
+    """列出全部插件及启用状态。"""
+    from app.services.plugin_registry import list_plugins
+    return success(list_plugins(), "查询成功")
+
+
+@router.post("/plugins/{name}/toggle")
+async def plugin_toggle(
+    name: str,
+    body: dict,
+    user: User = Depends(require_perm(METRIC_READ)),
+):
+    """启用/禁用插件。body: {enabled: bool}。"""
+    from app.services.plugin_registry import disable, enable
+    ok = enable(name) if (body or {}).get("enabled") else disable(name)
+    if not ok:
+        raise BizError(f"插件 {name} 不存在", 404)
+    return success({"name": name, "enabled": (body or {}).get("enabled", False)}, "已更新")
+
+
 # ===== 词表管理（BRD §4.1.4）=====
 
 @router.get("/terms")

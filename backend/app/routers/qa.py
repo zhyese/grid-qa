@@ -39,11 +39,27 @@ async def answer(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_perm(QA_ANSWER)),
 ):
-    data = await qa_service.answer(
-        db, body.query, body.modelType, conversation_id=body.conversationId,
-        username=user.username, tenant=user.tenant_id,
-        user_dept=user.dept, user_role=user.role,
-    )
+    from app.config import settings
+    from app.services import plugin_registry
+    # 插件 · query 预处理（BRD §5.3.1 扩展点）
+    q = plugin_registry.run_hook("query_preprocess", body.query, {"user": user.username})
+    if getattr(settings, "DUAL_RAG_ENABLE", False):
+        # 双 RAG 热备：主路异常自动切副路 BM25+LLM（BRD §5.2.3）
+        from app.services.rag_router import answer_redundant
+        data = await answer_redundant(
+            db, q, body.modelType, conversation_id=body.conversationId,
+            username=user.username, tenant=user.tenant_id,
+            user_dept=user.dept, user_role=user.role,
+        )
+    else:
+        data = await qa_service.answer(
+            db, q, body.modelType, conversation_id=body.conversationId,
+            username=user.username, tenant=user.tenant_id,
+            user_dept=user.dept, user_role=user.role,
+        )
+    # 插件 · 答案后处理（扩展点）
+    if isinstance(data, dict) and data.get("answer"):
+        data["answer"] = plugin_registry.run_hook("answer_postprocess", data["answer"], {"query": q})
     # X-Cache-Hit 响应头：供 HTTP 层面调试/监控缓存分层命中了哪层
     layer = data.get("cacheLayer") or data.get("cached") and "redis" or "llm"
     request.state.cache_layer = layer
