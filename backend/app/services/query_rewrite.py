@@ -19,9 +19,19 @@ async def rewrite_query(query: str, model_type: str | None = None, force: bool =
         "只输出改写后的查询，不要解释、不要引号：\n" + query
     )
     try:
-        return (await get_llm_provider(model_type).chat(
+        import time as _t
+        from app.core import metrics
+        _p = model_type or settings.LLM_PROVIDER
+        _llm0 = _t.time()
+        out = (await get_llm_provider(model_type).chat(
             [{"role": "user", "content": prompt}], temperature=0, max_tokens=120
         )).strip() or query
+        try:
+            metrics.LLM_LATENCY.labels(_p).observe(_t.time() - _llm0)
+            metrics.LLM_CALLS.labels(_p).inc()
+        except Exception:
+            pass
+        return out
     except Exception as e:
         degraded("query_rewrite", e)
         return query

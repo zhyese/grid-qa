@@ -20,7 +20,10 @@ LLM_CALLS = Counter(
     "grid_llm_calls_total", "LLM 调用次数", ["provider"]
 )
 LLM_LATENCY = Histogram(
-    "grid_llm_latency_seconds", "LLM 调用延迟(秒)", ["provider"]
+    "grid_llm_latency_seconds", "LLM 调用延迟(秒)", ["provider"],
+    # 默认桶为亚秒级 HTTP 优化，LLM 调用普遍 1-10s 会全挤进 5.0/7.5 桶 → 分位估算粗。
+    # 用适合 LLM 分布的桶（0.5s 快速/缓存命中 → 30s 慢调用，2-10s 粒度细）。
+    buckets=(0.5, 1.0, 1.5, 2.0, 3.0, 4.0, 5.0, 7.5, 10.0, 15.0, 20.0, 30.0),
 )
 EMBED_CALLS = Counter(
     "grid_embed_calls_total", "Embedding 调用次数", ["provider"]
