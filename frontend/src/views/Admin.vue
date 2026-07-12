@@ -14,6 +14,7 @@
       <button class="tab" :class="{ active: tab === 'abtest' }" @click="loadABTest(); tab = 'abtest'" v-if="can('system:config')">🧪 A/B测试</button>
       <button class="tab" :class="{ active: tab === 'users' }" @click="loadUsers(); tab = 'users'" v-if="can('user:manage')">👥 用户管理</button>
       <button class="tab" :class="{ active: tab === 'persona' }" @click="loadPersonas(); tab = 'persona'" v-if="can('system:config')">🧩 Persona</button>
+      <button class="tab" :class="{ active: tab === 'backup' }" @click="loadBackups(); tab = 'backup'" v-if="can('system:config')">💾 备份恢复</button>
     </div>
 
     <!-- 反馈管理 -->
@@ -71,7 +72,7 @@
       </p>
       <div style="overflow-x:auto;margin-top:8px">
         <table class="tbl">
-          <thead><tr><th>用户</th><th>角色</th><th>部门</th><th>租户</th><th>创建时间</th><th>操作</th></tr></thead>
+          <thead><tr><th>用户</th><th>角色</th><th>部门</th><th>租户</th><th>状态</th><th>创建时间</th><th>操作</th></tr></thead>
           <tbody>
             <tr v-for="u in users.list" :key="u.userId">
               <td>{{ u.username }}</td>
@@ -85,10 +86,16 @@
               </td>
               <td><input class="input" v-model="u.dept" placeholder="如:调度/检修" style="width:120px" /></td>
               <td class="muted">{{ u.tenantId }}</td>
+              <td><span class="badge" :class="u.status === 'inactive' ? 'badge-danger' : 'badge-success'">{{ u.status === 'inactive' ? '已禁用' : '正常' }}</span></td>
               <td class="muted">{{ u.createdAt }}</td>
-              <td><button class="btn btn-primary btn-sm" @click="saveUser(u)">💾 保存</button></td>
+              <td style="white-space:nowrap">
+                <button class="btn btn-primary btn-sm" @click="saveUser(u)">💾</button>
+                <button class="btn btn-ghost btn-sm" @click="toggleUserStatus(u)" :title="u.status === 'inactive' ? '启用' : '禁用'">{{ u.status === 'inactive' ? '启用' : '禁用' }}</button>
+                <button class="btn btn-ghost btn-sm" @click="resetUserPwd(u)">改密</button>
+                <button class="btn btn-danger btn-sm" @click="removeUser(u)">删除</button>
+              </td>
             </tr>
-            <tr v-if="!users.list || !users.list.length"><td colspan="6" class="empty">暂无用户</td></tr>
+            <tr v-if="!users.list || !users.list.length"><td colspan="7" class="empty">暂无用户</td></tr>
           </tbody>
         </table>
       </div>
@@ -510,6 +517,34 @@
         </div>
         <div v-else class="hint" style="margin-top:8px">加载中...</div>
       </div>
+      <!-- 数据备份与恢复 -->
+      <div class="card" v-show="tab === 'backup'">
+        <div class="card-header">
+          <h3 class="card-title">💾 数据备份与恢复</h3>
+          <button class="btn btn-primary btn-sm" @click="doBackup" :disabled="backupLoading">{{ backupLoading ? '备份中…' : '🛡️ 立即备份' }}</button>
+        </div>
+        <p class="hint" style="margin-top:0;line-height:1.7">
+          备份 <b>MySQL 元数据</b>（用户/文档/分块/对话/反馈/票据/日志等全表）为 .sql 文件。<br/>
+          ⚠ <b>恢复会覆盖当前 MySQL 数据</b>；MinIO 源文档与 Milvus 向量不在范围内（恢复后仍可访问）。
+        </p>
+        <div style="overflow-x:auto;margin-top:8px">
+          <table class="tbl">
+            <thead><tr><th>备份文件</th><th>大小</th><th>时间</th><th>操作</th></tr></thead>
+            <tbody>
+              <tr v-for="b in backups" :key="b.filename">
+                <td>{{ b.filename }}</td>
+                <td class="muted">{{ (b.size / 1024).toFixed(1) }} KB</td>
+                <td class="muted">{{ b.createdAt }}</td>
+                <td style="white-space:nowrap">
+                  <button class="btn btn-ghost btn-sm" @click="doRestore(b.filename)">恢复</button>
+                  <button class="btn btn-danger btn-sm" @click="doRemoveBackup(b.filename)">删除</button>
+                </td>
+              </tr>
+              <tr v-if="!backups.length"><td colspan="4" class="empty">暂无备份</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
       <div class="toast" v-if="toastMsg">{{ toastMsg }}</div>
   </div>
 </template>
@@ -523,7 +558,7 @@ import * as echarts from 'echarts/core'
 import { PieChart, BarChart, ScatterChart, LineChart } from 'echarts/charts'
 import { TooltipComponent, LegendComponent, GridComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
-import { getLogs, getAlerts, configMilvus, configModel, getMilvusConfig, getModelConfig, getProviderHealth, rebuildBm25, getFeedbacks, markFeedbackGolden, getFeedbackStats, alertDispose, getAlertDisposals, getPersonas, upsertPersona, deletePersona, agentRun, getUsers, updateUserRole } from '../api'
+import { getLogs, getAlerts, configMilvus, configModel, getMilvusConfig, getModelConfig, getProviderHealth, rebuildBm25, getFeedbacks, markFeedbackGolden, getFeedbackStats, alertDispose, getAlertDisposals, getPersonas, upsertPersona, deletePersona, agentRun, getUsers, updateUserRole, updateUserStatus, deleteUser, resetUserPassword, backupDB, listBackups, restoreDB, removeBackup } from '../api'
 import request from '../api/request'
 
 echarts.use([PieChart, BarChart, ScatterChart, LineChart, TooltipComponent, LegendComponent, GridComponent, CanvasRenderer])
@@ -538,6 +573,8 @@ const disposals = ref({ total: 0, list: [] })          // S3 告警自动处置�
 const dispForm = reactive({ severity: 'critical', title: '', summary: '' })
 const personas = ref({ codePersonas: [], configs: [] })  // S5 persona 配置
 const users = ref({ total: 0, list: [] })  // RBAC 用户管理
+const backups = ref([])                     // 数据备份列表
+const backupLoading = ref(false)
 const personaForm = reactive({ name: '', systemPrompt: '', allowedTools: '', maxIter: null, temperature: null, maxTokens: null, outputFormat: '', fallbackKey: '', enabled: true })
 const feedbacks = ref({ total: 0, list: [] })
 const fbStats = ref(null)
@@ -588,6 +625,35 @@ async function loadUsers() { try { users.value = (await getUsers()).data } catch
 async function saveUser(u) {
   try { await updateUserRole(u.userId, u.role, u.dept); toast(`已更新 ${u.username} → ${u.role}/${u.dept || '-'}`) }
   catch (e) { toast('更新失败') }
+}
+async function toggleUserStatus(u) {
+  const next = u.status === 'inactive' ? 'active' : 'inactive'
+  try { await updateUserStatus(u.userId, next); u.status = next; toast(`${u.username} 已${next === 'inactive' ? '禁用' : '启用'}`) }
+  catch (e) { toast('操作失败') }
+}
+async function resetUserPwd(u) {
+  const pwd = prompt(`重置 ${u.username} 的密码（至少6位）`)
+  if (pwd == null) return
+  if (pwd.length < 6) { toast('密码至少 6 位'); return }
+  try { await resetUserPassword(u.userId, pwd); toast(`${u.username} 密码已重置`) } catch (e) { toast('重置失败') }
+}
+async function removeUser(u) {
+  if (!confirm(`确认删除用户 ${u.username}？此操作不可恢复。`)) return
+  try { await deleteUser(u.userId); toast(`已删除 ${u.username}`); loadUsers() } catch (e) { toast('删除失败（自己或最后一个管理员？）') }
+}
+async function loadBackups() { try { backups.value = (await listBackups()).data || [] } catch (e) { toast('加载备份列表失败') } }
+async function doBackup() {
+  backupLoading.value = true
+  try { const r = await backupDB(); toast(`备份成功：${r.data.tables}表/${r.data.rows}行`); await loadBackups() }
+  catch (e) { toast('备份失败') } finally { backupLoading.value = false }
+}
+async function doRestore(filename) {
+  if (!confirm(`确认从 ${filename} 恢复？⚠ 当前 MySQL 数据将被覆盖！`)) return
+  try { const r = await restoreDB(filename); toast(`已恢复（${r.data.executed}条SQL）`) } catch (e) { toast('恢复失败') }
+}
+async function doRemoveBackup(filename) {
+  if (!confirm(`删除备份 ${filename}？`)) return
+  try { await removeBackup(filename); toast('已删除'); await loadBackups() } catch (e) { toast('删除失败') }
 }
 function editPersona(p) { Object.assign(personaForm, { name: p.name, systemPrompt: p.systemPrompt || '', allowedTools: p.allowedTools || '', maxIter: p.maxIter, temperature: p.temperature, maxTokens: p.maxTokens, outputFormat: p.outputFormat || '', fallbackKey: p.fallbackKey || '', enabled: p.enabled }) }
 async function savePersona() {

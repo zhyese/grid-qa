@@ -15,6 +15,9 @@ export const rebuildBm25 = () => request.post('/retrieval/bm25/rebuild')
 // 用户管理（RBAC：admin 改角色/dept）
 export const getUsers = () => request.get('/system/users')
 export const updateUserRole = (id, role, dept) => request.put(`/system/users/${id}/role`, { role, dept })
+export const updateUserStatus = (id, status) => request.patch(`/system/users/${id}/status`, { status })
+export const deleteUser = (id) => request.delete(`/system/users/${id}`)
+export const resetUserPassword = (id, password) => request.post(`/system/users/${id}/reset-password`, { password })
 
 // 文档
 export const uploadDocs = (form, onProgress) => request.post('/document/upload', form, {
@@ -186,6 +189,12 @@ export const getRoutingConfig = () => request.get('/system/routing/config')
 
 // P3-⑬ 知识库质量
 export const getKnowledgeQuality = () => request.get('/system/knowledge/quality')
+
+// 数据备份与恢复（admin）
+export const backupDB = () => request.post('/system/backup')
+export const listBackups = () => request.get('/system/backups')
+export const restoreDB = (filename) => request.post('/system/restore', { filename })
+export const removeBackup = (filename) => request.delete('/system/backup', { params: { filename } })
 
 // P4-⑮ 证据溯源
 export const getEvidenceTrace = (answer, sources, modelType) =>

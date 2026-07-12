@@ -3,17 +3,17 @@ from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.permissions import ALERT_READ, AUDIT_READ, METRIC_READ
+from app.core.permissions import ALERT_READ, AUDIT_READ, METRIC_READ, USER_MANAGE
 from app.core.response import BizError, success
 from app.db.session import get_db
 from app.dependencies import get_current_user, require_admin, require_perm
 from app.models.user import User
-from app.schemas.auth import LoginRequest, RegisterRequest, UpdateRoleRequest
+from app.schemas.auth import LoginRequest, RegisterRequest, ResetPasswordRequest, UpdateRoleRequest, UserStatusRequest
 from app.schemas.system import AlertDisposeRequest, AgentRunRequest, AiDraftUpdateRequest, ConfidenceUpdateRequest, PersonaConfigRequest, MilvusConfigRequest, ModelConfigRequest
 from app.services import config_service, log_service
 from app.services.alert_disposal_service import list_disposals, trigger_disposal
 from app.services.persona_store import delete_config, list_configs, upsert_config
-from app.services.auth_service import authenticate, list_users, register_user, update_user_role
+from app.services.auth_service import authenticate, delete_user, list_users, register_user, reset_password, set_user_status, update_user_role
 from app.services.log_service import query_logs, write_log
 from app.services.agent_tool_audit_service import query_tool_calls
 
@@ -61,6 +61,44 @@ async def update_role(
     data = await update_user_role(db, user_id, body.role, body.dept)
     await write_log(db, admin.username, "用户管理", f"{user_id} → {body.role}/{body.dept}")
     return success(data, "更新成功")
+
+
+@router.patch("/users/{user_id}/status")
+async def update_user_status(
+    user_id: str,
+    body: UserStatusRequest,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_perm(USER_MANAGE)),
+):
+    """启用/禁用账号（管理员）。禁用后该用户登录被拒；不能禁用自己与最后一个管理员。"""
+    data = await set_user_status(db, user_id, body.status, actor_id=admin.id)
+    await write_log(db, admin.username, "用户管理", f"{user_id} → {body.status}")
+    return success(data, "已更新状态")
+
+
+@router.delete("/users/{user_id}")
+async def delete_user_route(
+    user_id: str,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_perm(USER_MANAGE)),
+):
+    """删除账号（管理员）。不能删自己与最后一个管理员。"""
+    data = await delete_user(db, user_id, actor_id=admin.id)
+    await write_log(db, admin.username, "用户管理", f"删除用户 {user_id}")
+    return success(data, "已删除")
+
+
+@router.post("/users/{user_id}/reset-password")
+async def reset_password_route(
+    user_id: str,
+    body: ResetPasswordRequest,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_perm(USER_MANAGE)),
+):
+    """管理员重置用户密码。"""
+    data = await reset_password(db, user_id, body.password)
+    await write_log(db, admin.username, "用户管理", f"重置密码 {user_id}")
+    return success(data, "密码已重置")
 
 
 @router.get("/logs")
@@ -581,3 +619,59 @@ async def knowledge_quality(
     from app.services.knowledge_quality_service import score_knowledge_quality
     report = await score_knowledge_quality(db)
     return success(report, "查询成功")
+
+
+# ===== 数据备份与恢复（管理员；MySQL 元数据层）=====
+
+@router.post("/backup")
+async def backup_db(
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+):
+    """立即备份全库（MySQL 元数据）→ data/backups/mysql_*.sql。"""
+    from app.services.backup_service import backup_mysql
+    try:
+        data = await backup_mysql()
+        await write_log(db, admin.username, "数据备份", f"{data['filename']}（{data['tables']}表/{data['rows']}行）")
+        return success(data, "备份成功")
+    except Exception as e:
+        raise BizError(f"备份失败：{type(e).__name__}: {e}"[:200], 500)
+
+
+@router.get("/backups")
+async def list_db_backups(admin: User = Depends(require_admin)):
+    """列出全部备份文件。"""
+    from app.services.backup_service import list_backups
+    return success(await list_backups(), "查询成功")
+
+
+@router.post("/restore")
+async def restore_db(
+    body: dict,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+):
+    """从指定备份恢复（⚠ 覆盖当前 MySQL 数据；MinIO/Milvus 不动）。"""
+    from app.services.backup_service import restore_mysql
+    filename = (body or {}).get("filename", "")
+    try:
+        data = await restore_mysql(filename)
+        await write_log(db, admin.username, "数据恢复", f"{filename}（{data['executed']}条SQL）")
+        return success(data, "恢复成功")
+    except BizError:
+        raise
+    except Exception as e:
+        raise BizError(f"恢复失败：{type(e).__name__}: {e}"[:200], 500)
+
+
+@router.delete("/backup")
+async def delete_db_backup(
+    filename: str = Query(...),
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+):
+    """删除一个备份文件。"""
+    from app.services.backup_service import delete_backup
+    data = await delete_backup(filename)
+    await write_log(db, admin.username, "删除备份", filename)
+    return success(data, "已删除")

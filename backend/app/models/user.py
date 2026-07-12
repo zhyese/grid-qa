@@ -19,6 +19,7 @@ class User(Base):
     username: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
     password_hash: Mapped[str] = mapped_column(String(128), nullable=False)
     role: Mapped[str] = mapped_column(String(16), default="operator", nullable=False)  # admin | editor | operator | auditor
+    status: Mapped[str] = mapped_column(String(16), default="active", nullable=False)  # active | inactive（禁用）
     dept: Mapped[str] = mapped_column(String(64), default="", index=True)  # 部门，文档级 ACL 用
     tenant_id: Mapped[str] = mapped_column(String(64), default="default", index=True)  # 多租户隔离
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())

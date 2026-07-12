@@ -36,6 +36,7 @@ _COLUMN_MIGRATIONS = [
     ("messages", "is_deleted", "TINYINT(1) NOT NULL DEFAULT 0"),
     ("persona_config", "fallback_key", "VARCHAR(32)"),  # S5 纯DB persona 的 fallback 映射
     ("users", "dept", "VARCHAR(64) NOT NULL DEFAULT ''"),                # RBAC 部门（文档级 ACL）
+    ("users", "status", "VARCHAR(16) NOT NULL DEFAULT 'active'"),        # 账号状态（active|inactive 禁用）
     ("documents", "dept", "VARCHAR(64) NOT NULL DEFAULT ''"),            # RBAC 文档部门
     ("documents", "allowed_roles", "VARCHAR(256) NOT NULL DEFAULT ''"),  # RBAC 文档授权角色
 ]

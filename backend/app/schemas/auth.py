@@ -24,3 +24,11 @@ class TokenData(BaseModel):
 class UpdateRoleRequest(BaseModel):
     role: str
     dept: str = ""
+
+
+class UserStatusRequest(BaseModel):
+    status: str = Field(pattern="^(active|inactive)$")  # 启用|禁用
+
+
+class ResetPasswordRequest(BaseModel):
+    password: str = Field(min_length=6, max_length=64)
