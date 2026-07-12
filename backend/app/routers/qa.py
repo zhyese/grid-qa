@@ -9,7 +9,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.limiter import limiter
 from app.core.response import success
 from app.db.session import get_db
-from app.dependencies import get_current_user, require_admin
+from app.core.permissions import FEEDBACK_MANAGE, FEEDBACK_READ, QA_ANSWER
+from app.dependencies import get_current_user, require_admin, require_perm
 from app.models.user import User
 from app.schemas.qa import (
     BatchDeleteRequest,
@@ -36,11 +37,12 @@ async def answer(
     request: Request,
     body: QaAnswerRequest,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_perm(QA_ANSWER)),
 ):
     data = await qa_service.answer(
         db, body.query, body.modelType, conversation_id=body.conversationId,
         username=user.username, tenant=user.tenant_id,
+        user_dept=user.dept, user_role=user.role,
     )
     # X-Cache-Hit 响应头：供 HTTP 层面调试/监控缓存分层命中了哪层
     layer = data.get("cacheLayer") or data.get("cached") and "redis" or "llm"
@@ -55,7 +57,7 @@ async def answer_stream(
     request: Request,
     body: QaAnswerRequest,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_perm(QA_ANSWER)),
     regen: bool = False,
 ):
     async def gen():
@@ -63,6 +65,7 @@ async def answer_stream(
             db, body.query, body.modelType,
             conversation_id=body.conversationId, username=user.username, tenant=user.tenant_id,
             regen=regen, agent_mode=body.agentMode,
+            user_dept=user.dept, user_role=user.role,
         ):
             yield f"data: {json.dumps(item, ensure_ascii=False)}\n\n"
         yield "data: [DONE]\n\n"
@@ -222,7 +225,7 @@ async def list_feedbacks(
     page: int = 1,
     size: int = 20,
     db: AsyncSession = Depends(get_db),
-    admin: User = Depends(require_admin),
+    user: User = Depends(require_perm(FEEDBACK_READ)),
 ):
     """反馈管理台：分页列出 👍/👎（可过滤 dislike 坏 case）。"""
     data = await feedback_service.list_feedbacks(db, feedback, page, size)
@@ -243,7 +246,7 @@ async def evidence_trace(
 @router.get("/feedback-stats")
 async def feedback_stats(
     db: AsyncSession = Depends(get_db),
-    admin: User = Depends(require_admin),
+    user: User = Depends(require_perm(FEEDBACK_READ)),
 ):
     """故障趋势看板：反馈分布 + 坏 case 设备聚类 + 高频问题 + 平均幻觉率（反哺优化）。"""
     data = await feedback_service.feedback_stats(db)
@@ -254,7 +257,7 @@ async def feedback_stats(
 async def mark_golden(
     feedback_id: str,
     db: AsyncSession = Depends(get_db),
-    admin: User = Depends(require_admin),
+    user: User = Depends(require_perm(FEEDBACK_MANAGE)),
 ):
     """一键把坏 case 回流 golden_qa.json，让 CI 评测门禁覆盖它（反馈→评测闭环）。"""
     data = await feedback_service.mark_golden(db, feedback_id)

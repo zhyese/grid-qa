@@ -17,6 +17,7 @@ from app.models.user import User  # noqa: F401
 from app.models.agent_tool_call import AgentToolCall  # noqa: F401  S4 工具调用审计
 from app.models.alert_disposal import AlertDisposal  # noqa: F401  S3 告警处置
 from app.models.persona_config import PersonaConfig  # noqa: F401  S5 persona 配置覆盖
+from app.models.permission import RolePermission  # noqa: F401  RBAC 角色权限覆盖
 
 
 # 现有表加列的幂等迁移（create_all 只建不 ALTER；老库靠这里补列，列已存在则忽略 1060 错误）。
@@ -34,6 +35,9 @@ _COLUMN_MIGRATIONS = [
     ("conversations", "is_deleted", "TINYINT(1) NOT NULL DEFAULT 0"),
     ("messages", "is_deleted", "TINYINT(1) NOT NULL DEFAULT 0"),
     ("persona_config", "fallback_key", "VARCHAR(32)"),  # S5 纯DB persona 的 fallback 映射
+    ("users", "dept", "VARCHAR(64) NOT NULL DEFAULT ''"),                # RBAC 部门（文档级 ACL）
+    ("documents", "dept", "VARCHAR(64) NOT NULL DEFAULT ''"),            # RBAC 文档部门
+    ("documents", "allowed_roles", "VARCHAR(256) NOT NULL DEFAULT ''"),  # RBAC 文档授权角色
 ]
 
 

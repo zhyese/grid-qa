@@ -159,7 +159,7 @@ async def _search_query_for_retrieve(
 async def answer(
     db: AsyncSession, query: str, model_type: str | None = None,
     topk: int = 5, conversation_id: str | None = None, username: str = "",
-    tenant: str = "default",
+    tenant: str = "default", user_dept: str | None = None, user_role: str | None = None,
 ) -> dict:
     t0 = time.time()
     nq = term_service.normalize(query)
@@ -274,6 +274,7 @@ async def answer(
 
     contexts = await retrieval_service.mixed_search(
         db, search_q, topk, tenant=tenant, routing_decision=routing,
+        user_dept=user_dept, user_role=user_role,
     )
     if not contexts:
         return {
@@ -522,6 +523,7 @@ async def stream_answer(
     db: AsyncSession, query: str, model_type: str | None = None,
     topk: int = 5, conversation_id: str | None = None, username: str = "",
     tenant: str = "default", regen: bool = False, agent_mode: bool = False,
+    user_dept: str | None = None, user_role: str | None = None,
 ):
     """流式问答：单轮查热点缓存(命中则快流不调LLM) → 否则 meta/token/done 三段。
 
@@ -689,6 +691,7 @@ async def stream_answer(
 
     contexts = await retrieval_service.mixed_search(
         db, search_q, topk, tenant=tenant, routing_decision=routing,
+        user_dept=user_dept, user_role=user_role,
     )
     if not contexts:
         yield {"type": "done", "content": "根据现有资料无法确认该问题，请先上传并解析相关运维文档后重试。"}

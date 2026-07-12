@@ -25,6 +25,7 @@ import app.models.operation_log  # noqa: E402,F401
 import app.models.feedback  # noqa: E402,F401
 import app.models.qa_cache  # noqa: E402,F401
 import app.models.ticket  # noqa: E402,F401  两票全生命周期
+import app.models.permission  # noqa: E402,F401  RBAC 角色权限
 
 config = context.config
 # 从 settings 注入同步 DB URL（aiomysql→pymysql）

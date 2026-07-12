@@ -98,7 +98,7 @@
           <template v-if="selected.status === 'draft'">
             <button class="btn btn-primary btn-sm" @click="handleSubmit(selected.id)">📤 提交审核</button>
           </template>
-          <template v-if="selected.status === 'pending_review'">
+          <template v-if="selected.status === 'pending_review' && can('system:config')">
             <button class="btn btn-success btn-sm" @click="handleReview(selected.id, true)">✅ 通过</button>
             <button class="btn btn-danger btn-sm" @click="handleReview(selected.id, false)">❌ 驳回</button>
           </template>
@@ -138,6 +138,11 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { createTicket, listTickets, getTicket, submitTicket, reviewTicket, issueTicket, executeTicket, archiveTicket, deleteTicket, getTicketStats } from '../api'
+import { useAuthStore } from '../stores/auth'
+import { hasPerm } from '../utils/perm'
+
+const auth = useAuthStore()
+const can = (p) => hasPerm(auth.role, p)   // RBAC：两票审核(system:config)仅管理员
 
 const tab = ref('tickets')
 const toast = ref('')

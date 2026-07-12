@@ -141,11 +141,34 @@ async def _dense_and_sparse(
     return dense_hits, sparse_hits
 
 
+def _acl_ok(doc_dept: str, doc_allowed_roles: str,
+            user_dept: str | None, user_role: str | None) -> bool:
+    """文档级 ACL 判定（检索后置过滤用）。user_dept/user_role 均 None → 不过滤（向后兼容/admin 链路）。
+
+    - 文档 dept 空 = 公开（全员可读）
+    - dept 不符 → 拒绝
+    - allowed_roles 空 = 部门内全员可读；非空则 user_role 须命中（admin 放行）
+    """
+    if user_dept is None and user_role is None:
+        return True
+    if user_role == "admin":
+        return True
+    if not doc_dept:
+        return True
+    if user_dept and doc_dept != user_dept:
+        return False
+    if not doc_allowed_roles:
+        return True
+    allowed = [r.strip() for r in doc_allowed_roles.split(",") if r.strip()]
+    return (not allowed) or (user_role in allowed)
+
+
 async def mixed_search(
     db: AsyncSession, query: str, topk: int = 10,
     doc_type: str | None = None, model_type: str | None = None,
     equipment: str | None = None, tenant: str | None = None,
     routing_decision = None,  # RoutingDecision | None
+    user_dept: str | None = None, user_role: str | None = None,  # RBAC 文档级 ACL
 ) -> list[dict]:
     _t0 = time.time()
     cand = max(topk * 4, 20)
@@ -257,21 +280,26 @@ async def mixed_search(
             # pool 保持原样，不改变
     # pool 已经就绪（sparse/dense 单路直接使用，hybrid 已 RRF 融合）
 
-    # 4) 元数据过滤：租户隔离 + docType/设备（多租户 + D5）
+    # 4) 元数据过滤：租户隔离 + docType/设备（多租户 + D5）+ RBAC 文档级 ACL（dept/allowed_roles）
     doc_ids = {h.get("doc_id") for h in pool if h.get("doc_id")}
-    if doc_ids and (tenant or doc_type or equipment):
+    if doc_ids and (tenant or doc_type or equipment or user_dept or user_role):
         rows = (await db.execute(
-            select(Document.id, Document.doc_type, Document.equipment_tags, Document.tenant_id)
+            select(Document.id, Document.doc_type, Document.equipment_tags,
+                   Document.tenant_id, Document.dept, Document.allowed_roles)
             .where(Document.id.in_(doc_ids))
         )).all()
         dt_map = {r[0]: r[1] for r in rows}
         eq_map = {r[0]: (r[2] or "") for r in rows}
         tn_map = {r[0]: r[3] for r in rows}
+        dept_map = {r[0]: (r[4] or "") for r in rows}
+        ar_map = {r[0]: (r[5] or "") for r in rows}
         pool = [
             h for h in pool
             if (not tenant or tn_map.get(h.get("doc_id")) == tenant)
             and (not doc_type or dt_map.get(h.get("doc_id")) == doc_type)
             and (not equipment or equipment in eq_map.get(h.get("doc_id"), ""))
+            and _acl_ok(dept_map.get(h.get("doc_id"), ""),
+                        ar_map.get(h.get("doc_id"), ""), user_dept, user_role)
         ]
 
     # 4.5) docType 补全：保证每个 item 都带 doc_type（来源卡片要用，无条件查一次）
@@ -332,6 +360,7 @@ async def debug_search(
     db: AsyncSession, query: str, topk: int = 10,
     doc_type: str | None = None, model_type: str | None = None,
     equipment: str | None = None, tenant: str | None = None,
+    user_dept: str | None = None, user_role: str | None = None,  # RBAC 文档级 ACL
 ) -> dict:
     """检索调试：与 mixed_search 同源构建块，但把每一步中间结果透出，供 admin 排障调参。
 
@@ -450,22 +479,27 @@ async def debug_search(
         pool = fused[: topk * 2]
         _step("rerank", ok=False, reason="disabled")
 
-    # 4) 元数据过滤
+    # 4) 元数据过滤 + RBAC ACL
     doc_ids = {h.get("doc_id") for h in pool if h.get("doc_id")}
-    if doc_ids and (tenant or doc_type or equipment):
+    if doc_ids and (tenant or doc_type or equipment or user_dept or user_role):
         rows = (await db.execute(
-            select(Document.id, Document.doc_type, Document.equipment_tags, Document.tenant_id)
+            select(Document.id, Document.doc_type, Document.equipment_tags,
+                   Document.tenant_id, Document.dept, Document.allowed_roles)
             .where(Document.id.in_(doc_ids))
         )).all()
         dt_map = {r[0]: r[1] for r in rows}
         eq_map = {r[0]: (r[2] or "") for r in rows}
         tn_map = {r[0]: r[3] for r in rows}
+        dept_map = {r[0]: (r[4] or "") for r in rows}
+        ar_map = {r[0]: (r[5] or "") for r in rows}
         before = len(pool)
         pool = [
             h for h in pool
             if (not tenant or tn_map.get(h.get("doc_id")) == tenant)
             and (not doc_type or dt_map.get(h.get("doc_id")) == doc_type)
             and (not equipment or equipment in eq_map.get(h.get("doc_id"), ""))
+            and _acl_ok(dept_map.get(h.get("doc_id"), ""),
+                        ar_map.get(h.get("doc_id"), ""), user_dept, user_role)
         ]
         _step("metadata_filter", before=before, after=len(pool))
     else:

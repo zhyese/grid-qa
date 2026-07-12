@@ -36,21 +36,23 @@
         <slot name="actions" />
         <div class="topbar-user">
           <div class="avatar">{{ (auth.username || 'U')[0].toUpperCase() }}</div>
-          <span>{{ auth.username }} <span class="muted">· {{ auth.role === 'admin' ? '管理员' : '操作员' }}</span></span>
+          <span>{{ auth.username }} <span class="muted">· {{ ROLE_LABEL[auth.role] || auth.role }}</span></span>
         </div>
       </header>
       <main class="page-body">
         <router-view />
       </main>
     </div>
+    <div class="global-toast" v-if="notifyMsg">{{ notifyMsg }}</div>
   </div>
 </template>
 
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, ref, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useDark, useToggle } from '@vueuse/core'
 import { useAuthStore } from '../stores/auth'
+import { hasPerm, ROLE_LABEL } from '../utils/perm'
 
 const route = useRoute()
 const router = useRouter()
@@ -80,8 +82,11 @@ const navItems = computed(() => {
     { to: '/kg-3d', icon: '🌐', label: '3D图谱' },
     { to: '/ticket', icon: '📋', label: '两票管理' },
   ]
-  if (auth.role === 'admin') {
+  if (hasPerm(auth.role, 'system:config')) {
     items.push({ to: '/retrieval-debug', icon: '🔬', label: '检索调试' })
+  }
+  // 系统管理：管理员全权 + 审计员只读审计（告警/审计/反馈/成本/评测 Tab）
+  if (hasPerm(auth.role, 'system:config') || hasPerm(auth.role, 'alert:read')) {
     items.push({ to: '/admin', icon: '⚙️', label: '系统管理' })
   }
   return items
@@ -89,4 +94,24 @@ const navItems = computed(() => {
 function isActive(to) { return route.path === to || route.path.startsWith(to + '/') }
 
 function logout() { auth.logout(); router.push('/login') }
+
+// 全局 403/无权限提示（request.js 拦截 code=403 派发 app:notify）
+const notifyMsg = ref('')
+let notifyTimer = null
+function onNotify(e) {
+  notifyMsg.value = e.detail.msg
+  clearTimeout(notifyTimer)
+  notifyTimer = setTimeout(() => (notifyMsg.value = ''), 2600)
+}
+onMounted(() => window.addEventListener('app:notify', onNotify))
+onUnmounted(() => window.removeEventListener('app:notify', onNotify))
 </script>
+
+<style scoped>
+.global-toast {
+  position: fixed; top: 18px; left: 50%; transform: translateX(-50%);
+  background: var(--danger, #e74c3c); color: #fff; padding: 10px 20px;
+  border-radius: 8px; font-size: 14px; z-index: 9999;
+  box-shadow: 0 6px 20px rgba(0,0,0,.25);
+}
+</style>

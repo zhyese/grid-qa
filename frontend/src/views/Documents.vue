@@ -2,7 +2,7 @@
   <div class="doc-page">
     <div class="doc-grid">
       <!-- 上传卡 -->
-      <div class="card">
+      <div class="card" v-if="can('doc:upload')">
         <div class="card-header"><h3 class="card-title">📤 上传文档</h3><span class="hint">PDF/Word/Excel/TXT/图片 · 批量≤5 · 单份≤100MB</span></div>
         <div class="dropzone" :class="{ over: dragOver }" @dragover.prevent="dragOver = true" @dragleave.prevent="dragOver = false" @drop.prevent="onDrop" @click="$refs.fileInput.click()">
           <input type="file" multiple ref="fileInput" @change="onFile" style="display:none" />
@@ -18,6 +18,8 @@
           <select class="select" v-model="docType" style="width:auto">
             <option>运维手册</option><option>故障案例</option><option>检修规程</option><option>其他</option>
           </select>
+          <input class="input" v-model="dept" placeholder="部门(调度/检修,空=公开)" style="width:170px" title="文档级 ACL：限定某部门可见，空=全员公开" />
+          <input class="input" v-model="allowedRoles" placeholder="授权角色(逗号分隔,空=全员)" style="width:170px" title="限定可读角色，空=部门内全员" />
           <button class="btn btn-primary" @click="upload" :disabled="!files.length || uploading">{{ uploading ? '上传中...' : '上传' }}</button>
           <button class="btn btn-ghost" v-if="files.length" @click="files = []">清空</button>
         </div>
@@ -47,7 +49,7 @@
           <select class="select" v-model="filterStatus" style="width:auto"><option value="">全部状态</option><option value="pending">待解析</option><option value="parsed">已解析</option><option value="vectorized">已向量化</option></select>
           <button class="btn btn-ghost btn-sm" @click="batchParse" :disabled="!selected.length">批量解析({{ selected.length }})</button>
           <button class="btn btn-ghost btn-sm" @click="batchVectorize" :disabled="!selected.length">批量向量化({{ selected.length }})</button>
-          <button class="btn btn-danger btn-sm" @click="batchDelete" :disabled="!selected.length">批量删除</button>
+          <button v-if="can('doc:delete')" class="btn btn-danger btn-sm" @click="batchDelete" :disabled="!selected.length">批量删除</button>
         </div>
       </div>
       <div class="tbl-wrap">
@@ -68,7 +70,7 @@
               <td>
                 <button class="btn btn-ghost btn-sm" @click="parseDoc(d.docId)" :disabled="busy[d.docId]">解析</button>
                 <button class="btn btn-ghost btn-sm" @click="vectorizeDoc(d.docId)" :disabled="busy[d.docId]">向量化</button>
-                <button class="btn btn-danger btn-sm" @click="removeDoc(d.docId)" :disabled="busy[d.docId]">删除</button>
+                <button v-if="can('doc:delete')" class="btn btn-danger btn-sm" @click="removeDoc(d.docId)" :disabled="busy[d.docId]">删除</button>
               </td>
             </tr>
             <tr v-if="!filtered.length"><td colspan="7" class="empty">无匹配文档</td></tr>
@@ -92,14 +94,18 @@
 
 <script setup>
 import { ref, reactive, computed, onMounted } from 'vue'
-import { listDocs, uploadDocs, parseDocs, vectorize, vectorizeBatch, deleteDoc, getStats } from '../api'
+import { listDocs, uploadDocs, parseDocs, vectorize, vectorizeBatch, deleteDoc, getStats, getDocPerms, updateDocPerms } from '../api'
 import { useAuthStore } from '../stores/auth'
+import { hasPerm } from '../utils/perm'
 
 const auth = useAuthStore()
+const can = (p) => hasPerm(auth.role, p)   // RBAC：操作级隐藏（上传/删除），无权限不渲染
 const docs = ref([])
 const stats = ref(null)
 const files = ref([])
 const docType = ref('运维手册')
+const dept = ref('')          // RBAC 文档部门（上传时定）
+const allowedRoles = ref('')  // RBAC 授权角色（逗号分隔，空=部门内全员）
 const uploading = ref(false)
 const progress = ref(0)
 const dragOver = ref(false)
@@ -132,7 +138,7 @@ function onFile(e) { files.value = [...files.value, ...Array.from(e.target.files
 function onDrop(e) { dragOver.value = false; files.value = [...files.value, ...Array.from(e.dataTransfer.files)] }
 async function upload() {
   if (!files.value.length) return
-  const form = new FormData(); files.value.forEach((f) => form.append('files', f)); form.append('docType', docType.value)
+  const form = new FormData(); files.value.forEach((f) => form.append('files', f)); form.append('docType', docType.value); form.append('dept', dept.value); form.append('allowedRoles', allowedRoles.value)
   uploading.value = true; progress.value = 0
   try { await uploadDocs(form, (e) => { if (e.total) progress.value = Math.round((e.loaded / e.total) * 100) }); await load(); toast('上传成功'); files.value = [] } catch (e) { toast('上传失败') }
   uploading.value = false

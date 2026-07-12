@@ -3,9 +3,10 @@ from fastapi import APIRouter, Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.limiter import limiter
+from app.core.permissions import DOMAIN_USE
 from app.core.response import success
 from app.db.session import get_db
-from app.dependencies import get_current_user, require_admin
+from app.dependencies import get_current_user, require_admin, require_perm
 from app.models.user import User
 from app.schemas.domain import (
     DiagnoseAgentRequest, DiagnoseDebateRequest, DiagnoseRequest,
@@ -28,7 +29,7 @@ async def diagnose(
     request: Request,
     body: DiagnoseRequest,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_perm(DOMAIN_USE)),
 ):
     """故障诊断推理：症状→可能原因排序+处置+风险（复用检索+图谱多查询分解）。"""
     data = await domain_service.diagnose(db, body.symptom, body.modelType)
@@ -42,7 +43,7 @@ async def similar_case(
     request: Request,
     body: SimilarCaseRequest,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_perm(DOMAIN_USE)),
 ):
     """相似历史故障案例检索（限定故障案例库，"历史上类似怎么处理的"）。"""
     data = await domain_service.similar_case(db, body.symptom, body.modelType)
@@ -55,7 +56,7 @@ async def ticket(
     request: Request,
     body: TicketRequest,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_perm(DOMAIN_USE)),
 ):
     """两票辅助生成：操作任务→结构化操作票（步骤/安全措施/风险点）。"""
     data = await domain_service.generate_ticket(db, body.task, body.modelType)
@@ -83,7 +84,7 @@ async def diagnose_agent(
     request: Request,
     body: DiagnoseAgentRequest,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_perm(DOMAIN_USE)),
 ):
     """Agentic 深度诊断：LLM 自主多轮调工具（检索/图谱/案例/两票）交叉验证，返回诊断 + 思考链 steps。"""
     data = await diagnose_agent_service.diagnose_agent(db, body.symptom, body.modelType)
@@ -97,7 +98,7 @@ async def diagnose_debate(
     request: Request,
     body: DiagnoseDebateRequest,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_perm(DOMAIN_USE)),
 ):
     """Multi-Agent 辩论式诊断：3角色（规程/图谱/案例）独立诊断→辩论→终裁，返回专家意见+裁决过程。"""
     data = await debate_agent_service.debate_diagnose(db, body.symptom, body.modelType)
@@ -114,7 +115,7 @@ async def ticket_create(
     request: Request,
     body: TicketCreateRequest,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_perm(DOMAIN_USE)),
 ):
     """创建两票草稿。"""
     data = await ticket_lifecycle_service.create_ticket(
@@ -132,7 +133,7 @@ async def ticket_list(
     status: str = "", ticketType: str = "", creator: str = "",
     page: int = 1, size: int = 20,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_perm(DOMAIN_USE)),
 ):
     """两票列表。"""
     data = await ticket_lifecycle_service.list_tickets(
@@ -146,7 +147,7 @@ async def ticket_list(
 async def ticket_detail(
     ticket_id: str,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_perm(DOMAIN_USE)),
 ):
     """票据详情。"""
     data = await ticket_lifecycle_service.get_ticket(db, ticket_id)
@@ -162,7 +163,7 @@ async def ticket_submit(
     request: Request,
     ticket_id: str,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_perm(DOMAIN_USE)),
 ):
     """提交审核（自动跑审核打分）。"""
     data = await ticket_lifecycle_service.submit_for_review(db, ticket_id)
@@ -193,7 +194,7 @@ async def ticket_issue(
     request: Request,
     ticket_id: str,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_perm(DOMAIN_USE)),
 ):
     """签发票据（审核通过后签发）。"""
     data = await ticket_lifecycle_service.issue_ticket(db, ticket_id, issuer=user.username)
@@ -208,7 +209,7 @@ async def ticket_execute(
     ticket_id: str,
     body: TicketExecuteRequest,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_perm(DOMAIN_USE)),
 ):
     """开始执行/完成执行票据。没有 executor 参数时开始执行，有 log 时完成执行。"""
     if body.log:
@@ -230,7 +231,7 @@ async def ticket_archive(
     request: Request,
     ticket_id: str,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_perm(DOMAIN_USE)),
 ):
     """归档票据。"""
     data = await ticket_lifecycle_service.archive_ticket(db, ticket_id)
@@ -242,7 +243,7 @@ async def ticket_archive(
 async def ticket_delete(
     ticket_id: str,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_perm(DOMAIN_USE)),
 ):
     """删除票据（软删）。"""
     ok = await ticket_lifecycle_service.delete_ticket(db, ticket_id)
@@ -252,7 +253,7 @@ async def ticket_delete(
 @router.get("/ticket-stats")
 async def ticket_stats(
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_perm(DOMAIN_USE)),
 ):
     """两票统计看板。"""
     data = await ticket_lifecycle_service.get_ticket_stats(db, tenant=user.tenant_id)
@@ -265,7 +266,7 @@ async def query_plan(
     request: Request,
     body: QueryPlanRequest,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_perm(DOMAIN_USE)),
 ):
     """复杂问题分解：问题→子查询DAG→并行检索→综合答案（多步推理/对比/条件判断）。"""
     from app.services.query_plan_service import plan_and_answer

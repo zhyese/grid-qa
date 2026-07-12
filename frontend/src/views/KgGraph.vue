@@ -21,7 +21,7 @@
         <button class="btn btn-primary" @click="searchGraph">搜索</button>
         <button class="btn btn-ghost" @click="resetGraph">显示全部</button>
       </div>
-      <div class="row" style="margin-bottom: 12px">
+      <div class="row" style="margin-bottom: 12px" v-if="can('kg:edit')">
         <select class="select" v-model="selDoc" style="max-width:300px">
           <option value="">选择文档抽取三元组…</option>
           <option v-for="d in docs" :key="d.docId" :value="d.docId">{{ d.docName }}（{{ d.status }}）</option>
@@ -77,6 +77,11 @@ import { GraphChart } from 'echarts/charts'
 import { TooltipComponent, LegendComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
 import { extractKg, getKgGraph, getKgStats, getKgPaths, getKgInfluence, listDocs } from '../api'
+import { useAuthStore } from '../stores/auth'
+import { hasPerm } from '../utils/perm'
+
+const auth = useAuthStore()
+const can = (p) => hasPerm(auth.role, p)   // RBAC：图谱抽取(kg:edit)对只读角色隐藏
 
 echarts.use([GraphChart, TooltipComponent, LegendComponent, CanvasRenderer])
 
@@ -103,7 +108,7 @@ async function loadDocs() { try { docs.value = (await listDocs()).data.list || [
 async function loadGraph(kw = '') {
   try {
     if (chart) { chart.dispose(); chart = null }
-    graph.value = (await getKgGraph(kw, 800)).data
+    graph.value = (await getKgGraph(kw, 50000)).data
     await nextTick()
     if (tab.value === 'graph' && graphEl.value) render()
   } catch (e) { graph.value = { nodes: [], links: [], categories: [], total: 0 } }
@@ -112,15 +117,17 @@ function render() {
   if (!graphEl.value || !graph.value.nodes.length) return
   chart = echarts.init(graphEl.value)
   const cats = graph.value.categories?.length ? graph.value.categories : [{ name: '实体' }, { name: '属性/关系' }]
+  const nn = graph.value.nodes.length
+  const big = nn > 500   // 大规模图谱：降排斥防飞散、关 label 防重叠（hover 仍可看节点名）
   chart.setOption({
     tooltip: { formatter: (p) => p.dataType === 'edge' ? `${p.data.source} —${p.data.value}→ ${p.data.target}` : p.data.name },
     legend: [{ data: cats.map((c) => c.name), bottom: 0, textStyle: { color: '#94a3b8' } }],
     series: [{ type: 'graph', layout: 'force', roam: true, draggable: true, categories: cats,
       data: graph.value.nodes.map((n) => ({ ...n, category: n.category || 0 })), links: graph.value.links,
-      label: { show: true, position: 'right', color: '#64748b', fontSize: 12 },
+      label: { show: !big, position: 'right', color: '#64748b', fontSize: 12 },
       lineStyle: { color: '#94a3b8', width: 1.5, curveness: 0.12 },
-      emphasis: { focus: 'adjacency', lineStyle: { width: 3 } },
-      force: { repulsion: 220, edgeLength: [60, 150], gravity: 0.08 } }],
+      emphasis: { focus: 'adjacency', lineStyle: { width: 3 }, label: { show: true } },
+      force: { repulsion: big ? 60 : 220, edgeLength: big ? [30, 120] : [60, 150], gravity: big ? 0.12 : 0.08 } }],
   })
   setTimeout(() => chart && chart.resize(), 100)
 }

@@ -43,8 +43,23 @@ def _ext(name: str) -> str:
     return "." + name.rsplit(".", 1)[-1].lower() if "." in name else ""
 
 
+def _assert_acl(doc: Document, user_dept: str | None, user_role: str | None) -> None:
+    """逐文档 ACL 校验，越权抛 403。user 上下文均 None 时跳过（向后兼容；admin 已由 require_perm 放行）。"""
+    if user_dept is None and user_role is None:
+        return
+    if user_role == "admin":
+        return
+    if doc.dept and user_dept and doc.dept != user_dept:
+        raise BizError("无权限访问该部门文档", 403)
+    if doc.allowed_roles:
+        allowed = [r.strip() for r in doc.allowed_roles.split(",") if r.strip()]
+        if allowed and user_role and user_role not in allowed:
+            raise BizError("无权限访问该文档（角色未授权）", 403)
+
+
 async def upload_documents(
-    db: AsyncSession, files: List[UploadFile], doc_type: str, username: str, tenant_id: str = "default",
+    db: AsyncSession, files: List[UploadFile], doc_type: str, username: str,
+    tenant_id: str = "default", dept: str = "", allowed_roles: str = "",
 ) -> dict:
     if len(files) > MAX_FILES:
         raise BizError(f"批量上传不超过 {MAX_FILES} 份", 400)
@@ -88,7 +103,7 @@ async def upload_documents(
             doc = Document(
                 id=doc_id, doc_name=name, doc_type=doc_type,
                 minio_object=object_name, file_size=len(content), upload_user=username,
-                tenant_id=tenant_id,
+                tenant_id=tenant_id, dept=dept, allowed_roles=allowed_roles,
             )
             db.add(doc)
             await db.commit()
@@ -98,10 +113,16 @@ async def upload_documents(
     return {"successList": success_list, "failList": fail_list}
 
 
-async def list_documents(db: AsyncSession, keyword: str = "", page: int = 1, size: int = 20, tenant_id: str = "default") -> dict:
-    from sqlalchemy import func
+async def list_documents(db: AsyncSession, keyword: str = "", page: int = 1, size: int = 20,
+                         tenant_id: str = "default", user_dept: str | None = None,
+                         user_role: str | None = None) -> dict:
+    from sqlalchemy import func, or_
     stmt = select(Document).where(Document.tenant_id == tenant_id)
     cnt = select(func.count()).select_from(Document).where(Document.tenant_id == tenant_id)
+    # RBAC：admin 看全部；其余只看 dept 空（公开）或同 dept
+    if user_role != "admin" and user_dept is not None:
+        stmt = stmt.where(or_(Document.dept == "", Document.dept == user_dept))
+        cnt = cnt.where(or_(Document.dept == "", Document.dept == user_dept))
     if keyword:
         stmt = stmt.where(Document.doc_name.like(f"%{keyword}%"))
         cnt = cnt.where(Document.doc_name.like(f"%{keyword}%"))
@@ -118,6 +139,8 @@ async def list_documents(db: AsyncSession, keyword: str = "", page: int = 1, siz
                 "docId": r.id, "docName": r.doc_name, "docType": r.doc_type,
                 "status": r.status, "chunkCount": r.chunk_count, "uploadUser": r.upload_user,
                 "equipmentTags": r.equipment_tags or "",
+                "dept": r.dept or "",
+                "allowedRoles": r.allowed_roles or "",
                 "createdAt": r.created_at.strftime("%Y-%m-%d %H:%M:%S") if r.created_at else "",
             }
             for r in rows
@@ -143,10 +166,12 @@ _PREVIEW_MIME = {
 }
 
 
-async def get_preview(db: AsyncSession, doc_id: str) -> tuple[bytes, str]:
+async def get_preview(db: AsyncSession, doc_id: str,
+                      user_dept: str | None = None, user_role: str | None = None) -> tuple[bytes, str]:
     """取原文供在线预览，返回 (content_bytes, mime)。
     优先 MinIO 原文(PDF/图片/文本)；FAQ/无扩展名等文字版(minio_object 空 或 格式不支持)→取已解析 Chunk content(text/plain)。"""
     doc = await get_document(db, doc_id)
+    _assert_acl(doc, user_dept, user_role)
     mt = _PREVIEW_MIME.get(_ext(doc.doc_name))
     # 文字版兜底：无 MIME(无扩展名/不支持格式) 或 minio_object 空(FAQ) → 取已解析的 Chunk 纯文本预览
     if mt is None or not doc.minio_object:
@@ -313,9 +338,11 @@ async def vectorize_documents(db: AsyncSession, doc_ids: List[str]) -> dict:
     return {"successList": success_list, "failList": fail_list}
 
 
-async def delete_document(db: AsyncSession, doc_id: str) -> None:
+async def delete_document(db: AsyncSession, doc_id: str,
+                          user_dept: str | None = None, user_role: str | None = None) -> None:
     """联动删除 MinIO 文件 + Milvus 向量 + MySQL(chunks+document)。"""
     doc = await get_document(db, doc_id)
+    _assert_acl(doc, user_dept, user_role)
     try:
         await asyncio.to_thread(minio_client.remove_object, doc.minio_object)
     except Exception as e:

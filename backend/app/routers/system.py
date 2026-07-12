@@ -3,16 +3,17 @@ from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.permissions import ALERT_READ, AUDIT_READ, METRIC_READ
 from app.core.response import BizError, success
 from app.db.session import get_db
-from app.dependencies import get_current_user, require_admin
+from app.dependencies import get_current_user, require_admin, require_perm
 from app.models.user import User
-from app.schemas.auth import LoginRequest, RegisterRequest
+from app.schemas.auth import LoginRequest, RegisterRequest, UpdateRoleRequest
 from app.schemas.system import AlertDisposeRequest, AgentRunRequest, AiDraftUpdateRequest, ConfidenceUpdateRequest, PersonaConfigRequest, MilvusConfigRequest, ModelConfigRequest
 from app.services import config_service, log_service
 from app.services.alert_disposal_service import list_disposals, trigger_disposal
 from app.services.persona_store import delete_config, list_configs, upsert_config
-from app.services.auth_service import authenticate, register_user
+from app.services.auth_service import authenticate, list_users, register_user, update_user_role
 from app.services.log_service import query_logs, write_log
 from app.services.agent_tool_audit_service import query_tool_calls
 
@@ -32,9 +33,34 @@ async def register(
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(require_admin),
 ):
-    data = await register_user(db, body.username, body.password, body.role, body.tenantId)
-    await write_log(db, admin.username, "注册用户", f"新增用户 {body.username}（{body.role}/{body.tenantId}）")
+    data = await register_user(db, body.username, body.password, body.role, body.tenantId, body.dept)
+    await write_log(db, admin.username, "注册用户", f"新增用户 {body.username}（{body.role}/{body.tenantId}/{body.dept}）")
     return success(data, "注册成功")
+
+
+@router.get("/users")
+async def users(
+    page: int = Query(1, ge=1),
+    size: int = Query(50, ge=1, le=200),
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+):
+    """用户列表（admin 用户管理）。"""
+    data = await list_users(db, page, size)
+    return success(data, "查询成功")
+
+
+@router.put("/users/{user_id}/role")
+async def update_role(
+    user_id: str,
+    body: UpdateRoleRequest,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+):
+    """改用户角色/dept（admin 用户管理）。"""
+    data = await update_user_role(db, user_id, body.role, body.dept)
+    await write_log(db, admin.username, "用户管理", f"{user_id} → {body.role}/{body.dept}")
+    return success(data, "更新成功")
 
 
 @router.get("/logs")
@@ -165,9 +191,9 @@ async def alerts(
     page: int = Query(1, ge=1),
     size: int = Query(20, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
-    admin: User = Depends(require_admin),
+    user: User = Depends(require_perm(ALERT_READ)),
 ):
-    """告警列表（操作日志中 operate_type=告警），管理员。"""
+    """告警列表（操作日志中 operate_type=告警），管理员/审计员。"""
     data = await query_logs(db, page, size, operate_type="告警")
     return success(data, "查询成功")
 
@@ -179,9 +205,9 @@ async def agent_tool_calls(
     persona: str | None = Query(None),
     tool: str | None = Query(None),
     username: str | None = Query(None),
-    admin: User = Depends(require_admin),
+    user: User = Depends(require_perm(AUDIT_READ)),
 ):
-    """Agent 工具调用审计列表（S4，管理员）：谁/何时/哪个 persona/调了啥工具/结果。"""
+    """Agent 工具调用审计列表（S4，管理员/审计员）：谁/何时/哪个 persona/调了啥工具/结果。"""
     data = await query_tool_calls(page, size, persona=persona, tool=tool, username=username)
     return success(data, "查询成功")
 
@@ -227,9 +253,9 @@ async def alerts_disposals(
     page: int = Query(1, ge=1),
     size: int = Query(20, ge=1, le=100),
     status: str | None = Query(None),
-    admin: User = Depends(require_admin),
+    user: User = Depends(require_perm(ALERT_READ)),
 ):
-    """S3：告警处置记录列表（admin）：告警→诊断→处置→操作票草案。"""
+    """S3：告警处置记录列表（管理员/审计员）：告警→诊断→处置→操作票草案。"""
     data = await list_disposals(page, size, status=status)
     return success(data, "查询成功")
 
@@ -496,9 +522,9 @@ async def evidence_gap_delete(
 async def cost_report(
     period: str = "today",
     db: AsyncSession = Depends(get_db),
-    admin: User = Depends(require_admin),
+    user: User = Depends(require_perm(METRIC_READ)),
 ):
-    """LLM 成本报告：今日/本月 token 消耗 + 模型分布 + 用户排行。"""
+    """LLM 成本报告：今日/本月 token 消耗 + 模型分布 + 用户排行（管理员/审计员）。"""
     from app.services.cost_tracker_service import get_cost_report
     report = await get_cost_report(db, period)
     return success(report, "查询成功")
@@ -522,9 +548,9 @@ async def cost_quota(
 async def eval_trends(
     days: int = 7,
     db: AsyncSession = Depends(get_db),
-    admin: User = Depends(require_admin),
+    user: User = Depends(require_perm(METRIC_READ)),
 ):
-    """检索质量分数趋势（近 N 天）。"""
+    """检索质量分数趋势（近 N 天）（管理员/审计员）。"""
     from app.services.online_eval_service import get_quality_trends
     trends = await get_quality_trends(db, days)
     return success(trends, "查询成功")

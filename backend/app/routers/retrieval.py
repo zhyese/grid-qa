@@ -27,6 +27,7 @@ async def mixed(
     result = await retrieval_service.mixed_search(
         db, body.query, body.topK, doc_type=body.docType,
         model_type=body.modelType, equipment=body.equipment,
+        tenant=user.tenant_id, user_dept=user.dept, user_role=user.role,
     )
     return success(
         {"retrievalList": result, "responseTime": round(time.time() - t0, 3)},
@@ -58,6 +59,7 @@ async def debug(
     trace = await retrieval_service.debug_search(
         db, body.query, body.topK, doc_type=body.docType,
         model_type=body.modelType, equipment=body.equipment,
+        user_dept=user.dept, user_role=user.role,
     )
 
     # Context Relevance Judge（可选 LLM 定性评估，仅在 debug 模式手动触发）

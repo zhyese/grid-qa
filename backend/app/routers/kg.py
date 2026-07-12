@@ -3,9 +3,10 @@ from fastapi import APIRouter, Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.limiter import limiter
+from app.core.permissions import KG_EDIT
 from app.core.response import success
 from app.db.session import get_db
-from app.dependencies import get_current_user
+from app.dependencies import get_current_user, require_perm
 from app.models.user import User
 from app.schemas.kg import KgExtractRequest
 from app.services import kg_service
@@ -20,7 +21,7 @@ async def extract(
     request: Request,
     body: KgExtractRequest,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_perm(KG_EDIT)),
 ):
     data = await kg_service.extract_triples(db, body.docId, body.modelType)
     await write_log(db, user.username, "图谱抽取", f"{data['docName']}：{data['tripleCount']}条三元组")

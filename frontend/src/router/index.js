@@ -16,7 +16,7 @@ const routes = [
       { path: 'kg', component: () => import('../views/KgGraph.vue'), meta: { auth: true, title: '知识图谱', sub: '设备-故障-处置 多跳推理' } },
       { path: 'kg-3d', component: () => import('../views/KgGraph3D.vue'), meta: { auth: true, title: '3D图谱', sub: 'Three.js 三维拓扑 · 力导向' } },
       { path: 'ticket', component: () => import('../views/TicketLifecycle.vue'), meta: { auth: true, title: '两票管理', sub: '创建 · 审核 · 签发 · 执行 · 归档' } },
-      { path: 'admin', component: () => import('../views/Admin.vue'), meta: { auth: true, admin: true, title: '系统管理', sub: '反馈 · 日志 · 配置' } },
+      { path: 'admin', component: () => import('../views/Admin.vue'), meta: { auth: true, roles: ['admin', 'auditor'], title: '系统管理', sub: '反馈 · 日志 · 配置' } },
       { path: 'retrieval-debug', component: () => import('../views/RetrievalDebug.vue'), meta: { auth: true, admin: true, title: '检索调试', sub: '全链路 trace · 命中归因' } },
     ],
   },
@@ -28,6 +28,8 @@ router.beforeEach((to) => {
   const auth = useAuthStore()
   if (to.meta.auth && !auth.token) return '/login'
   if (to.meta.admin && auth.role !== 'admin') return '/chat'
+  // 细粒度角色白名单（如 /admin 允许 admin+auditor）
+  if (to.meta.roles && !to.meta.roles.includes(auth.role)) return '/chat'
 })
 
 export default router

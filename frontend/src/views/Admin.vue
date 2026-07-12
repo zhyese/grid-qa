@@ -1,18 +1,19 @@
 <template>
   <div>
     <div class="tabs">
-      <button class="tab" :class="{ active: tab === 'feedback' }" @click="loadFeedbacks(fbFilter); tab = 'feedback'">🛡️ 反馈管理</button>
+      <button class="tab" :class="{ active: tab === 'feedback' }" @click="loadFeedbacks(fbFilter); tab = 'feedback'" v-if="can('feedback:read')">🛡️ 反馈管理</button>
       <button class="tab" :class="{ active: tab === 'log' }" @click="tab = 'log'">📋 操作日志</button>
-      <button class="tab" :class="{ active: tab === 'alert' }" @click="loadAlerts(); tab = 'alert'">🚨 告警 <span v-if="alerts.total" class="badge badge-danger">{{ alerts.total }}</span></button>
-      <button class="tab" :class="{ active: tab === 'config' }" @click="tab = 'config'">⚙️ 系统配置</button>
-      <button class="tab" :class="{ active: tab === 'optimizer' }" @click="loadOptimizer(); tab = 'optimizer'">📈 优化建议</button>
-      <button class="tab" :class="{ active: tab === 'rewrite' }" @click="loadRewrite(); tab = 'rewrite'">🔧 Query改写</button>
-      <button class="tab" :class="{ active: tab === 'evidence' }" @click="loadEvidenceGaps(); tab = 'evidence'">📝 证据补全</button>
-      <button class="tab" :class="{ active: tab === 'cost' }" @click="loadCostReport(); tab = 'cost'">💰 成本</button>
-      <button class="tab" :class="{ active: tab === 'quality' }" @click="loadQuality(); tab = 'quality'">📚 知识库质量</button>
-      <button class="tab" :class="{ active: tab === 'eval' }" @click="loadEval(); tab = 'eval'">📊 评测趋势</button>
-      <button class="tab" :class="{ active: tab === 'abtest' }" @click="loadABTest(); tab = 'abtest'">🧪 A/B测试</button>
-      <button class="tab" :class="{ active: tab === 'persona' }" @click="loadPersonas(); tab = 'persona'">🧩 Persona</button>
+      <button class="tab" :class="{ active: tab === 'alert' }" @click="loadAlerts(); tab = 'alert'" v-if="can('alert:read')">🚨 告警 <span v-if="alerts.total" class="badge badge-danger">{{ alerts.total }}</span></button>
+      <button class="tab" :class="{ active: tab === 'config' }" @click="tab = 'config'" v-if="can('system:config')">⚙️ 系统配置</button>
+      <button class="tab" :class="{ active: tab === 'optimizer' }" @click="loadOptimizer(); tab = 'optimizer'" v-if="can('optimizer:manage')">📈 优化建议</button>
+      <button class="tab" :class="{ active: tab === 'rewrite' }" @click="loadRewrite(); tab = 'rewrite'" v-if="can('optimizer:manage')">🔧 Query改写</button>
+      <button class="tab" :class="{ active: tab === 'evidence' }" @click="loadEvidenceGaps(); tab = 'evidence'" v-if="can('evidence:manage')">📝 证据补全</button>
+      <button class="tab" :class="{ active: tab === 'cost' }" @click="loadCostReport(); tab = 'cost'" v-if="can('metric:read')">💰 成本</button>
+      <button class="tab" :class="{ active: tab === 'quality' }" @click="loadQuality(); tab = 'quality'" v-if="can('system:config')">📚 知识库质量</button>
+      <button class="tab" :class="{ active: tab === 'eval' }" @click="loadEval(); tab = 'eval'" v-if="can('metric:read')">📊 评测趋势</button>
+      <button class="tab" :class="{ active: tab === 'abtest' }" @click="loadABTest(); tab = 'abtest'" v-if="can('system:config')">🧪 A/B测试</button>
+      <button class="tab" :class="{ active: tab === 'users' }" @click="loadUsers(); tab = 'users'" v-if="can('user:manage')">👥 用户管理</button>
+      <button class="tab" :class="{ active: tab === 'persona' }" @click="loadPersonas(); tab = 'persona'" v-if="can('system:config')">🧩 Persona</button>
     </div>
 
     <!-- 反馈管理 -->
@@ -59,6 +60,40 @@
       </div>
     </div>
 
+    <div class="card" v-show="tab === 'users'">
+      <div class="card-header">
+        <h3 class="card-title">👥 用户管理</h3>
+        <button class="btn btn-ghost btn-sm" @click="loadUsers">🔄 刷新</button>
+      </div>
+      <p class="hint" style="margin-top:0;line-height:1.7">
+        <b>角色</b>：admin（全权）/ editor（文档全权+问答+图谱编辑）/ operator（问答+读文档）/ auditor（全只读）。<br/>
+        <b>部门</b>：用于文档级 ACL——文档可限定某部门可见，跨部门互不可见（空=公开）。
+      </p>
+      <div style="overflow-x:auto;margin-top:8px">
+        <table class="tbl">
+          <thead><tr><th>用户</th><th>角色</th><th>部门</th><th>租户</th><th>创建时间</th><th>操作</th></tr></thead>
+          <tbody>
+            <tr v-for="u in users.list" :key="u.userId">
+              <td>{{ u.username }}</td>
+              <td>
+                <select class="select" v-model="u.role" style="width:auto">
+                  <option value="admin">admin</option>
+                  <option value="editor">editor</option>
+                  <option value="operator">operator</option>
+                  <option value="auditor">auditor</option>
+                </select>
+              </td>
+              <td><input class="input" v-model="u.dept" placeholder="如:调度/检修" style="width:120px" /></td>
+              <td class="muted">{{ u.tenantId }}</td>
+              <td class="muted">{{ u.createdAt }}</td>
+              <td><button class="btn btn-primary btn-sm" @click="saveUser(u)">💾 保存</button></td>
+            </tr>
+            <tr v-if="!users.list || !users.list.length"><td colspan="6" class="empty">暂无用户</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
     <div class="card" v-show="tab === 'feedback'">
       <div class="card-header">
         <h3 class="card-title">坏 case 看板 <span class="badge badge-neutral">{{ feedbacks.total }}</span></h3>
@@ -94,7 +129,7 @@
               <td class="muted" style="max-width:160px">{{ f.reason || '—' }}</td>
               <td>{{ f.username || '—' }}</td>
               <td class="muted">{{ f.createdAt }}</td>
-              <td><button class="btn btn-link btn-sm" @click="markGolden(f)">标为 golden</button></td>
+              <td><button v-if="can('feedback:manage')" class="btn btn-link btn-sm" @click="markGolden(f)">标为 golden</button></td>
             </tr>
             <tr v-if="!feedbacks.list.length"><td colspan="8" class="empty">暂无反馈</td></tr>
           </tbody>
@@ -142,14 +177,16 @@
           <button class="btn btn-ghost btn-sm" @click="loadDisposals">🔄 刷新</button>
         </div>
         <p class="hint" style="margin:0 0 10px">手动触发或 Grafana 告警进来后，AI 自动调工具(规程/图谱/案例/操作票)分析 → 生成诊断/处置/操作票草案。</p>
-        <div class="disp-form" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
-          <select class="select" v-model="dispForm.severity" style="width:auto">
-            <option value="info">info</option><option value="warning">warning</option><option value="critical">critical</option>
-          </select>
-          <input class="input" v-model="dispForm.title" placeholder="告警标题（如：主变油温高）" style="flex:1;min-width:160px" />
-          <button class="btn btn-primary btn-sm" @click="doDispose">🤖 触发处置</button>
-        </div>
-        <input class="input" v-model="dispForm.summary" placeholder="告警详情描述（可选，英文/中文均可）" style="margin:6px 0" />
+        <template v-if="can('alert:manage')">
+          <div class="disp-form" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+            <select class="select" v-model="dispForm.severity" style="width:auto">
+              <option value="info">info</option><option value="warning">warning</option><option value="critical">critical</option>
+            </select>
+            <input class="input" v-model="dispForm.title" placeholder="告警标题（如：主变油温高）" style="flex:1;min-width:160px" />
+            <button class="btn btn-primary btn-sm" @click="doDispose">🤖 触发处置</button>
+          </div>
+          <input class="input" v-model="dispForm.summary" placeholder="告警详情描述（可选，英文/中文均可）" style="margin:6px 0" />
+        </template>
         <div style="overflow-x:auto;margin-top:8px">
           <table class="tbl">
             <thead><tr><th>状态</th><th>告警</th><th>处置概述</th><th>操作票</th><th>来源</th><th>时间</th></tr></thead>
@@ -478,17 +515,21 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted, nextTick } from 'vue'
+import { ref, reactive, onMounted, nextTick, computed } from 'vue'
 import { useAuthStore } from '../stores/auth'
+import { hasPerm } from '../utils/perm'
 import AgentTrace from '../components/AgentTrace.vue'
 import * as echarts from 'echarts/core'
 import { PieChart, BarChart, ScatterChart, LineChart } from 'echarts/charts'
 import { TooltipComponent, LegendComponent, GridComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
-import { getLogs, getAlerts, configMilvus, configModel, getMilvusConfig, getModelConfig, getProviderHealth, rebuildBm25, getFeedbacks, markFeedbackGolden, getFeedbackStats, alertDispose, getAlertDisposals, getPersonas, upsertPersona, deletePersona, agentRun } from '../api'
+import { getLogs, getAlerts, configMilvus, configModel, getMilvusConfig, getModelConfig, getProviderHealth, rebuildBm25, getFeedbacks, markFeedbackGolden, getFeedbackStats, alertDispose, getAlertDisposals, getPersonas, upsertPersona, deletePersona, agentRun, getUsers, updateUserRole } from '../api'
 import request from '../api/request'
 
 echarts.use([PieChart, BarChart, ScatterChart, LineChart, TooltipComponent, LegendComponent, GridComponent, CanvasRenderer])
+
+const auth = useAuthStore()
+const can = (p) => hasPerm(auth.role, p)   // RBAC：Tab 显隐（后端 require_perm 为真相之源，此处仅 UI 提前隐藏）
 
 const tab = ref('feedback')
 const logs = ref({ total: 0, list: [] })
@@ -496,6 +537,7 @@ const alerts = ref({ total: 0, list: [] })
 const disposals = ref({ total: 0, list: [] })          // S3 告警自动处置记录
 const dispForm = reactive({ severity: 'critical', title: '', summary: '' })
 const personas = ref({ codePersonas: [], configs: [] })  // S5 persona 配置
+const users = ref({ total: 0, list: [] })  // RBAC 用户管理
 const personaForm = reactive({ name: '', systemPrompt: '', allowedTools: '', maxIter: null, temperature: null, maxTokens: null, outputFormat: '', fallbackKey: '', enabled: true })
 const feedbacks = ref({ total: 0, list: [] })
 const fbStats = ref(null)
@@ -530,7 +572,7 @@ function retrievalBadge(q) {
 
 async function loadLogs() { logs.value = (await getLogs({ page: 1, size: 20 })).data }
 async function loadAlerts() { try { alerts.value = (await getAlerts({ page: 1, size: 30 })).data } catch (e) { toast('加载告警失败') } loadDisposals() }
-async function loadDisposals() { try { disposals.value = (await getAlertDisposals({ page: 1, size: 20 })).data } catch (e) {} }
+async function loadDisposals() { try { const r = await getAlertDisposals({ page: 1, size: 20 }); disposals.value = (r && r.data) ? r.data : { total: 0, list: [] } } catch (e) {} }
 async function doDispose() {
   if (!dispForm.summary.trim() && !dispForm.title.trim()) { toast('请填告警标题或描述'); return }
   try {
@@ -542,6 +584,11 @@ async function doDispose() {
 }
 function parseDispDiag(d) { try { return JSON.parse(d) } catch { return null } }
 async function loadPersonas() { try { personas.value = (await getPersonas()).data } catch (e) { toast('加载persona失败') } }
+async function loadUsers() { try { users.value = (await getUsers()).data } catch (e) { toast('加载用户失败') } }
+async function saveUser(u) {
+  try { await updateUserRole(u.userId, u.role, u.dept); toast(`已更新 ${u.username} → ${u.role}/${u.dept || '-'}`) }
+  catch (e) { toast('更新失败') }
+}
 function editPersona(p) { Object.assign(personaForm, { name: p.name, systemPrompt: p.systemPrompt || '', allowedTools: p.allowedTools || '', maxIter: p.maxIter, temperature: p.temperature, maxTokens: p.maxTokens, outputFormat: p.outputFormat || '', fallbackKey: p.fallbackKey || '', enabled: p.enabled }) }
 async function savePersona() {
   if (!personaForm.name.trim()) { toast('请填 persona 名'); return }
@@ -881,7 +928,11 @@ function renderEvalChart() {
   })
 }
 async function loadABTest() { try { abConfig.value = (await request.get('/system/routing/config')).data } catch (e) { toast('加载失败') } }
-onMounted(() => { loadLogs(); loadFeedbacks('dislike'); loadFbStats(); loadAlerts(); loadConfig() })
+onMounted(() => {
+  loadLogs(); loadFeedbacks('dislike'); loadFbStats()
+  if (can('alert:read')) loadAlerts()           // 审计员/管理员
+  if (can('system:config')) loadConfig()        // 仅管理员（系统配置 Tab）
+})
 </script>
 
 <style scoped>

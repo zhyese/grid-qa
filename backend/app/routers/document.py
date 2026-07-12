@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.limiter import limiter
 from app.core.response import success
 from app.db.session import get_db
-from app.dependencies import get_current_user
+from app.dependencies import get_current_user, require_perm
 from app.models.user import User
 from app.schemas.document import BatchVectorRequest, ParseRequest, VectorRequest
 from app.services.document_service import (
@@ -33,10 +33,13 @@ async def upload(
     request: Request,
     files: List[UploadFile] = File(...),
     docType: str = Form("运维手册"),
+    dept: str = Form(""),
+    allowedRoles: str = Form(""),
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_perm("doc:upload")),
 ):
-    data = await upload_documents(db, files, docType, user.username, user.tenant_id)
+    data = await upload_documents(db, files, docType, user.username, user.tenant_id,
+                                  dept=dept, allowed_roles=allowedRoles)
     await write_log(
         db, user.username, "文档上传",
         f"成功 {len(data['successList'])} 份，失败 {len(data['failList'])} 份",
@@ -52,7 +55,8 @@ async def document_list(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    data = await list_documents(db, keyword, page, size, user.tenant_id)
+    data = await list_documents(db, keyword, page, size, user.tenant_id,
+                                user_dept=user.dept, user_role=user.role)
     return success(data, "查询成功")
 
 
@@ -74,7 +78,7 @@ async def preview_doc(
     """文档在线预览：返回原文流（PDF/图片/文本），前端按 MIME 渲染。"""
     from fastapi.responses import Response
 
-    content, mt = await get_preview(db, doc_id)
+    content, mt = await get_preview(db, doc_id, user_dept=user.dept, user_role=user.role)
     return Response(content, media_type=mt)
 
 
@@ -152,8 +156,39 @@ async def vector_batch(
 async def delete_doc(
     docId: str = Query(...),
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_perm("doc:delete")),
 ):
-    await delete_document(db, docId)
+    await delete_document(db, docId, user_dept=user.dept, user_role=user.role)
     await write_log(db, user.username, "文档删除", f"删除文档 {docId}")
     return success(None, "删除成功")
+
+
+@router.get("/{doc_id}/perms")
+async def doc_perms(
+    doc_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_perm("doc:manage")),
+):
+    """文档授权信息（dept / allowed_roles）。admin/editor 可查。"""
+    from app.services.document_service import get_document
+    doc = await get_document(db, doc_id)
+    return success({"docId": doc_id, "dept": doc.dept or "",
+                    "allowedRoles": doc.allowed_roles or ""}, "查询成功")
+
+
+@router.put("/{doc_id}/perms")
+async def update_doc_perms(
+    doc_id: str,
+    dept: str = Query(""),
+    allowedRoles: str = Query(""),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_perm("doc:manage")),
+):
+    """修改文档授权（dept / allowed_roles）。admin/editor 可改。"""
+    from sqlalchemy import update
+    from app.models.document import Document
+    await db.execute(update(Document).where(Document.id == doc_id).values(
+        dept=dept, allowed_roles=allowedRoles))
+    await db.commit()
+    await write_log(db, user.username, "文档授权", f"{doc_id} → dept={dept} roles={allowedRoles}")
+    return success({"docId": doc_id, "dept": dept, "allowedRoles": allowedRoles}, "授权已更新")

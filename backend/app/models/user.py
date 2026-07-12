@@ -18,6 +18,7 @@ class User(Base):
     id: Mapped[str] = mapped_column(String(64), primary_key=True, default=_gen_id)
     username: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
     password_hash: Mapped[str] = mapped_column(String(128), nullable=False)
-    role: Mapped[str] = mapped_column(String(16), default="operator", nullable=False)  # admin | operator
+    role: Mapped[str] = mapped_column(String(16), default="operator", nullable=False)  # admin | editor | operator | auditor
+    dept: Mapped[str] = mapped_column(String(64), default="", index=True)  # 部门，文档级 ACL 用
     tenant_id: Mapped[str] = mapped_column(String(64), default="default", index=True)  # 多租户隔离
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())

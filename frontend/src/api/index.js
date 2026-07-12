@@ -3,7 +3,7 @@ import { useAuthStore } from '../stores/auth'
 
 // 系统
 export const login = (username, password) => request.post('/system/login', { username, password })
-export const register = (username, password, role) => request.post('/system/register', { username, password, role })
+export const register = (username, password, role, dept = '') => request.post('/system/register', { username, password, role, dept })
 export const getLogs = (params) => request.get('/system/logs', { params })
 export const getAlerts = (params) => request.get('/system/alerts', { params })
 export const configMilvus = (indexType, param) => request.post('/system/config/milvus', { indexType, param })
@@ -12,6 +12,9 @@ export const getMilvusConfig = () => request.get('/system/config/milvus')
 export const getModelConfig = () => request.get('/system/config/model')
 export const getProviderHealth = () => request.get('/system/health/providers')
 export const rebuildBm25 = () => request.post('/retrieval/bm25/rebuild')
+// 用户管理（RBAC：admin 改角色/dept）
+export const getUsers = () => request.get('/system/users')
+export const updateUserRole = (id, role, dept) => request.put(`/system/users/${id}/role`, { role, dept })
 
 // 文档
 export const uploadDocs = (form, onProgress) => request.post('/document/upload', form, {
@@ -22,6 +25,9 @@ export const parseDocs = (docIds) => request.post('/document/parse', { docIds })
 export const vectorize = (docId) => request.post('/document/vector/generate', { docId })
 export const vectorizeBatch = (docIds) => request.post('/document/vector/batch', { docIds })
 export const deleteDoc = (docId) => request.delete('/document/delete', { params: { docId } })
+// 文档授权（RBAC：dept/allowed_roles）
+export const getDocPerms = (id) => request.get(`/document/${id}/perms`)
+export const updateDocPerms = (id, dept, allowedRoles) => request.put(`/document/${id}/perms`, null, { params: { dept, allowedRoles } })
 export const getStats = () => request.get('/document/stats')
 
 // 知识图谱

@@ -10,13 +10,17 @@ request.interceptors.request.use((config) => {
   return config
 })
 
-// 统一解包 {code,message,data}；401 自动登出
+// 统一解包 {code,message,data}；401 自动登出；403 全局提示「无权限」
 request.interceptors.response.use(
   (res) => {
     const d = res.data
     if (d && d.code === 401) {
       useAuthStore().logout()
       router.push('/login')
+    }
+    if (d && d.code === 403) {
+      // 后端 require_perm 拒绝；派发全局通知，不依赖各视图各自处理
+      window.dispatchEvent(new CustomEvent('app:notify', { detail: { msg: '⛔ ' + (d.message || '无权限执行此操作') } }))
     }
     return d
   },
