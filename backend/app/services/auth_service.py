@@ -131,3 +131,38 @@ async def reset_password(db: AsyncSession, user_id: str, new_password: str) -> d
     user.password_hash = hash_password(new_password)
     await db.commit()
     return {"userId": user.id, "reset": True}
+
+
+async def get_profile(db: AsyncSession, user_id: str) -> dict:
+    """用户自助：查自己的资料。"""
+    user = await get_user_by_id(db, user_id)
+    if not user:
+        raise BizError("用户不存在", 404)
+    return {"userId": user.id, "username": user.username, "role": user.role,
+            "dept": user.dept or "", "tenantId": user.tenant_id, "status": getattr(user, "status", "active"),
+            "createdAt": user.created_at.strftime("%Y-%m-%d %H:%M:%S") if user.created_at else ""}
+
+
+async def update_profile(db: AsyncSession, user_id: str, dept: str | None = None) -> dict:
+    """用户自助：改自己的部门（影响文档级 ACL）。角色/租户由管理员管理，不在此改。"""
+    user = await get_user_by_id(db, user_id)
+    if not user:
+        raise BizError("用户不存在", 404)
+    if dept is not None:
+        user.dept = dept.strip()[:64]
+    await db.commit()
+    return {"userId": user.id, "username": user.username, "dept": user.dept}
+
+
+async def change_password(db: AsyncSession, user_id: str, old_password: str, new_password: str) -> dict:
+    """用户自助改密码：必须校验旧密码。"""
+    if not new_password or len(new_password) < 6:
+        raise BizError("新密码至少 6 位", 400)
+    user = await get_user_by_id(db, user_id)
+    if not user:
+        raise BizError("用户不存在", 404)
+    if not verify_password(old_password, user.password_hash):
+        raise BizError("旧密码错误", 400)
+    user.password_hash = hash_password(new_password)
+    await db.commit()
+    return {"userId": user.id, "changed": True}

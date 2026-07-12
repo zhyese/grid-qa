@@ -34,7 +34,7 @@
         </div>
         <div class="topbar-spacer"></div>
         <slot name="actions" />
-        <div class="topbar-user">
+        <div class="topbar-user" style="cursor:pointer" @click="router.push('/profile')" title="个人资料 · 改密码">
           <div class="avatar">{{ (auth.username || 'U')[0].toUpperCase() }}</div>
           <span>{{ auth.username }} <span class="muted">· {{ ROLE_LABEL[auth.role] || auth.role }}</span></span>
         </div>

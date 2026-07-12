@@ -15,6 +15,8 @@
       <button class="tab" :class="{ active: tab === 'users' }" @click="loadUsers(); tab = 'users'" v-if="can('user:manage')">👥 用户管理</button>
       <button class="tab" :class="{ active: tab === 'persona' }" @click="loadPersonas(); tab = 'persona'" v-if="can('system:config')">🧩 Persona</button>
       <button class="tab" :class="{ active: tab === 'backup' }" @click="loadBackups(); tab = 'backup'" v-if="can('system:config')">💾 备份恢复</button>
+      <button class="tab" :class="{ active: tab === 'terms' }" @click="loadTerms(); tab = 'terms'" v-if="can('system:config')">📖 词表管理</button>
+      <button class="tab" :class="{ active: tab === 'prompt' }" @click="loadPrompt(); tab = 'prompt'" v-if="can('system:config')">📝 Prompt模板</button>
     </div>
 
     <!-- 反馈管理 -->
@@ -551,6 +553,37 @@
           </table>
         </div>
       </div>
+      <!-- 词表管理 -->
+      <div class="card" v-show="tab === 'terms'">
+        <div class="card-header"><h3 class="card-title">📖 词表管理 <span class="badge badge-neutral">{{ termsList.length }}</span></h3></div>
+        <p class="hint" style="margin-top:0">术语归一化词表（别名→标准词）。改后立即生效（清缓存），检索/问答 query 都会经过归一化。</p>
+        <div class="row" style="gap:8px;margin:8px 0">
+          <input class="input" v-model="termForm.alias" placeholder="别名/错别字（如：主变气）" style="flex:1" />
+          <input class="input" v-model="termForm.standard" placeholder="标准词（如：主变压器）" style="flex:1" />
+          <button class="btn btn-primary btn-sm" @click="doAddTerm">＋ 新增</button>
+        </div>
+        <div style="overflow-x:auto">
+          <table class="tbl">
+            <thead><tr><th>别名</th><th>标准词</th><th>操作</th></tr></thead>
+            <tbody>
+              <tr v-for="t in termsList" :key="t.alias"><td>{{ t.alias }}</td><td>{{ t.standard }}</td><td><button class="btn btn-danger btn-sm" @click="doDeleteTerm(t.alias)">删除</button></td></tr>
+              <tr v-if="!termsList.length"><td colspan="3" class="empty">暂无词条</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <!-- Prompt 模板管理 -->
+      <div class="card" v-show="tab === 'prompt'">
+        <div class="card-header">
+          <h3 class="card-title">📝 System Prompt 模板</h3>
+          <div class="row" style="gap:8px">
+            <button class="btn btn-ghost btn-sm" @click="promptText = promptDefault; toast('已重置为默认（未保存）')">↩ 恢复默认</button>
+            <button class="btn btn-primary btn-sm" @click="savePrompt">💾 保存覆盖</button>
+          </div>
+        </div>
+        <p class="hint" style="margin-top:0">电网运维问答的 system prompt。改后<b>即改即生效</b>（下次问答即用，热读缓存）。空保存=恢复 code 默认。</p>
+        <textarea class="input" v-model="promptText" rows="14" style="width:100%;font-family:inherit;resize:vertical;margin-top:8px" placeholder="留空保存即恢复默认"></textarea>
+      </div>
       <div class="toast" v-if="toastMsg">{{ toastMsg }}</div>
   </div>
 </template>
@@ -564,7 +597,7 @@ import * as echarts from 'echarts/core'
 import { PieChart, BarChart, ScatterChart, LineChart } from 'echarts/charts'
 import { TooltipComponent, LegendComponent, GridComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
-import { getLogs, getAlerts, configMilvus, configModel, getMilvusConfig, getModelConfig, getProviderHealth, rebuildBm25, getFeedbacks, markFeedbackGolden, getFeedbackStats, alertDispose, getAlertDisposals, getPersonas, upsertPersona, deletePersona, agentRun, getUsers, updateUserRole, updateUserStatus, deleteUser, resetUserPassword, backupDB, listBackups, restoreDB, removeBackup, getLogArchiveStats, archiveLogs } from '../api'
+import { getLogs, getAlerts, configMilvus, configModel, getMilvusConfig, getModelConfig, getProviderHealth, rebuildBm25, getFeedbacks, markFeedbackGolden, getFeedbackStats, alertDispose, getAlertDisposals, getPersonas, upsertPersona, deletePersona, agentRun, getUsers, updateUserRole, updateUserStatus, deleteUser, resetUserPassword, backupDB, listBackups, restoreDB, removeBackup, getLogArchiveStats, archiveLogs, getTerms, addTerm, deleteTerm, getPromptConfig, updatePromptConfig } from '../api'
 import request from '../api/request'
 
 echarts.use([PieChart, BarChart, ScatterChart, LineChart, TooltipComponent, LegendComponent, GridComponent, CanvasRenderer])
@@ -582,6 +615,10 @@ const users = ref({ total: 0, list: [] })  // RBAC 用户管理
 const backups = ref([])                     // 数据备份列表
 const backupLoading = ref(false)
 const archiveStat = ref(null)               // 日志归档统计
+const termsList = ref([])                   // 词表
+const termForm = reactive({ alias: '', standard: '' })
+const promptText = ref('')
+const promptDefault = ref('')
 const personaForm = reactive({ name: '', systemPrompt: '', allowedTools: '', maxIter: null, temperature: null, maxTokens: null, outputFormat: '', fallbackKey: '', enabled: true })
 const feedbacks = ref({ total: 0, list: [] })
 const fbStats = ref(null)
@@ -663,6 +700,15 @@ async function doRemoveBackup(filename) {
   try { await removeBackup(filename); toast('已删除'); await loadBackups() } catch (e) { toast('删除失败') }
 }
 async function loadArchiveStats() { try { archiveStat.value = (await getLogArchiveStats()).data } catch (e) { /* 非管理员静默 */ } }
+async function loadTerms() { try { termsList.value = (await getTerms()).data || [] } catch (e) { /* silent */ } }
+async function doAddTerm() {
+  if (!termForm.alias.trim() || !termForm.standard.trim()) { toast('别名和标准词都必填'); return }
+  try { await addTerm(termForm.alias.trim(), termForm.standard.trim()); toast('已保存（缓存已清）'); termForm.alias = ''; termForm.standard = ''; await loadTerms() }
+  catch (e) { toast('保存失败') }
+}
+async function doDeleteTerm(alias) { if (!confirm(`删除词条「${alias}」？`)) return; try { await deleteTerm(alias); toast('已删除'); await loadTerms() } catch (e) { toast('删除失败') } }
+async function loadPrompt() { try { const d = (await getPromptConfig()).data; promptDefault.value = d.default || ''; promptText.value = d.systemPrompt || '' } catch (e) { /* silent */ } }
+async function savePrompt() { try { await updatePromptConfig(promptText.value); toast('Prompt 已保存（下次问答生效）') } catch (e) { toast('保存失败') } }
 async function doArchiveLogs() {
   const days = archiveStat.value?.retentionDays || 90
   if (!confirm(`归档超过 ${days} 天的日志？导出 jsonl 后从库删除。`)) return

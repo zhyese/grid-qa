@@ -10,6 +10,7 @@ const routes = [
     children: [
       { path: '', redirect: '/chat' },
       { path: 'chat', component: () => import('../views/Chat.vue'), meta: { auth: true, title: '智能问答', sub: '自然语言提问 · 自纠错 · 可信答案' } },
+      { path: 'profile', component: () => import('../views/Profile.vue'), meta: { auth: true, title: '个人资料', sub: '改部门 · 改密码' } },
       { path: 'diagnose', component: () => import('../views/Diagnose.vue'), meta: { auth: true, title: '故障诊断', sub: '多查询分解 · 因果链 · 原因排序' } },
       { path: 'documents', component: () => import('../views/Documents.vue'), meta: { auth: true, title: '知识库', sub: '上传 · 解析 · 向量化 · 预览' } },
       { path: 'dashboard', component: () => import('../views/Dashboard.vue'), meta: { auth: true, title: '统计看板', sub: '知识库规模 + 故障趋势' } },

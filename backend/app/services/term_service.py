@@ -33,3 +33,44 @@ def normalize(text: str) -> str:
     for ph, w in prot.items():
         text = text.replace(ph, w)
     return text
+
+
+# ===== 词表管理（BRD §4.1.4 后台 CRUD）=====
+
+def _terms_path() -> Path:
+    return Path(__file__).resolve().parent.parent / "data" / "grid_terms.json"
+
+
+def list_terms() -> list[dict]:
+    """列出全部词条（alias→standard）。"""
+    terms = _load_terms()
+    return [{"alias": k, "standard": v} for k, v in sorted(terms.items())]
+
+
+def add_term(alias: str, standard: str) -> dict:
+    """新增/更新一条别名→标准词。"""
+    alias, standard = (alias or "").strip(), (standard or "").strip()
+    if not alias or not standard:
+        from app.core.response import BizError
+        raise BizError("别名和标准词都不能为空", 400)
+    terms = _load_terms()
+    terms[alias] = standard
+    _save_terms(terms)
+    return {"alias": alias, "standard": standard}
+
+
+def delete_term(alias: str) -> dict:
+    """删除一条别名。"""
+    terms = _load_terms()
+    if alias in terms:
+        del terms[alias]
+        _save_terms(terms)
+    return {"alias": alias, "deleted": True}
+
+
+def _save_terms(terms: dict) -> None:
+    """落盘 + 清归一化缓存（立即生效）。"""
+    p = _terms_path()
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps(terms, ensure_ascii=False, indent=2), encoding="utf-8")
+    _load_terms.cache_clear()

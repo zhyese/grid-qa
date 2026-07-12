@@ -8,12 +8,12 @@ from app.core.response import BizError, success
 from app.db.session import get_db
 from app.dependencies import get_current_user, require_admin, require_perm
 from app.models.user import User
-from app.schemas.auth import LoginRequest, RegisterRequest, ResetPasswordRequest, UpdateRoleRequest, UserStatusRequest
+from app.schemas.auth import ChangePasswordRequest, LoginRequest, ProfileUpdateRequest, RegisterRequest, ResetPasswordRequest, UpdateRoleRequest, UserStatusRequest
 from app.schemas.system import AlertDisposeRequest, AgentRunRequest, AiDraftUpdateRequest, ConfidenceUpdateRequest, PersonaConfigRequest, MilvusConfigRequest, ModelConfigRequest
 from app.services import config_service, log_service
 from app.services.alert_disposal_service import list_disposals, trigger_disposal
 from app.services.persona_store import delete_config, list_configs, upsert_config
-from app.services.auth_service import authenticate, delete_user, list_users, register_user, reset_password, set_user_status, update_user_role
+from app.services.auth_service import authenticate, change_password, delete_user, get_profile, list_users, register_user, reset_password, set_user_status, update_profile, update_user_role
 from app.services.log_service import query_logs, write_log
 from app.services.agent_tool_audit_service import query_tool_calls
 
@@ -25,6 +25,38 @@ async def login(body: LoginRequest, db: AsyncSession = Depends(get_db)):
     data = await authenticate(db, body.username, body.password)
     await write_log(db, body.username, "登录", f"用户 {body.username} 登录系统")
     return success(data, "登录成功")
+
+
+# ===== 用户自助（登录即可，非管理员）=====
+
+@router.get("/me")
+async def my_profile(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """查自己的资料。"""
+    return success(await get_profile(db, user.id), "查询成功")
+
+
+@router.put("/me")
+async def update_my_profile(
+    body: ProfileUpdateRequest,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """改自己的部门（影响文档级 ACL）。"""
+    data = await update_profile(db, user.id, body.dept)
+    await write_log(db, user.username, "改个人资料", f"dept → {body.dept}")
+    return success(data, "已更新")
+
+
+@router.put("/me/password")
+async def change_my_password(
+    body: ChangePasswordRequest,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """自助改密码（校验旧密码）。"""
+    data = await change_password(db, user.id, body.oldPassword, body.newPassword)
+    await write_log(db, user.username, "改密码", "自助修改")
+    return success(data, "密码已修改")
 
 
 @router.post("/register")
@@ -137,6 +169,27 @@ async def get_milvus_config_route(admin: User = Depends(require_admin)):
 @router.get("/config/model")
 async def get_model_config_route(admin: User = Depends(require_admin)):
     return success(await config_service.get_model_config(), "查询成功")
+
+
+@router.get("/config/prompt")
+async def get_prompt_config_route(admin: User = Depends(require_admin)):
+    """读取 system prompt 覆盖（空=用 code 默认）。同时回显默认供前端对照。"""
+    from app.rag.prompt_templates import SYSTEM_PROMPT
+    data = await config_service.get_prompt_config()
+    data["default"] = SYSTEM_PROMPT
+    return success(data, "查询成功")
+
+
+@router.put("/config/prompt")
+async def update_prompt_config_route(
+    body: dict,
+    admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """保存 system prompt 覆盖（空串=恢复默认），即改即生效。"""
+    data = await config_service.update_prompt_config(body.get("systemPrompt", ""))
+    await write_log(db, admin.username, "Prompt配置", f"覆盖长度 {len(data['systemPrompt'])}")
+    return success(data, "已保存（下次问答生效）")
 
 
 @router.get("/health/providers")
@@ -711,3 +764,38 @@ async def fault_prediction(
     from app.services.fault_prediction_service import predict
     data = await predict(days)
     return success(data, "查询成功")
+
+
+# ===== 词表管理（BRD §4.1.4）=====
+
+@router.get("/terms")
+async def terms_list(admin: User = Depends(require_admin)):
+    """列全部术语词条（alias→standard）。"""
+    from app.services.term_service import list_terms
+    return success(list_terms(), "查询成功")
+
+
+@router.post("/terms")
+async def terms_add(
+    body: dict,
+    admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """新增/更新一条术语（{alias, standard}），立即生效（缓存清）。"""
+    from app.services.term_service import add_term
+    data = add_term(body.get("alias", ""), body.get("standard", ""))
+    await write_log(db, admin.username, "词表管理", f"{data['alias']}→{data['standard']}")
+    return success(data, "已保存")
+
+
+@router.delete("/terms")
+async def terms_delete(
+    alias: str = Query(...),
+    admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """删除一条术语。"""
+    from app.services.term_service import delete_term
+    data = delete_term(alias)
+    await write_log(db, admin.username, "词表管理", f"删除 {alias}")
+    return success(data, "已删除")

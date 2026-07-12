@@ -12,6 +12,16 @@ SYSTEM_PROMPT = """你是电网运维专业问答助手，严格依据"参考资
 """
 
 
+def get_system_prompt() -> str:
+    """生效的 system prompt：管理员后台覆盖优先（config_service 热读缓存），否则 code 默认。"""
+    try:
+        from app.services.config_service import rt_system_prompt
+        v = rt_system_prompt()
+        return v if v else SYSTEM_PROMPT
+    except Exception:
+        return SYSTEM_PROMPT
+
+
 def build_messages(query: str, contexts: list[dict]) -> list[dict]:
     """contexts: [{docName, chunk}, ...]"""
     refs = "\n\n".join(
@@ -20,7 +30,7 @@ def build_messages(query: str, contexts: list[dict]) -> list[dict]:
     )
     user = f"【参考资料】\n{refs}\n\n【问题】{query}\n\n请严格依据参考资料按规则作答。"
     return [
-        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "system", "content": get_system_prompt()},
         {"role": "user", "content": user},
     ]
 
@@ -44,7 +54,7 @@ def build_messages_with_history(query: str, contexts: list[dict], history: list[
         extra = "\n8) 注意：本次检索证据可能不充分，作答时明确标注不确定的部分，避免绝对化结论。"
     elif confidence == "refused":
         extra = "\n8) 注意：检索未找到强相关资料，优先回答\"根据现有资料无法确认该问题\"，可给通用方向但必须标注非资料依据。"
-    msgs = [{"role": "system", "content": SYSTEM_PROMPT + extra}]
+    msgs = [{"role": "system", "content": get_system_prompt() + extra}]
     for h in history:
         msgs.append({"role": h["role"], "content": h["content"]})
     msgs.append(

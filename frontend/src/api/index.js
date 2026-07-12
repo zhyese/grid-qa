@@ -3,6 +3,10 @@ import { useAuthStore } from '../stores/auth'
 
 // 系统
 export const login = (username, password) => request.post('/system/login', { username, password })
+// 用户自助
+export const getProfile = () => request.get('/system/me')
+export const updateProfile = (dept) => request.put('/system/me', { dept })
+export const changePassword = (oldPassword, newPassword) => request.put('/system/me/password', { oldPassword, newPassword })
 export const register = (username, password, role, dept = '') => request.post('/system/register', { username, password, role, dept })
 export const getLogs = (params) => request.get('/system/logs', { params })
 export const getAlerts = (params) => request.get('/system/alerts', { params })
@@ -10,6 +14,8 @@ export const configMilvus = (indexType, param) => request.post('/system/config/m
 export const configModel = (modelType, param) => request.post('/system/config/model', { modelType, param })
 export const getMilvusConfig = () => request.get('/system/config/milvus')
 export const getModelConfig = () => request.get('/system/config/model')
+export const getPromptConfig = () => request.get('/system/config/prompt')
+export const updatePromptConfig = (systemPrompt) => request.put('/system/config/prompt', { systemPrompt })
 export const getProviderHealth = () => request.get('/system/health/providers')
 export const rebuildBm25 = () => request.post('/retrieval/bm25/rebuild')
 // 用户管理（RBAC：admin 改角色/dept）
@@ -198,6 +204,10 @@ export const removeBackup = (filename) => request.delete('/system/backup', { par
 export const getLogArchiveStats = () => request.get('/system/logs/archive-stats')
 export const archiveLogs = (days) => request.post('/system/logs/archive', days ? { days } : {})
 export const getFaultPrediction = (days = 30) => request.get('/system/fault-prediction', { params: { days } })
+// 词表管理（admin）
+export const getTerms = () => request.get('/system/terms')
+export const addTerm = (alias, standard) => request.post('/system/terms', { alias, standard })
+export const deleteTerm = (alias) => request.delete('/system/terms', { params: { alias } })
 
 // P4-⑮ 证据溯源
 export const getEvidenceTrace = (answer, sources, modelType) =>

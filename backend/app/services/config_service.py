@@ -10,7 +10,7 @@ _DEFAULT_MILVUS = {"indexType": "HNSW", "param": {"M": 16, "efConstruction": 200
 _DEFAULT_MODEL = {"modelType": "default", "param": {"temperature": 0.2, "max_tokens": 2048}}
 
 # 内存热读缓存（启动 load_runtime 填充；update_* 同步刷新）——热路径不碰 Redis
-_RUNTIME = {"ef": 64, "temperature": 0.2, "max_tokens": 2048}
+_RUNTIME = {"ef": 64, "temperature": 0.2, "max_tokens": 2048, "system_prompt": None}
 
 
 async def load_runtime() -> None:
@@ -24,6 +24,12 @@ async def load_runtime() -> None:
         p = (await get_model_config()).get("param") or {}
         _RUNTIME["temperature"] = float(p.get("temperature", 0.2))
         _RUNTIME["max_tokens"] = int(p.get("max_tokens", 2048))
+    except Exception:
+        pass
+    try:
+        pc = await get_prompt_config()
+        sp = ((pc.get("systemPrompt") or "")).strip()
+        _RUNTIME["system_prompt"] = sp or None
     except Exception:
         pass
 
@@ -69,3 +75,25 @@ async def update_model_config(model_type: str, param: dict) -> dict:
     if "max_tokens" in p:
         _RUNTIME["max_tokens"] = int(p["max_tokens"])
     return data
+
+
+# ===== Prompt 模板（BRD §4.4.1 后台可编辑；DB/Redis 覆盖 code 默认）=====
+
+async def get_prompt_config() -> dict:
+    """读取 system prompt 覆盖（空=用 code 默认 SYSTEM_PROMPT）。"""
+    v = await redis_client.cache_get_json("config:prompt")
+    return v or {"systemPrompt": ""}
+
+
+async def update_prompt_config(system_prompt: str) -> dict:
+    """保存 system prompt 覆盖，即改即生效（下次问答即用新 prompt）。空串=恢复默认。"""
+    sp = (system_prompt or "").strip()
+    data = {"systemPrompt": sp}
+    await redis_client.cache_set_json_persistent("config:prompt", data)
+    _RUNTIME["system_prompt"] = sp or None
+    return data
+
+
+def rt_system_prompt() -> str | None:
+    """热路径 sync 读：system prompt 覆盖（None=用 code 默认）。"""
+    return _RUNTIME.get("system_prompt")
