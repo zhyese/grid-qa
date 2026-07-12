@@ -106,6 +106,13 @@ async def lifespan(app: FastAPI):
                 print(f"[cache] golden 预热 {m} 条")
     except Exception as e:
         print(f"[cache] 预热跳过：{e}")
+    # 操作日志自动归档：每日把超保留期的日志导出 jsonl 再删（BRD §4.5.2）
+    try:
+        from app.services.log_archive_service import archive_loop
+        app.state.log_archive_task = asyncio.create_task(archive_loop())
+        print("[log-archive] 日志归档后台任务已启动")
+    except Exception as e:
+        print(f"[log-archive] 启动跳过：{e}")
     # ---- 关闭 ----
     yield
     _task = getattr(app.state, "component_health_task", None)
@@ -117,6 +124,9 @@ async def lifespan(app: FastAPI):
     _cache_metrics = getattr(app.state, "cache_metrics_task", None)
     if _cache_metrics:
         _cache_metrics.cancel()
+    _log_archive = getattr(app.state, "log_archive_task", None)
+    if _log_archive:
+        _log_archive.cancel()
     try:
         from app.clients import neo4j_client
         await neo4j_client.close()

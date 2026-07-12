@@ -146,7 +146,13 @@
 
     <!-- 操作日志 -->
     <div class="card" v-show="tab === 'log'">
-      <div class="card-header"><h3 class="card-title">操作日志 <span class="badge badge-neutral">{{ logs.total }}</span></h3></div>
+      <div class="card-header">
+        <h3 class="card-title">操作日志 <span class="badge badge-neutral">{{ logs.total }}</span></h3>
+        <div v-if="archiveStat" class="row" style="gap:10px;align-items:center">
+          <span class="hint" style="margin:0">归档：共{{ archiveStat.total }}条 · 最早{{ archiveStat.oldest || '-' }} · 超期待归档<b style="color:var(--danger)">{{ archiveStat.pendingArchive }}</b>（保留{{ archiveStat.retentionDays }}天，自动每日）</span>
+          <button class="btn btn-ghost btn-sm" @click="doArchiveLogs">📦 立即归档</button>
+        </div>
+      </div>
       <div style="overflow-x:auto">
         <table class="tbl">
           <thead><tr><th>用户</th><th>类型</th><th>内容</th><th>时间</th></tr></thead>
@@ -558,7 +564,7 @@ import * as echarts from 'echarts/core'
 import { PieChart, BarChart, ScatterChart, LineChart } from 'echarts/charts'
 import { TooltipComponent, LegendComponent, GridComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
-import { getLogs, getAlerts, configMilvus, configModel, getMilvusConfig, getModelConfig, getProviderHealth, rebuildBm25, getFeedbacks, markFeedbackGolden, getFeedbackStats, alertDispose, getAlertDisposals, getPersonas, upsertPersona, deletePersona, agentRun, getUsers, updateUserRole, updateUserStatus, deleteUser, resetUserPassword, backupDB, listBackups, restoreDB, removeBackup } from '../api'
+import { getLogs, getAlerts, configMilvus, configModel, getMilvusConfig, getModelConfig, getProviderHealth, rebuildBm25, getFeedbacks, markFeedbackGolden, getFeedbackStats, alertDispose, getAlertDisposals, getPersonas, upsertPersona, deletePersona, agentRun, getUsers, updateUserRole, updateUserStatus, deleteUser, resetUserPassword, backupDB, listBackups, restoreDB, removeBackup, getLogArchiveStats, archiveLogs } from '../api'
 import request from '../api/request'
 
 echarts.use([PieChart, BarChart, ScatterChart, LineChart, TooltipComponent, LegendComponent, GridComponent, CanvasRenderer])
@@ -575,6 +581,7 @@ const personas = ref({ codePersonas: [], configs: [] })  // S5 persona 配置
 const users = ref({ total: 0, list: [] })  // RBAC 用户管理
 const backups = ref([])                     // 数据备份列表
 const backupLoading = ref(false)
+const archiveStat = ref(null)               // 日志归档统计
 const personaForm = reactive({ name: '', systemPrompt: '', allowedTools: '', maxIter: null, temperature: null, maxTokens: null, outputFormat: '', fallbackKey: '', enabled: true })
 const feedbacks = ref({ total: 0, list: [] })
 const fbStats = ref(null)
@@ -654,6 +661,13 @@ async function doRestore(filename) {
 async function doRemoveBackup(filename) {
   if (!confirm(`删除备份 ${filename}？`)) return
   try { await removeBackup(filename); toast('已删除'); await loadBackups() } catch (e) { toast('删除失败') }
+}
+async function loadArchiveStats() { try { archiveStat.value = (await getLogArchiveStats()).data } catch (e) { /* 非管理员静默 */ } }
+async function doArchiveLogs() {
+  const days = archiveStat.value?.retentionDays || 90
+  if (!confirm(`归档超过 ${days} 天的日志？导出 jsonl 后从库删除。`)) return
+  try { const r = await archiveLogs(); toast(`已归档 ${r.data.archived} 条 → ${r.data.file || '无'}`); await loadArchiveStats(); loadLogs() }
+  catch (e) { toast('归档失败') }
 }
 function editPersona(p) { Object.assign(personaForm, { name: p.name, systemPrompt: p.systemPrompt || '', allowedTools: p.allowedTools || '', maxIter: p.maxIter, temperature: p.temperature, maxTokens: p.maxTokens, outputFormat: p.outputFormat || '', fallbackKey: p.fallbackKey || '', enabled: p.enabled }) }
 async function savePersona() {
@@ -997,7 +1011,7 @@ async function loadABTest() { try { abConfig.value = (await request.get('/system
 onMounted(() => {
   loadLogs(); loadFeedbacks('dislike'); loadFbStats()
   if (can('alert:read')) loadAlerts()           // 审计员/管理员
-  if (can('system:config')) loadConfig()        // 仅管理员（系统配置 Tab）
+  if (can('system:config')) { loadConfig(); loadArchiveStats() }  // 仅管理员（系统配置/日志归档）
 })
 </script>
 

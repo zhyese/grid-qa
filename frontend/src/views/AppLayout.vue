@@ -82,6 +82,9 @@ const navItems = computed(() => {
     { to: '/kg-3d', icon: '🌐', label: '3D图谱' },
     { to: '/ticket', icon: '📋', label: '两票管理' },
   ]
+  if (hasPerm(auth.role, 'metric:read')) {
+    items.push({ to: '/prediction', icon: '🔮', label: '故障预测' })
+  }
   if (hasPerm(auth.role, 'system:config')) {
     items.push({ to: '/retrieval-debug', icon: '🔬', label: '检索调试' })
   }

@@ -195,6 +195,9 @@ export const backupDB = () => request.post('/system/backup')
 export const listBackups = () => request.get('/system/backups')
 export const restoreDB = (filename) => request.post('/system/restore', { filename })
 export const removeBackup = (filename) => request.delete('/system/backup', { params: { filename } })
+export const getLogArchiveStats = () => request.get('/system/logs/archive-stats')
+export const archiveLogs = (days) => request.post('/system/logs/archive', days ? { days } : {})
+export const getFaultPrediction = (days = 30) => request.get('/system/fault-prediction', { params: { days } })
 
 // P4-⑮ 证据溯源
 export const getEvidenceTrace = (answer, sources, modelType) =>

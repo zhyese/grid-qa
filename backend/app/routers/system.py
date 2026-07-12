@@ -675,3 +675,39 @@ async def delete_db_backup(
     data = await delete_backup(filename)
     await write_log(db, admin.username, "删除备份", filename)
     return success(data, "已删除")
+
+
+# ===== 操作日志归档（BRD §4.5.2）=====
+
+@router.get("/logs/archive-stats")
+async def logs_archive_stats(admin: User = Depends(require_admin)):
+    """日志归档统计：总数/最早最晚/类型分布/超期待归档数/保留天数。"""
+    from app.services.log_archive_service import archive_stats
+    return success(await archive_stats(), "查询成功")
+
+
+@router.post("/logs/archive")
+async def logs_archive(
+    body: dict,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+):
+    """手动归档超期日志（导出 jsonl 再删）。body.days 可选，默认配置保留期。"""
+    from app.services.log_archive_service import archive_old_logs
+    days = (body or {}).get("days")
+    data = await archive_old_logs(int(days) if days else None)
+    await write_log(db, admin.username, "日志归档", f"归档 {data['archived']} 条 → {data.get('file')}")
+    return success(data, "归档完成")
+
+
+# ===== 故障预测建议（BRD §5.3.1）=====
+
+@router.get("/fault-prediction")
+async def fault_prediction(
+    days: int = 30,
+    user: User = Depends(require_perm(METRIC_READ)),
+):
+    """故障预测：聚合近 N 天告警→高频/趋势/风险分级+建议（管理员/审计员）。"""
+    from app.services.fault_prediction_service import predict
+    data = await predict(days)
+    return success(data, "查询成功")
