@@ -77,7 +77,16 @@
         <table class="tbl">
           <thead><tr><th>主体</th><th>关系</th><th>客体</th><th>来源</th><th>操作</th></tr></thead>
           <tbody>
-            <tr v-for="t in triples.list" :key="t.id"><td>{{ t.subject }}</td><td>{{ t.relation }}</td><td>{{ t.object }}</td><td class="muted">{{ (t.docName||'').slice(0,20) }}</td><td><button class="btn btn-danger btn-sm" @click="delTriple(t)">删除</button></td></tr>
+            <tr v-for="t in triples.list" :key="t.id">
+              <td><input class="input" v-model="t.subject" style="width:140px" /></td>
+              <td><input class="input" v-model="t.relation" style="width:100px" /></td>
+              <td><input class="input" v-model="t.object" style="width:140px" /></td>
+              <td class="muted">{{ (t.docName||'').slice(0,20) }}</td>
+              <td style="white-space:nowrap">
+                <button class="btn btn-primary btn-sm" @click="saveTriple(t)">💾 保存</button>
+                <button class="btn btn-danger btn-sm" @click="delTriple(t)">删除</button>
+              </td>
+            </tr>
             <tr v-if="!triples.list.length"><td colspan="5" class="empty">暂无三元组</td></tr>
           </tbody>
         </table>
@@ -93,7 +102,7 @@ import * as echarts from 'echarts/core'
 import { GraphChart } from 'echarts/charts'
 import { TooltipComponent, LegendComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
-import { extractKg, getKgGraph, getKgStats, getKgPaths, getKgInfluence, listDocs, listTriples, deleteTriple } from '../api'
+import { extractKg, getKgGraph, getKgStats, getKgPaths, getKgInfluence, listDocs, listTriples, updateTriple, deleteTriple } from '../api'
 import { useAuthStore } from '../stores/auth'
 import { hasPerm } from '../utils/perm'
 
@@ -121,6 +130,7 @@ const triples = ref({ total: 0, list: [] })
 const tripleKw = ref('')
 async function loadTriples() { try { triples.value = (await listTriples({ page: 1, size: 50, kw: tripleKw.value || undefined })).data } catch (e) { show('加载失败') } }
 async function delTriple(t) { if (!confirm(`删除三元组「${t.subject}-${t.relation}->${t.object}」？`)) return; try { await deleteTriple(t.id); show('已删除'); loadTriples() } catch (e) { show('删除失败') } }
+async function saveTriple(t) { try { await updateTriple(t.id, { subject: t.subject, relation: t.relation, object: t.object }); show('已保存（MySQL+Neo4j 同步）') } catch (e) { show('保存失败') } }
 let toastTimer = null
 function show(msg) { toast.value = msg; clearTimeout(toastTimer); toastTimer = setTimeout(() => (toast.value = ''), 2600) }
 
