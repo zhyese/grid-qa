@@ -277,10 +277,20 @@ async def answer(
         user_dept=user_dept, user_role=user_role,
     )
     if not contexts:
+        # 无结果兜底：记录为知识缺口（喂证据补全闭环）+ 友好引导，而非生硬拒答
+        try:
+            from app.services.evidence_gap_service import collect
+            await collect(nq, "", "refused", "", "", "auto", tenant or "default")
+        except Exception:
+            pass
         return {
-            "answer": "根据现有资料无法确认该问题，请先上传并解析相关运维文档后重试。",
+            "answer": (f"未在知识库检索到与「{nq[:40]}」直接相关的内容。建议：\n"
+                       f"① 换用更具体的设备/故障术语重新提问（如设备型号、故障现象）；\n"
+                       f"② 确认相关文档已上传并完成「解析 + 向量化」；\n"
+                       f"③ 该问题已自动记录为知识缺口，补充资料后将纳入检索。"),
             "retrievalSource": [], "responseTime": round(time.time() - t0, 3),
-            "hallucinationRate": 0.0, "cached": False, "conversationId": conversation_id or "",
+            "hallucinationRate": 0.0, "cached": False, "confidence": "refused",
+            "conversationId": conversation_id or "",
         }
 
     # Corrective RAG：分级 + 纠错闭环

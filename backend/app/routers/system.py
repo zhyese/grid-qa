@@ -788,6 +788,33 @@ async def rag_health(user: User = Depends(require_perm(METRIC_READ))):
     }, "查询成功")
 
 
+@router.get("/milvus-health")
+async def milvus_health(user: User = Depends(require_perm(METRIC_READ)), db: AsyncSession = Depends(get_db)):
+    """Milvus 索引健康：各 collection 向量数 vs MySQL chunk 数，检测不一致/orphan。"""
+    import asyncio
+    from sqlalchemy import func as _f
+    from app.models.chunk import Chunk
+    from app.clients import milvus_client
+    from app.config import settings
+    collections = {}
+    for key, name in [("cloud", settings.MILVUS_COLLECTION), ("bge", settings.MILVUS_COLLECTION_BGE)]:
+        try:
+            n = await asyncio.to_thread(milvus_client.num_entities, name)
+        except Exception as e:
+            n = -1
+            from app.core.obs import degraded
+            degraded("milvus_health", e)
+        collections[key] = {"collection": name, "vectors": n}
+    mysql_chunks = (await db.execute(select(_f.count()).select_from(Chunk))).scalar() or 0
+    cloud_vec = collections["cloud"]["vectors"]
+    return success({
+        "collections": collections,
+        "mysqlChunks": mysql_chunks,
+        "consistent": cloud_vec >= 0 and abs(cloud_vec - mysql_chunks) <= max(5, mysql_chunks * 0.01),
+        "note": "cloud 向量数应 ≈ MySQL chunk 数（bge 为小文档副本，通常更少）",
+    }, "查询成功")
+
+
 # ===== 插件 / 扩展框架（BRD §5.3.1）=====
 
 @router.get("/plugins")

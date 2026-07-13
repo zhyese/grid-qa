@@ -388,3 +388,25 @@ async def export_doc(
         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         headers={"Content-Disposition": 'attachment; filename="grid-qa-report.docx"'},
     )
+
+
+@router.post("/export-xlsx")
+@limiter.limit("20/minute")
+async def export_xlsx(
+    request: Request,
+    body: ExportRequest,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """答案导出 Excel：问答 → .xlsx 结构化表格（台账登记/二次处理）。"""
+    from fastapi.responses import Response
+
+    from app.services import export_service
+
+    data = export_service.build_xlsx(body.query, body.answer, body.sources, body.meta)
+    await write_log(db, user.username, "导出Excel", f"问题：{(body.query or '')[:40]}")
+    return Response(
+        content=data,
+        media_type="application/vnd.openxmlformats-officedocument.sheet",
+        headers={"Content-Disposition": 'attachment; filename="grid-qa-report.xlsx"'},
+    )

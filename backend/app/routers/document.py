@@ -192,3 +192,41 @@ async def update_doc_perms(
     await db.commit()
     await write_log(db, user.username, "文档授权", f"{doc_id} → dept={dept} roles={allowedRoles}")
     return success({"docId": doc_id, "dept": dept, "allowedRoles": allowedRoles}, "授权已更新")
+
+
+# ===== chunk 编辑/重向量化 + 文档相似检测 + 版本 diff =====
+
+@router.get("/{doc_id}/chunks")
+async def list_chunks_route(doc_id: str, db: AsyncSession = Depends(get_db),
+                            user: User = Depends(require_perm("doc:read"))):
+    """列出文档全部分块（供 chunk 编辑选择）。"""
+    from app.services.document_service import list_chunks
+    return success(await list_chunks(db, doc_id), "查询成功")
+
+
+@router.put("/chunks/{chunk_id}")
+async def update_chunk_route(chunk_id: str, body: dict, db: AsyncSession = Depends(get_db),
+                             user: User = Depends(require_perm("doc:manage"))):
+    """编辑单个 chunk 内容并自动重新向量化整篇文档（doc:manage）。"""
+    from app.services.document_service import update_chunk
+    data = await update_chunk(db, chunk_id, body.get("content", ""))
+    await write_log(db, user.username, "chunk编辑", f"{chunk_id} → {data['charCount']}字")
+    return success(data, "已编辑并重新向量化")
+
+
+@router.post("/similar-check")
+async def similar_check_route(body: dict, db: AsyncSession = Depends(get_db),
+                              user: User = Depends(require_perm("doc:upload"))):
+    """文档去重/相似检测（上传前查重）：返回最相似的已存在文档。"""
+    from app.services.document_service import find_similar_docs
+    data = await find_similar_docs(db, body.get("text", "") or body.get("name", ""))
+    return success(data, "查询成功")
+
+
+@router.get("/{doc_id}/diff")
+async def diff_versions_route(doc_id: str, v1: int = Query(...), v2: int = Query(...),
+                              db: AsyncSession = Depends(get_db),
+                              user: User = Depends(require_perm("doc:read"))):
+    """文档两版本内容 diff。"""
+    from app.services.document_service import diff_versions
+    return success(await diff_versions(db, doc_id, v1, v2), "对比成功")

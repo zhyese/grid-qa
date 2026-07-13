@@ -423,3 +423,87 @@ async def _kg_extract_bg(doc_id: str, model_type: str | None = None) -> None:
             print(f"[kg] 文档 {doc_id} 自动抽取：{res.get('tripleCount', 0)} 条三元组")
         except Exception as e:
             print(f"[kg] 文档 {doc_id} 自动抽取失败：{e}")
+
+
+# ===== chunk 编辑/重向量化 + 文档相似检测 + 版本 diff =====
+
+async def update_chunk(db: AsyncSession, chunk_id: str, content: str) -> dict:
+    """编辑单个 chunk 内容并重新向量化整篇文档（保证检索向量与新内容一致）。
+
+    解决"改一个错字要删整篇重传"：chunk 级编辑后自动 refresh 向量。
+    """
+    content = (content or "").strip()
+    if not content:
+        raise BizError("chunk 内容不能为空", 400)
+    chunk = (await db.execute(select(Chunk).where(Chunk.id == chunk_id))).scalar_one_or_none()
+    if not chunk:
+        raise BizError("chunk 不存在", 404)
+    chunk.content = content
+    chunk.char_count = len(content)
+    await db.commit()
+    try:
+        await vectorize_document(db, chunk.doc_id)   # 双 collection 清旧写新
+    except Exception as e:
+        degraded("chunk_revectorize", e)
+    return {"chunkId": chunk.id, "docId": chunk.doc_id, "charCount": chunk.char_count}
+
+
+async def list_chunks(db: AsyncSession, doc_id: str) -> list[dict]:
+    """列出文档全部分块（供 chunk 编辑选择）。"""
+    rows = (await db.execute(select(Chunk).where(Chunk.doc_id == doc_id).order_by(Chunk.chunk_idx))).scalars().all()
+    return [{"id": r.id, "chunkIdx": r.chunk_idx, "content": r.content, "section": r.section,
+             "charCount": r.char_count} for r in rows]
+
+
+async def find_similar_docs(db: AsyncSession, text: str, topk: int = 5) -> list[dict]:
+    """文档去重/相似检测：文本向量化后在 Milvus 搜，按 doc_id 聚合返回最相似的已存在文档。"""
+    text = (text or "").strip()
+    if not text:
+        return []
+    from app.services import embedding_service
+    vec = await embedding_service.embed_query(text)
+    hits = milvus_client.search(settings.MILVUS_COLLECTION, vec, topk=topk * 3)
+    if not hits:
+        return []
+    best: dict[str, float] = {}
+    name_map: dict[str, str] = {}
+    for h in hits:
+        did = h.get("doc_id")
+        if not did:
+            continue
+        score = float(h.get("score", 0) or 0)
+        if did not in best or score > best[did]:
+            best[did] = score
+            name_map[did] = h.get("doc_name", "")
+    rows = (await db.execute(select(Document.id, Document.doc_name).where(Document.id.in_(list(best.keys()))))).all()
+    id2name = {r[0]: r[1] for r in rows}
+    out = [{"docId": did, "docName": id2name.get(did, name_map.get(did, "")),
+            "score": round(s, 3)} for did, s in sorted(best.items(), key=lambda x: -x[1]) if s >= 0.75]
+    return out[:topk]
+
+
+async def diff_versions(db: AsyncSession, doc_id: str, v1: int, v2: int) -> dict:
+    """文档两版本内容 diff（difflib unified diff，仅对可解码为文本的版本）。"""
+    import difflib
+    from app.models.document_version import DocumentVersion
+    rows = (await db.execute(
+        select(DocumentVersion).where(DocumentVersion.doc_id == doc_id, DocumentVersion.version.in_([v1, v2]))
+    )).scalars().all()
+    vmap = {r.version: r for r in rows}
+    if v1 not in vmap or v2 not in vmap:
+        raise BizError("版本不存在", 404)
+
+    def _text(obj_key: str) -> str:
+        if not obj_key:
+            return ""
+        try:
+            return minio_client.get_object_bytes(obj_key).decode("utf-8", errors="ignore")
+        except Exception:
+            return ""
+
+    t1 = await asyncio.to_thread(_text, vmap[v1].minio_object)
+    t2 = await asyncio.to_thread(_text, vmap[v2].minio_object)
+    diff = list(difflib.unified_diff(t1.splitlines(), t2.splitlines(), fromfile=f"v{v1}", tofile=f"v{v2}", lineterm=""))
+    changed = [d for d in diff if d.startswith(("+", "-")) and not d.startswith(("+++", "---"))]
+    return {"v1": v1, "v2": v2, "v1Chars": len(t1), "v2Chars": len(t2),
+            "changedLines": len(changed), "diff": diff[:500]}

@@ -53,3 +53,31 @@ def build_docx(query: str, answer: str, sources: list, meta: dict | None = None)
     buf = io.BytesIO()
     doc.save(buf)
     return buf.getvalue()
+
+
+def build_xlsx(query: str, answer: str, sources: list, meta: dict | None = None) -> bytes:
+    """生成问答报告 .xlsx（结构化表格，便于台账登记/二次处理）。"""
+    from openpyxl import Workbook
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "问答报告"
+    ws.append(["字段", "内容"])
+    ws.append(["问题", query or ""])
+    ws.append(["答复", (answer or "")[:32000]])   # Excel 单元格上限
+    ws.append(["生成时间", datetime.now().strftime("%Y-%m-%d %H:%M:%S")])
+    m = meta or {}
+    ws.append(["置信度", m.get("confidence", "")])
+    ws.append(["耗时(秒)", m.get("responseTime", "")])
+    ws.append([])
+    ws.append(["引用来源"])
+    ws.append(["序号", "文档", "内容"])
+    for i, s in enumerate(sources or [], 1):
+        text = (s.get("text", "") if isinstance(s, dict) else str(s))[:32000]
+        name = (s.get("docName", "") if isinstance(s, dict) else "")
+        ws.append([i, name, text])
+    ws.column_dimensions["A"].width = 12
+    ws.column_dimensions["B"].width = 28
+    ws.column_dimensions["C"].width = 80
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
