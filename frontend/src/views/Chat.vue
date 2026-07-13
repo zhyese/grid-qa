@@ -395,7 +395,7 @@ const showFavPanel = ref(false)
 const favList = ref([])
 async function toggleFavPanel() { showFavPanel.value = !showFavPanel.value; if (showFavPanel.value) { try { favList.value = (await listFavorites()).data || [] } catch (e) {} } }
 async function delFav(id) { try { await deleteFavorite(id); favList.value = favList.value.filter(f => f.id !== id) } catch (e) { toast('删除失败') } }
-function useFav(f) { showFavPanel.value = false; query.value = f.query }
+function useFav(f) { showFavPanel.value = false; query.value = f.query; ask() }
 async function exportWord(m) {
   try {
     const blob = await exportAnswer(m.query, m.content, m.sources, { confidence: m.confidence, hallucinationRate: m.halluc, responseTime: m.time })
