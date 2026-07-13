@@ -94,7 +94,7 @@
             <div class="meta" v-if="m.time">
               <span>⏱ {{ m.time }}s</span>
               <span v-if="m.cached" class="badge" :class="cacheBadge(m.cacheLayer)" :title="'命中缓存：' + cacheTitle(m.cacheLayer)">⚡ {{ cacheLabel(m.cacheLayer) }}</span>
-              <span v-if="m.halluc != null">· 未引用率 {{ Math.round((m.halluc || 0) * 100) }}%</span>
+              <span v-if="m.halluc != null">· 引用率 {{ Math.round((1 - (m.halluc || 0)) * 100) }}%</span>
               <span v-if="m._evTrace?.supportRatio != null">· 依据覆盖 {{ Math.round((m._evTrace.supportRatio || 0) * 100) }}%</span>
               <span v-if="m.judgeHalluc != null" class="badge badge-warning" :title="(m.judgeReason ? 'LLM-judge：' + m.judgeReason : 'LLM-judge 实测幻觉率（异步）')">幻觉率{{ Math.round((m.judgeHalluc || 0) * 100) }}%</span>
               <span v-if="m.route" class="badge" :class="routeBadge(m.route)" :title="m.routeReason || ''">🧭 {{ routeLabel(m.route) }}</span>
