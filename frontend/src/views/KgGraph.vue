@@ -71,7 +71,7 @@
     <div v-show="tab === 'manage'" style="margin-top:12px">
       <div class="row" style="justify-content:space-between;align-items:center;margin-bottom:8px">
         <b>三元组管理（{{ triples.total }}）</b>
-        <div class="row" style="gap:6px"><input class="input" v-model="tripleKw" placeholder="关键词筛" style="width:160px" @keyup.enter="loadTriples" /><button class="btn btn-ghost btn-sm" @click="loadTriples">🔍</button></div>
+        <div class="row" style="gap:6px"><input class="input" v-model="tripleKw" placeholder="关键词筛" style="width:160px" @keyup.enter="loadTriples(true)" /><button class="btn btn-ghost btn-sm" @click="loadTriples(true)">🔍</button></div>
       </div>
       <div style="overflow-x:auto">
         <table class="tbl">
@@ -91,13 +91,18 @@
           </tbody>
         </table>
       </div>
+      <div class="row" style="justify-content:center;align-items:center;gap:10px;margin-top:10px">
+        <button class="btn btn-ghost btn-sm" :disabled="triplePage <= 1" @click="triplePrev">◀ 上一页</button>
+        <span class="hint">第 {{ triplePage }} / {{ tripleTotalPages }} 页 · 共 {{ triples.total }} 条</span>
+        <button class="btn btn-ghost btn-sm" :disabled="triplePage >= tripleTotalPages" @click="tripleNext">下一页 ▶</button>
+      </div>
     </div>
     <transition name="fade"><div class="toast" v-if="toast">{{ toast }}</div></transition>
   </div>
 </template>
 
 <script setup>
-import { ref, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
+import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import * as echarts from 'echarts/core'
 import { GraphChart } from 'echarts/charts'
 import { TooltipComponent, LegendComponent } from 'echarts/components'
@@ -128,7 +133,12 @@ const paths = ref([])
 const hubs = ref([])
 const triples = ref({ total: 0, list: [] })
 const tripleKw = ref('')
-async function loadTriples() { try { triples.value = (await listTriples({ page: 1, size: 50, kw: tripleKw.value || undefined })).data } catch (e) { show('加载失败') } }
+const triplePage = ref(1)
+const tripleSize = 20
+const tripleTotalPages = computed(() => Math.max(1, Math.ceil((triples.value.total || 0) / tripleSize)))
+async function loadTriples(reset) { if (reset) triplePage.value = 1; try { triples.value = (await listTriples({ page: triplePage.value, size: tripleSize, kw: tripleKw.value || undefined })).data } catch (e) { show('加载失败') } }
+async function triplePrev() { if (triplePage.value > 1) { triplePage.value--; await loadTriples() } }
+async function tripleNext() { if (triplePage.value < tripleTotalPages.value) { triplePage.value++; await loadTriples() } }
 async function delTriple(t) { if (!confirm(`删除三元组「${t.subject}-${t.relation}->${t.object}」？`)) return; try { await deleteTriple(t.id); show('已删除'); loadTriples() } catch (e) { show('删除失败') } }
 async function saveTriple(t) { try { await updateTriple(t.id, { subject: t.subject, relation: t.relation, object: t.object }); show('已保存（MySQL+Neo4j 同步）') } catch (e) { show('保存失败') } }
 let toastTimer = null
