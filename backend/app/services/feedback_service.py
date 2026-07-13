@@ -55,10 +55,11 @@ async def _judge_bg(feedback_id: str, query: str, answer: str, retrieval_sources
     retrieval_label = None
     try:
         judge_res = await judge.judge_hallucination(answer, [query], settings.LLM_PROVIDER)
-        if judge_res:
+        _h = judge_res.get("hallucination") if judge_res else None
+        if isinstance(_h, (int, float)):   # 只在 judge 给出真值时计指标，None 不污染（不假报 1.0）
             try:
                 from app.core import metrics
-                metrics.HALLUC.observe(judge_res.get("hallucination", 1.0) or 1.0)  # dislike 触发 judge 实测进 HALLUC
+                metrics.HALLUC.observe(_h)
             except Exception:
                 pass
     except Exception as e:

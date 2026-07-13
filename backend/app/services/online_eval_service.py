@@ -52,12 +52,14 @@ async def eval_quality(
 
     try:
         faith_res = await judge.judge_hallucination(answer, sources, model_type)
-        faithfulness = 1.0 - (faith_res.get("hallucination", 0.5) or 0.5)
-        try:
-            from app.core import metrics
-            metrics.HALLUC.observe(faith_res.get("hallucination", 0.5) or 0.5)  # judge 实测进 HALLUC（采样真值）
-        except Exception:
-            pass
+        _h = faith_res.get("hallucination")
+        faithfulness = 1.0 - (_h if isinstance(_h, (int, float)) else 0.5)
+        if isinstance(_h, (int, float)):   # 只在 judge 给出真值时计指标，None 不污染
+            try:
+                from app.core import metrics
+                metrics.HALLUC.observe(_h)
+            except Exception:
+                pass
     except Exception as e:
         degraded("online_eval_faithfulness", e)
         faithfulness = 0.5

@@ -10,32 +10,52 @@ from typing import Optional
 async def judge_hallucination(
     answer: str, sources: list[str], model_type: Optional[str] = None
 ) -> dict:
-    """返回 {supported_ratio, hallucination, reason}。"""
+    """基于声明拆解的忠实度核查（RAGAS faithfulness 思路，核心策略重写）。
+
+    旧策略一次问"给个 supported_ratio"→ 模型对总结式答案易误判 + 解析失败假报 1.0。
+    新策略：① 拆原子声明 → ② 逐条核验是否被资料支撑（含忠实转述/归纳，不要求原文复述）
+            → ③ hallucination = 1 - supported/total（推导，不信模型自报）。
+    解析失败返回 hallucination=None（前端不显示），永不假报 100%。
+    """
     from app.providers.factory import get_llm_provider
 
-    refs = "\n".join(f"[{i + 1}] {s}" for i, s in enumerate(sources))
+    srcs = [s for s in (sources or []) if s and str(s).strip()]
+    if not answer or not srcs:
+        return {"supported_ratio": None, "hallucination": None, "reason": "答案或资料为空，跳过核查"}
+
+    refs = "\n".join(f"[{i + 1}] {s}" for i, s in enumerate(srcs))
     prompt = (
-        "你是严格的电网问答审核员。判断下方【答案】是否被【参考资料】直接支撑。\n"
-        "- supported_ratio：答案内容中被资料直接支撑的比例(0~1)\n"
-        "- hallucination：1 - supported_ratio（编造/无支撑内容占比）\n"
-        "只输出一行 JSON：{\"supported_ratio\": 0.0~1.0, \"hallucination\": 0.0~1.0, \"reason\": \"简短说明\"}\n\n"
+        "你是电网问答忠实度核查员。按步骤判断【答案】是否被【参考资料】支撑"
+        "（含忠实转述/归纳总结，不要求逐字复述；只要资料能推出该意思即算支撑）：\n"
+        "1) 从答案提取全部原子声明（可验证的事实陈述；忽略纯格式/过渡/引用标注句）。\n"
+        "2) 逐条判断每条声明能否从资料中找到支撑。\n"
+        "严格输出一行 JSON："
+        "{\"claims\":[{\"text\":\"声明\",\"supported\":true}],\"supported_count\":N,\"total_count\":M}\n"
+        "（supported_count 为 supported=true 的声明数；total_count 为声明总数）\n\n"
         f"【参考资料】\n{refs}\n\n【答案】\n{answer}"
     )
-    out = await get_llm_provider(model_type).chat(
-        [{"role": "user", "content": prompt}], temperature=0, max_tokens=200
-    )
-    m = re.search(r"\{.*\}", out, re.S)
-    if m:
-        try:
-            d = json.loads(m.group(0))
-            return {
-                "supported_ratio": float(d.get("supported_ratio", 0.0)),
-                "hallucination": float(d.get("hallucination", 1.0)),
-                "reason": str(d.get("reason", "")),
-            }
-        except Exception:
-            pass
-    return {"supported_ratio": 0.0, "hallucination": 1.0, "reason": "judge 输出解析失败"}
+    try:
+        out = await get_llm_provider(model_type).chat(
+            [{"role": "user", "content": prompt}], temperature=0, max_tokens=800
+        )
+        m = re.search(r"\{.*\}", out, re.S)
+        if not m:
+            return {"supported_ratio": None, "hallucination": None, "reason": "核查输出无 JSON（已忽略）"}
+        d = json.loads(m.group(0))
+        claims = d.get("claims") or []
+        total = int(d.get("total_count") or len(claims) or 0)
+        sup = int(d.get("supported_count") if d.get("supported_count") is not None
+                   else sum(1 for c in claims if c.get("supported")))
+        if total <= 0:
+            return {"supported_ratio": None, "hallucination": None, "reason": "未提取到声明（已忽略）"}
+        supported_ratio = round(min(sup, total) / total, 3)
+        return {
+            "supported_ratio": supported_ratio,
+            "hallucination": round(1.0 - supported_ratio, 3),   # 推导，不信模型自报
+            "reason": f"{sup}/{total} 条声明被资料支撑",
+        }
+    except Exception as e:
+        return {"supported_ratio": None, "hallucination": None, "reason": f"核查解析失败（已忽略）: {type(e).__name__}"}
 
 
 async def judge_context_relevance(
