@@ -174,8 +174,19 @@ async def run_agent(db: AsyncSession, persona: Persona, user_msg: str,
         registry = DEFAULT_REGISTRY
     t0 = time.perf_counter()
     provider = get_llm_provider(model_type)
+
+    # N1: 记忆召回（零侵入：recall 返回空字符串=无记忆=零行为变化；ctx=None 跳过）
+    recall_text = ""
+    if ctx and ctx.get("username"):
+        try:
+            from app.services.agent_memory_service import agent_memory
+            recall_text = await agent_memory.recall(user_msg, ctx["username"], scope="user")
+        except Exception as e:
+            degraded("agent_memory_recall", e)
+
     messages = [
         {"role": "system", "content": persona.system_prompt},
+        {"role": "system", "content": recall_text or ""},  # N1 新增（空=无记忆=零回归）
         {"role": "user", "content": user_msg},
     ]
     steps: list[dict] = []
@@ -223,6 +234,18 @@ async def run_agent(db: AsyncSession, persona: Persona, user_msg: str,
 
     iters = len(steps)
     _inc_metrics(persona.name, iters)
+
+    # N1: fire-and-forget 记忆抽取（不阻塞响应；ctx=None 跳过=diagnose 老链路零回归）
+    if ctx and ctx.get("username"):
+        try:
+            import asyncio as _asyncio
+            from app.services.agent_memory_service import agent_memory
+            _answer_text = answer if isinstance(answer, str) else json.dumps(answer, ensure_ascii=False)
+            _asyncio.create_task(agent_memory.extract_and_consolidate(
+                user_msg, _answer_text, ctx["username"], model_type))
+        except Exception:
+            pass
+
     return AgentResult(
         answer=answer, steps=steps, iterations=iters,
         degraded=False, degrade_reason=None,
