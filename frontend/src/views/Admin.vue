@@ -12,6 +12,7 @@
       <button class="tab" :class="{ active: tab === 'quality' }" @click="loadQuality(); tab = 'quality'" v-if="can('system:config')">📚 知识库质量</button>
       <button class="tab" :class="{ active: tab === 'eval' }" @click="loadEval(); tab = 'eval'" v-if="can('metric:read')">📊 评测趋势</button>
       <button class="tab" :class="{ active: tab === 'abtest' }" @click="loadABTest(); tab = 'abtest'" v-if="can('system:config')">🧪 A/B测试</button>
+      <button class="tab" :class="{ active: tab === 'tune' }" @click="loadTuneReport(); tab = 'tune'" v-if="can('system:config')">🎯 检索调参</button>
       <button class="tab" :class="{ active: tab === 'users' }" @click="loadUsers(); tab = 'users'" v-if="can('user:manage')">👥 用户管理</button>
       <button class="tab" :class="{ active: tab === 'persona' }" @click="loadPersonas(); tab = 'persona'" v-if="can('system:config')">🧩 Persona</button>
       <button class="tab" :class="{ active: tab === 'backup' }" @click="loadBackups(); tab = 'backup'" v-if="can('system:config')">💾 备份恢复</button>
@@ -205,17 +206,24 @@
         </template>
         <div style="overflow-x:auto;margin-top:8px">
           <table class="tbl">
-            <thead><tr><th>状态</th><th>告警</th><th>处置概述</th><th>操作票</th><th>来源</th><th>时间</th></tr></thead>
+            <thead><tr><th>状态</th><th>告警</th><th>处置概述</th><th>操作票</th><th>来源</th><th>时间</th><th v-if="can('alert:manage')">操作</th></tr></thead>
             <tbody>
               <tr v-for="d in disposals.list" :key="d.id">
-                <td><span class="badge" :class="d.status === 'disposed' ? 'badge-success' : 'badge-neutral'">{{ d.status === 'disposed' ? '✅已处置' : '⏳处理中' }}</span></td>
+                <td><span class="badge" :class="dispStatusBadge(d.status)">{{ dispStatusLabel(d.status) }}</span></td>
                 <td><span class="badge" :class="{ 'badge-danger': d.severity==='critical', 'badge-success': d.severity==='info', 'badge-neutral': d.severity==='warning' }">{{ d.severity }}</span> {{ d.title || '(无标题)' }}</td>
                 <td class="muted" style="max-width:260px">{{ (d.handling || parseDispDiag(d.diagnosis)?.summary || '—').slice(0, 90) }}</td>
                 <td class="muted">{{ (() => { const t = parseDispDiag(d.ticketDraft); return t && t.steps ? `${t.device || ''}·${t.steps.length}步` : '—' })() }}</td>
                 <td class="muted">{{ d.source }}</td>
                 <td class="muted">{{ d.createdAt }}</td>
+                <td style="white-space:nowrap" v-if="can('alert:manage')">
+                  <button v-if="['proposed','disposed'].includes(d.status)" class="btn btn-primary btn-sm" @click="doConfirmDisp(d)">确认</button>
+                  <button v-if="['proposed','disposed','confirmed'].includes(d.status)" class="btn btn-ghost btn-sm" @click="doRejectDisp(d)">驳回</button>
+                  <button v-if="d.status==='confirmed'" class="btn btn-accent btn-sm" @click="doToTicket(d)">转两票</button>
+                  <button v-if="!['ticketed','closed'].includes(d.status)" class="btn btn-ghost btn-sm" @click="doCloseDisp(d)">关闭</button>
+                  <span v-if="d.ticketId" class="muted" style="margin-left:44px">票{{ String(d.ticketId).slice(-6) }}</span>
+                </td>
               </tr>
-              <tr v-if="!disposals.list.length"><td colspan="6" class="empty">暂无处置记录（点「触发处置」试试）</td></tr>
+              <tr v-if="!disposals.list.length"><td colspan="7" class="empty">暂无处置记录（点「触发处置」试试）</td></tr>
             </tbody>
           </table>
         </div>
@@ -526,30 +534,85 @@
         </div>
         <div v-else class="hint" style="margin-top:8px">加载中...</div>
       </div>
-      <!-- 数据备份与恢复 -->
+      <!-- 检索调参（只建议模式） -->
+      <div class="card" v-show="tab === 'tune'">
+        <div class="card-header">
+          <h3 class="card-title">🎯 检索参数调参建议</h3>
+          <button class="btn btn-primary btn-sm" @click="runTuneScan" :disabled="tuneRunning">{{ tuneRunning ? '扫描中…' : '🔄 重新扫描' }}</button>
+        </div>
+        <p class="hint" style="margin-top:0">跑 golden 集扰动扫描 → 产出参数建议。<b>只建议不自动应用</b>，点「复制 .env 行」贴到 .env 重启生效。</p>
+        <div v-if="tuneReport && tuneReport.baseline">
+          <div class="stats-grid" style="margin-bottom:10px">
+            <div class="stat stat-accent"><div class="stat-val">{{ tuneReport.baseline.recall?.toFixed(3) }}</div><div class="stat-lbl">baseline recall</div></div>
+            <div class="stat stat-accent"><div class="stat-val">{{ tuneReport.baseline.mrr?.toFixed(3) }}</div><div class="stat-lbl">MRR</div></div>
+            <div class="stat stat-accent"><div class="stat-val">{{ tuneReport.baseline.ndcg?.toFixed(3) }}</div><div class="stat-lbl">nDCG</div></div>
+            <div class="stat"><div class="stat-val">{{ ((tuneReport.baseline.noResultRate || 0) * 100).toFixed(1) }}%</div><div class="stat-lbl">无结果率</div></div>
+          </div>
+          <div v-if="tuneReport.incomplete" class="cause" style="color:#e53935">⚠ {{ tuneReport.note }}</div>
+          <h4 style="margin:12px 0 6px">💡 建议（{{ tuneReport.suggestions?.length || 0 }} 条）</h4>
+          <div style="overflow-x:auto">
+            <table class="tbl">
+              <thead><tr><th>参数</th><th>当前</th><th>建议</th><th>recall 提升</th><th>置信度</th><th>理由</th><th>操作</th></tr></thead>
+              <tbody>
+                <tr v-for="s in tuneReport.suggestions" :key="s.param">
+                  <td><b>{{ s.param }}</b></td>
+                  <td class="muted">{{ s.current }}</td>
+                  <td><b style="color:var(--primary)">{{ s.suggested }}</b></td>
+                  <td>+{{ (s.delta * 100).toFixed(1) }}%</td>
+                  <td><span class="badge" :class="{'badge-success':s.confidence==='high','badge-warning':s.confidence==='medium','badge-danger':s.confidence==='low'}">{{ s.confidence }}</span></td>
+                  <td class="muted" style="max-width:240px">{{ s.reason }}</td>
+                  <td><button class="btn btn-ghost btn-sm" @click="copyEnv(s)">复制 .env 行</button></td>
+                </tr>
+                <tr v-if="!tuneReport.suggestions?.length"><td colspan="7" class="empty">暂无建议（提升均 &lt; margin，或样本不足）</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <h4 style="margin:12px 0 6px">🔀 开关 A/B（关闭后 recall 变化）</h4>
+          <div style="overflow-x:auto">
+            <table class="tbl">
+              <thead><tr><th>开关</th><th>关闭后 recall</th><th>Δ recall</th><th>结论</th></tr></thead>
+              <tbody>
+                <tr v-for="sw in tuneReport.switches" :key="sw.switch">
+                  <td><b>{{ sw.switch }}</b></td>
+                  <td>{{ sw.recall?.toFixed(3) }}</td>
+                  <td :style="{color: sw.delta < 0 ? '#e53935' : ''}">{{ (sw.delta * 100).toFixed(1) }}%</td>
+                  <td class="muted">{{ sw.delta < -0.02 ? '⚠ 该开关不应关闭' : '关闭影响小' }}</td>
+                </tr>
+                <tr v-if="!tuneReport.switches?.length"><td colspan="4" class="empty">无开关数据</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="hint" style="margin-top:8px">扫描 {{ tuneReport.evalCount }} 次评测 · 耗时 {{ tuneReport.duration }}s · {{ tuneReport.runAt }}</div>
+        </div>
+        <div v-else-if="tuneReport && tuneReport.error" class="cause" style="color:#e53935">⚠ {{ tuneReport.error }}</div>
+        <div v-else class="hint" style="margin-top:8px">暂无报告，点「重新扫描」生成</div>
+      </div>
+      <!-- 三合一备份恢复（MySQL+Redis+Milvus） -->
       <div class="card" v-show="tab === 'backup'">
         <div class="card-header">
-          <h3 class="card-title">💾 数据备份与恢复</h3>
-          <button class="btn btn-primary btn-sm" @click="doBackup" :disabled="backupLoading">{{ backupLoading ? '备份中…' : '🛡️ 立即备份' }}</button>
+          <h3 class="card-title">💾 三合一备份恢复（MySQL+Redis+Milvus）</h3>
+          <button class="btn btn-primary btn-sm" @click="doBackupAll" :disabled="backupLoading">{{ backupLoading ? '备份中…' : '🛡️ 一键全量备份' }}</button>
         </div>
         <p class="hint" style="margin-top:0;line-height:1.7">
-          备份 <b>MySQL 元数据</b>（用户/文档/分块/对话/反馈/票据/日志等全表）为 .sql 文件。<br/>
-          ⚠ <b>恢复会覆盖当前 MySQL 数据</b>；MinIO 源文档与 Milvus 向量不在范围内（恢复后仍可访问）。
+          一键备份 <b>MySQL(元数据) + Redis(全量缓存/配置) + Milvus(向量)</b>，含 manifest 元信息包。<br/>
+          ⚠ <b>一键恢复会全量覆盖三者</b>。系统每 <b>3 小时</b>自动全量备份一次（后台定时）。
         </p>
         <div style="overflow-x:auto;margin-top:8px">
           <table class="tbl">
-            <thead><tr><th>备份文件</th><th>大小</th><th>时间</th><th>操作</th></tr></thead>
+            <thead><tr><th>备份时间</th><th>MySQL</th><th>Redis</th><th>Milvus</th><th>总大小</th><th>操作</th></tr></thead>
             <tbody>
-              <tr v-for="b in backups" :key="b.filename">
-                <td>{{ b.filename }}</td>
-                <td class="muted">{{ (b.size / 1024).toFixed(1) }} KB</td>
-                <td class="muted">{{ b.createdAt }}</td>
+              <tr v-for="b in backups" :key="b.ts">
+                <td>{{ b.createdAt }}<br/><span class="muted" style="font-size:11px">{{ b.ts }}</span></td>
+                <td class="muted">{{ b.meta?.mysqlTables || 0 }}表/{{ b.meta?.mysqlRows || 0 }}行</td>
+                <td class="muted">{{ b.meta?.redisKeys || 0 }} key</td>
+                <td class="muted">{{ b.meta?.milvusVectors || 0 }} 向量</td>
+                <td class="muted">{{ (b.totalSize / 1024).toFixed(1) }} KB</td>
                 <td style="white-space:nowrap">
-                  <button class="btn btn-ghost btn-sm" @click="doRestore(b.filename)">恢复</button>
-                  <button class="btn btn-danger btn-sm" @click="doRemoveBackup(b.filename)">删除</button>
+                  <button class="btn btn-primary btn-sm" @click="doRestoreAll(b.ts)">一键恢复</button>
+                  <button class="btn btn-danger btn-sm" @click="doDeleteBackupAll(b.ts)">删除</button>
                 </td>
               </tr>
-              <tr v-if="!backups.length"><td colspan="4" class="empty">暂无备份</td></tr>
+              <tr v-if="!backups.length"><td colspan="6" class="empty">暂无备份（点「一键全量备份」生成；或等待 3h 自动备份）</td></tr>
             </tbody>
           </table>
         </div>
@@ -618,7 +681,7 @@ import * as echarts from 'echarts/core'
 import { PieChart, BarChart, ScatterChart, LineChart } from 'echarts/charts'
 import { TooltipComponent, LegendComponent, GridComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
-import { getLogs, getAlerts, configMilvus, configModel, getMilvusConfig, getModelConfig, getProviderHealth, rebuildBm25, getFeedbacks, markFeedbackGolden, getFeedbackStats, alertDispose, getAlertDisposals, getPersonas, upsertPersona, deletePersona, agentRun, getUsers, updateUserRole, updateUserStatus, deleteUser, resetUserPassword, backupDB, listBackups, restoreDB, removeBackup, getLogArchiveStats, archiveLogs, getTerms, addTerm, deleteTerm, getPromptConfig, updatePromptConfig, getSemanticRules, addSemanticRule, deleteSemanticRule } from '../api'
+import { getLogs, getAlerts, configMilvus, configModel, getMilvusConfig, getModelConfig, getProviderHealth, rebuildBm25, getFeedbacks, markFeedbackGolden, getFeedbackStats, alertDispose, getAlertDisposals, getPersonas, upsertPersona, deletePersona, agentRun, getUsers, updateUserRole, updateUserStatus, deleteUser, resetUserPassword, backupDB, listBackups, restoreDB, removeBackup, getLogArchiveStats, archiveLogs, getTerms, addTerm, deleteTerm, getPromptConfig, updatePromptConfig, getSemanticRules, addSemanticRule, deleteSemanticRule, getRetrievalTuneReport, runRetrievalTune, confirmDisposal, rejectDisposal, disposalToTicket, closeDisposal, backupAll, restoreAllBackup, listManifestBackups, deleteManifestBackup } from '../api'
 import request from '../api/request'
 
 echarts.use([PieChart, BarChart, ScatterChart, LineChart, TooltipComponent, LegendComponent, GridComponent, CanvasRenderer])
@@ -630,6 +693,8 @@ const tab = ref('feedback')
 const logs = ref({ total: 0, list: [] })
 const alerts = ref({ total: 0, list: [] })
 const disposals = ref({ total: 0, list: [] })          // S3 告警自动处置记录
+const tuneReport = ref(null)                           // 检索调参报告（只建议）
+const tuneRunning = ref(false)
 const dispForm = reactive({ severity: 'critical', title: '', summary: '' })
 const personas = ref({ codePersonas: [], configs: [] })  // S5 persona 配置
 const users = ref({ total: 0, list: [] })  // RBAC 用户管理
@@ -677,6 +742,16 @@ function retrievalBadge(q) {
 async function loadLogs() { logs.value = (await getLogs({ page: 1, size: 20 })).data }
 async function loadAlerts() { try { alerts.value = (await getAlerts({ page: 1, size: 30 })).data } catch (e) { toast('加载告警失败') } loadDisposals() }
 async function loadDisposals() { try { const r = await getAlertDisposals({ page: 1, size: 20 }); disposals.value = (r && r.data) ? r.data : { total: 0, list: [] } } catch (e) {} }
+function dispStatusLabel(s) {
+  return { pending: '⏳处理中', proposed: '🟡待确认', confirmed: '✅已确认', rejected: '❌已驳回', ticketed: '🎫已转两票', closed: '⚪已关闭', disposed: '✅已处置' }[s] || s
+}
+function dispStatusBadge(s) {
+  return { proposed: 'badge-warning', confirmed: 'badge-success', rejected: 'badge-danger', ticketed: 'badge-accent', closed: 'badge-neutral', disposed: 'badge-success', pending: 'badge-neutral' }[s] || 'badge-neutral'
+}
+async function doConfirmDisp(d) { try { await confirmDisposal(d.id); toast('已确认'); loadDisposals() } catch (e) { toast('操作失败') } }
+async function doRejectDisp(d) { const note = prompt('驳回理由：'); if (note === null) return; try { await rejectDisposal(d.id, note); toast('已驳回'); loadDisposals() } catch (e) { toast('操作失败') } }
+async function doToTicket(d) { try { await disposalToTicket(d.id); toast('已转两票草稿，请到两票管理提交审核'); loadDisposals() } catch (e) { toast('操作失败') } }
+async function doCloseDisp(d) { try { await closeDisposal(d.id); toast('已关闭'); loadDisposals() } catch (e) { toast('操作失败') } }
 async function doDispose() {
   if (!dispForm.summary.trim() && !dispForm.title.trim()) { toast('请填告警标题或描述'); return }
   try {
@@ -688,6 +763,17 @@ async function doDispose() {
 }
 function parseDispDiag(d) { try { return JSON.parse(d) } catch { return null } }
 async function loadPersonas() { try { personas.value = (await getPersonas()).data } catch (e) { toast('加载persona失败') } }
+async function loadTuneReport() { try { tuneReport.value = (await getRetrievalTuneReport()).data } catch (e) { /* silent */ } }
+async function runTuneScan() {
+  tuneRunning.value = true
+  try { const r = await runRetrievalTune(); toast(r.message || '扫描已启动') } catch (e) { toast('启动扫描失败') }
+  setTimeout(() => { loadTuneReport(); tuneRunning.value = false }, 5000)
+}
+function copyEnv(s) {
+  const line = `${s.param}=${s.suggested}`
+  if (navigator.clipboard) navigator.clipboard.writeText(line).then(() => toast('已复制：' + line)).catch(() => toast(line))
+  else toast(line)
+}
 async function loadUsers() { try { users.value = (await getUsers()).data } catch (e) { toast('加载用户失败') } }
 async function saveUser(u) {
   try { await updateUserRole(u.userId, u.role, u.dept); toast(`已更新 ${u.username} → ${u.role}/${u.dept || '-'}`) }
@@ -708,19 +794,19 @@ async function removeUser(u) {
   if (!confirm(`确认删除用户 ${u.username}？此操作不可恢复。`)) return
   try { await deleteUser(u.userId); toast(`已删除 ${u.username}`); loadUsers() } catch (e) { toast('删除失败（自己或最后一个管理员？）') }
 }
-async function loadBackups() { try { backups.value = (await listBackups()).data || [] } catch (e) { toast('加载备份列表失败') } }
-async function doBackup() {
+async function loadBackups() { try { backups.value = (await listManifestBackups()).data || [] } catch (e) { toast('加载备份列表失败') } }
+async function doBackupAll() {
   backupLoading.value = true
-  try { const r = await backupDB(); toast(`备份成功：${r.data.tables}表/${r.data.rows}行`); await loadBackups() }
+  try { const r = await backupAll(); toast(`三合一备份成功：MySQL ${r.data.meta.mysqlRows}行 / Redis ${r.data.meta.redisKeys}key / Milvus ${r.data.meta.milvusVectors}向量`); await loadBackups() }
   catch (e) { toast('备份失败') } finally { backupLoading.value = false }
 }
-async function doRestore(filename) {
-  if (!confirm(`确认从 ${filename} 恢复？⚠ 当前 MySQL 数据将被覆盖！`)) return
-  try { const r = await restoreDB(filename); toast(`已恢复（${r.data.executed}条SQL）`) } catch (e) { toast('恢复失败') }
+async function doRestoreAll(ts) {
+  if (!confirm(`确认从备份 ${ts} 一键恢复？⚠ MySQL+Redis+Milvus 当前数据将全量覆盖！`)) return
+  try { await restoreAllBackup(ts); toast('三合一恢复完成'); await loadBackups() } catch (e) { toast('恢复失败') }
 }
-async function doRemoveBackup(filename) {
-  if (!confirm(`删除备份 ${filename}？`)) return
-  try { await removeBackup(filename); toast('已删除'); await loadBackups() } catch (e) { toast('删除失败') }
+async function doDeleteBackupAll(ts) {
+  if (!confirm(`删除备份 ${ts}？（manifest + 3 数据文件）`)) return
+  try { await deleteManifestBackup(ts); toast('已删除'); await loadBackups() } catch (e) { toast('删除失败') }
 }
 async function loadArchiveStats() { try { archiveStat.value = (await getLogArchiveStats()).data } catch (e) { /* 非管理员静默 */ } }
 async function loadTerms() { try { termsList.value = (await getTerms()).data || [] } catch (e) { /* silent */ } }
