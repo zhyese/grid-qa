@@ -123,6 +123,14 @@ class Settings(BaseSettings):
     CRAG_HIGH: float = 0.6       # top1 rerank分>=此值=correct(证据充分)
     CRAG_LOW: float = 0.3        # top1 rerank分<此值=incorrect(触发纠错)
     CRAG_PERDOC_ENABLE: bool = False  # CRAG v2：LLM 逐条评估证据相关性（非仅 top1，增延迟，默认关）
+    CRAG_TIMEOUT: float = 5.0         # CRAG v2：LLM 评估单次超时限制（秒）
+
+    # ---------- 检索参数调优（只建议模式）----------
+    TUNE_ENABLE: bool = True
+    TUNE_MIN_IMPROVE: float = 0.02      # 出建议的最小提升（防噪声）
+    TUNE_MIN_SAMPLE: int = 10           # 最小有效样本（防小样本过拟合）
+    TUNE_SCAN_TOPK: int = 5             # 扫描评测用 topk
+
 
     # ---------- 优化建议（反馈驱动）----------
     OPTIMIZER_CACHE_HIT_FLOOR: float = 0.20  # 缓存命中率低于此值才出缓存优化建议

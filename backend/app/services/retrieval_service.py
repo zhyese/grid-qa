@@ -22,6 +22,14 @@ from app.core.obs import degraded
 from app.services import bm25_service, config_service, embedding_service, query_rewrite, rerank_service
 
 
+def _ov(ov: dict | None, key: str, default):
+    """overrides 读取：调参扫描时按 key 取覆盖值，否则 default。
+
+    生产路径 mixed_search(overrides=None) → 恒走 default（=settings），13 caller 零破坏。
+    """
+    return ov.get(key, default) if ov else default
+
+
 def _to_item(h: dict) -> dict:
     return {
         "chunk": h.get("text", ""),
@@ -176,8 +184,10 @@ async def mixed_search(
     equipment: str | None = None, tenant: str | None = None,
     routing_decision = None,  # RoutingDecision | None
     user_dept: str | None = None, user_role: str | None = None,  # RBAC 文档级 ACL
+    overrides: dict | None = None,  # 调参扫描覆盖（None=走 settings，13 caller 零破坏）
 ) -> list[dict]:
     _t0 = time.time()
+    topk = _ov(overrides, "TOPK", topk)  # topk 可被扫描覆盖
     cand = max(topk * 4, 20)
 
     # 0) query 改写（口语→规范，含 adaptive 跳过 + 缓存 + 评估闭环）
@@ -188,7 +198,7 @@ async def mixed_search(
 
     # 0.5) 多查询分解（仅 hybrid 和 dense 路径启用；sparse 跳过；带缓存）
     queries = [q]
-    if route != "sparse" and getattr(settings, "MULTI_QUERY_ENABLE", False):
+    if route != "sparse" and _ov(overrides, "MULTI_QUERY_ENABLE", getattr(settings, "MULTI_QUERY_ENABLE", False)):
         from app.services import multi_query, rewrite_cache
         try:
             cached_mq = await rewrite_cache.get("multi", query)
@@ -270,14 +280,16 @@ async def mixed_search(
     else:
         # hybrid / sparse_first: RRF 融合
         fused = rrf.rrf_fuse([all_dense, all_sparse], key_fn=lambda h: h["key"],
-                             k=settings.RRF_K, weights=[settings.RRF_DENSE_WEIGHT, settings.RRF_SPARSE_WEIGHT])
+                             k=_ov(overrides, "RRF_K", settings.RRF_K),
+                             weights=[_ov(overrides, "RRF_DENSE_WEIGHT", settings.RRF_DENSE_WEIGHT),
+                                      _ov(overrides, "RRF_SPARSE_WEIGHT", settings.RRF_SPARSE_WEIGHT)])
         _src_map = _aggregate_srcs(all_dense, all_sparse)
         for h in fused:
             h["srcs"] = _src_map.get(h.get("key"), [])
         pool = fused[: topk * 2]
 
     # 3) 重排（高置信 sparse 可跳过，单路 dense/sparse 也可跳过）
-    if settings.RERANK_ENABLE and len(pool) > 1 and not skip_rerank:
+    if _ov(overrides, "RERANK_ENABLE", settings.RERANK_ENABLE) and len(pool) > 1 and not skip_rerank:
         try:
             docs = [h.get("text", "") for h in pool]
             ranked = await rerank_service.get_reranker().rerank(q, docs, top_n=min(topk * 2, len(pool)))
@@ -321,13 +333,13 @@ async def mixed_search(
                 h["doc_type"] = _dt.get(h.get("doc_id"), "")
 
     # 5) MMR 多样性选 topk
-    if settings.MMR_ENABLE and len(pool) > topk:
-        pool = mmr.mmr(pool, topk, settings.MMR_LAMBDA)
+    if _ov(overrides, "MMR_ENABLE", settings.MMR_ENABLE) and len(pool) > topk:
+        pool = mmr.mmr(pool, topk, _ov(overrides, "MMR_LAMBDA", settings.MMR_LAMBDA))
     else:
         pool = pool[:topk]
 
     # 6) small-to-big：命中小块召回同组父块全文（完整上下文）
-    if settings.SMALL_TO_BIG_ENABLE:
+    if _ov(overrides, "SMALL_TO_BIG_ENABLE", settings.SMALL_TO_BIG_ENABLE):
         pool = await _expand_parents(db, pool)
 
     # 7) RAPTOR 层次化摘要检索（融合摘要层命中）
