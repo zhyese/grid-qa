@@ -1,0 +1,140 @@
+%% N1-N4 类图
+%% 来源: docs/superpowers/plans/N1-N4-architecture.md
+
+classDiagram
+    class AgentMemoryService {
+        +extract_facts(messages: list~dict~, model_type: str) list~MemoryFact~
+        +consolidate(user_id: str, facts: list~MemoryFact~) int
+        +recall(query: str, user_id: str, scope: str) str
+        +forget(memory_id: str) bool
+        +decay() int
+        +extract_and_consolidate(user_msg: str, answer: str, user_id: str, model_type: str) void
+        -_milvus_search(query_vec: list~float~, user_id: str, topk: int) list~dict~
+        -_neo4j_traverse(user_id: str, entities: list~str~) list~dict~
+        -_redis_hot_get(user_id: str) list~dict~
+        -_update_weight(memory_id: str, hit: bool) void
+    }
+
+    class MemoryFact {
+        +fact_id: str
+        +user_id: str
+        +scope: str
+        +fact_text: str
+        +entity: str
+        +category: str
+        +weight: float
+        +created_at: datetime
+        +last_hit_at: datetime
+        +hit_count: int
+        +deleted_at: datetime~None~
+    }
+
+    class McpServer {
+        +start(host: str, port: int) void
+        +stop() void
+        -_register_tools() void
+        -_tool_search_regulation(query: str) str
+        -_tool_query_equipment_graph(entity: str) str
+        -_tool_search_similar_case(symptom: str) str
+        -_tool_draft_ticket(task: str) str
+        -_tool_graph_query(entity: str, depth: int) str
+        -_tool_mixed_search(query: str, topk: int) str
+        -_verify_token(token: str) bool
+    }
+
+    class McpClient {
+        +discover(servers: list~str~) list~dict~
+        +register_tools(registry: ToolRegistry) int
+        +call_tool(server_url: str, tool_name: str, args: dict) str
+        -_convert_schema(mcp_tool: dict) dict
+    }
+
+    class McpRegistry {
+        +servers: list~McpServerConfig~
+        +load_from_config() void
+        +get_server(name: str) McpServerConfig~None~
+        +list_tools() list~dict~
+    }
+
+    class TwinService {
+        +get_station_layout(station_id: str) dict
+        +get_device_status(device_id: str) dict
+        +get_station_overview(station_id: str) dict
+        +push_alert_location(alert: dict) void
+        +get_fault_chain(device_id: str, depth: int) list~dict~
+        -_load_layout(station_id: str) dict
+        -_aggregate_status(device_id: str) DeviceStatus
+        -_color_by_risk(risk_score: float) tuple
+    }
+
+    class DeviceNode {
+        +deviceId: str
+        +name: str
+        +type: str
+        +position: tuple~float, float, float~
+        +size: tuple~float, float, float~
+        +kgEntity: str
+        +connections: list~str~
+    }
+
+    class DeviceStatus {
+        +deviceId: str
+        +riskScore: float
+        +riskLevel: str
+        +alertStatus: str
+        +ticketStatus: str
+        +color: str
+        +blink: bool
+    }
+
+    class OtelGenaiWrapper {
+        +init_otel(endpoint: str, sample_rate: float) void
+        +trace_span(name: str, kind: SpanKind) ContextManager
+        +get_trace_id() str
+        +set_attribute(key: str, value: any) void
+        +add_event(name: str, attrs: dict) void
+        +record_exception(exc: Exception) void
+        +force_export(span: Span) void
+    }
+
+    class TraceContext {
+        +trace_id: str
+        +span_id: str
+        +parent_span_id: str~None~
+        +sampled: bool
+    }
+
+    %% 现有类（复用关系）
+    class ToolRegistry {
+        +register(tool: Tool) void
+        +get(name: str) Tool~None~
+        +schemas_for(names: list~str~) list~dict~
+        +run(db, model_type, name, args, ctx) tuple
+    }
+
+    class LLMProvider {
+        <<abstract>>
+        +chat(messages, temperature, max_tokens) str
+        +stream(messages) AsyncIterator~str~
+        +chat_with_tools(messages, tools, tool_choice) dict
+    }
+
+    class AgentRuntime {
+        +run_agent(db, persona, user_msg, model_type, registry, ctx) AgentResult
+    }
+
+    %% 关系
+    AgentMemoryService --> MemoryFact : 管理
+    AgentMemoryService ..> ToolRegistry : recall 不依赖工具
+    AgentRuntime --> AgentMemoryService : recall注入 + extract触发
+    AgentRuntime --> ToolRegistry : 调用工具
+    McpClient --> McpRegistry : 发现server
+    McpClient --> ToolRegistry : 注册外部tool
+    McpServer ..> ToolRegistry : 包装现有tool.handler
+    TwinService --> DeviceNode : 加载布局
+    TwinService --> DeviceStatus : 聚合状态
+    TwinService ..> AgentRuntime : 不依赖
+    OtelGenaiWrapper --> TraceContext : 管理
+    OtelGenaiWrapper ..> LLMProvider : 包装span
+    OtelGenaiWrapper ..> AgentRuntime : 包装span
+    OtelGenaiWrapper ..> TwinService : 包装span

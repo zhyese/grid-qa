@@ -1,0 +1,162 @@
+%% N1-N4 时序图集合
+%% 来源: docs/superpowers/plans/N1-N4-architecture.md
+
+%% ===== N1: 用户提问 → 记忆召回 → 注入 → LLM → 抽取 → 整合 =====
+sequenceDiagram
+    participant U as 用户
+    participant AR as agent_runtime.run_agent
+    participant AMS as agent_memory_service
+    participant M as Milvus(memory_collection)
+    participant N as Neo4j(user→pref→entity)
+    participant R as Redis(热记忆)
+    participant LLM as LLM Provider
+    participant DB as MySQL(审计)
+
+    U->>AR: 提问 "1号主变油温高怎么处理"
+    AR->>AMS: recall("1号主变油温高", user_id="zhang", scope="user")
+    AMS->>R: ZRANGE memory:hot:zhang 0 4
+    R-->>AMS: 热记忆2条
+    AMS->>M: search(memory_collection, query_vec, topk=5, filter=user_id)
+    M-->>AMS: 向量记忆3条
+    AMS->>N: MATCH (u:User)-[:PREFERS]->(e) WHERE u.id="zhang"
+    N-->>AMS: 图记忆1条(偏好:关注主变类设备)
+    AMS-->>AR: "用户偏好：关注主变类设备；历史诊断：1号主变曾排除冷却器故障"
+    AR->>AR: messages = [system_prompt, memory_system, user_msg]
+    AR->>LLM: chat_with_tools(messages, tools)
+    LLM-->>AR: 调用 query_equipment_graph("1号主变")
+    AR->>AR: 工具执行...（多轮ReAct）
+    LLM-->>AR: 最终答案
+    AR-->>U: 返回答案
+
+    Note over AR,DB: fire-and-forget 异步触发（不阻塞响应）
+    AR->>AMS: extract_and_consolidate(user_msg, answer, user_id, model_type)
+    AMS->>LLM: extract_facts prompt（DeepSeek最便宜档）
+    LLM-->>AMS: ["用户负责110kV城东站","关注1号主变","已排除冷却器故障"]
+    AMS->>AMS: consolidate（去重/消解/合并）
+    AMS->>M: insert memory_collection（新事实向量）
+    AMS->>N: MERGE (u)-[:PREFERS]->(e {name:"1号主变"})
+    AMS->>R: ZADD memory:hot:zhang {fact_id: ts}
+    AMS->>DB: INSERT agent_memory（审计+容量管理）
+
+%% ===== N2: Agent 发现外部 MCP tool → 注册 → 调用 mock_scada =====
+sequenceDiagram
+    participant AR as agent_runtime
+    participant MC as mcp_client
+    participant MR as mcp_registry
+    participant TR as ToolRegistry
+    participant MS as mock_scada_server
+    participant U as 用户
+
+    Note over MR,MS: 启动时初始化
+    MR->>MR: load_from_config() → MCP_SERVERS=["mock_scada://localhost:9100"]
+    MC->>MR: discover(servers)
+    MC->>MS: MCP list_tools 请求
+    MS-->>MC: [{name:"query_telemetry", inputSchema:{deviceId}}]
+    MC->>MC: mcp_to_openai(schema转换)
+    MC->>TR: register(Tool("query_telemetry", ...))
+    TR-->>MC: 注册成功
+
+    U->>AR: "雷雨天气下线路跳闸，查实时遥测"
+    AR->>TR: schemas_for(persona.allowed_tools + external_tools)
+    TR-->>AR: [search_regulation, query_telemetry, ...]
+    AR->>AR: LLM 决定调用 query_telemetry(deviceId="line_110kV_01")
+    AR->>TR: run("query_telemetry", {deviceId:"line_110kV_01"})
+    TR->>MC: 转发到外部 MCP server
+    MC->>MS: MCP call_tool("query_telemetry", {deviceId:"line_110kV_01"})
+    MS-->>MC: {voltage: 115.2kV, current: 280A, temp: 42°C}
+    MC-->>TR: "电压115.2kV/电流280A/温度42°C"
+    TR-->>AR: 工具结果
+    AR->>AR: LLM 综合遥测+知识库给出诊断
+    AR-->>U: "线路电压偏低，结合雷雨天气判断可能雷击..."
+
+%% ===== N3: 告警事件 → twin_service → 3D 定位推送 → 前端高亮 =====
+sequenceDiagram
+    participant AD as alert_disposal_service
+    participant TS as twin_service
+    participant WS as ws_manager
+    participant FP as fault_prediction_service
+    participant KG as kg_service
+    participant DT as DigitalTwin.vue
+    participant U as 值班员
+
+    Note over DT: 页面加载
+    DT->>TS: GET /twin/station/110kV-demo/layout
+    TS-->>DT: {areas, devices[30], connections}
+    DT->>TS: GET /twin/station/110kV-demo/overview
+    TS->>FP: predict(days=30)
+    FP-->>TS: items[{title, riskScore, riskLevel}]
+    TS->>TS: aggregate_status（设备→riskScore→颜色映射）
+    TS-->>DT: {devices:[{id, color, blink, riskLevel}]}
+    DT->>DT: Three.js 渲染3D场景（盒子+着色+标签）
+    DT->>WS: WebSocket connect /ws/twin
+
+    Note over AD,DT: 告警发生
+    AD->>TS: push_alert_location({severity:"critical", title:"1号主变油温高", device:"T1"})
+    TS->>TS: 查 layout → T1 position=[0, 1.5, 0]
+    TS->>WS: broadcast({type:"alert", deviceId:"T1", position:[0,1.5,0], severity:"critical"})
+    WS-->>DT: {type:"alert", deviceId:"T1", ...}
+    DT->>DT: 相机飞到 T1 坐标 + 设备红色闪烁
+    U->>DT: 点击 T1 设备
+    DT->>TS: GET /twin/device/T1_main_transformer/detail
+    TS->>KG: graph_context("1号主变", 8)
+    TS->>KG: get_paths("1号主变", depth=3)
+    KG-->>TS: 传播链 [1号主变→过载→10kV母线→用户停电]
+    TS-->>DT: {riskScore, alertStatus, kgContext, faultChain, tickets}
+    DT->>DT: 侧栏弹出 + 3D高亮传播链路径
+
+%% ===== N4: 用户提问 → 全链路 span（trace_id 贯穿）=====
+sequenceDiagram
+    participant U as 用户
+    participant QA as qa_service
+    participant OG as otel_genai
+    participant QR as query_rewrite
+    participant RS as retrieval_service
+    participant RR as rerank_service
+    participant LLM as LLM Provider
+    participant JD as rag/judge
+    participant OE as online_eval_service
+    participant CT as cost_tracker
+    participant LF as Langfuse
+
+    U->>QA: POST /qa/answer {query}
+    QA->>OG: trace_span("rag_pipeline", ROOT)
+    Note over OG: trace_id = uuid4() 存入 contextvar
+
+    QA->>OG: trace_span("query_rewrite")
+    OG->>QR: rewrite_query_v2(query)
+    QR-->>OG: rewritten_query
+    OG->>OG: span.set_attribute("query.original", query)
+    OG->>OG: span.set_attribute("query.rewritten", rewritten_query)
+
+    QA->>OG: trace_span("retrieve")
+    OG->>RS: mixed_search(db, rewritten_query)
+    RS-->>OG: contexts[10]
+    OG->>OG: span.set_attribute("retrieval.hit_count", 10)
+
+    QA->>OG: trace_span("rerank")
+    OG->>RR: rerank(query, docs)
+    RR-->>OG: ranked_docs
+    OG->>OG: span.set_attribute("rerank.model", "gte-rerank-v2")
+
+    QA->>OG: trace_span("llm.generate", GEN_AI)
+    OG->>LLM: chat(messages, temperature)
+    LLM-->>OG: answer
+    OG->>OG: span.set_attribute("gen_ai.usage.prompt_tokens", ...)
+    OG->>OG: span.set_attribute("gen_ai.usage.completion_tokens", ...)
+    OG->>CT: record_token_usage(...)
+    OG->>OG: span.set_attribute("cost.tokens", total_tokens)
+
+    QA->>OG: trace_span("judge", EVAL)
+    OG->>JD: judge_hallucination(answer, sources)
+    JD-->>OG: {faithfulness: 0.92}
+    OG->>OE: eval_quality(query, answer, contexts)
+    OE-->>OG: {relevance: 0.85, faithfulness: 0.92, completeness: 0.88}
+    OG->>OG: span.set_attribute("eval.faithfulness", 0.92)
+
+    alt faithfulness < 0.85
+        OG->>OG: force_export(span) ← 异常必采
+    end
+
+    OG->>LF: OTLP HTTP export(trace)
+    Note over LF: Langfuse trace 树可视化
+    QA-->>U: answer
