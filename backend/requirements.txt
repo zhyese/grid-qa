@@ -46,4 +46,11 @@ sentence-transformers>=3.0  # 本地 bge embedding(P1)
 # ===== 知识图谱：Neo4j 图数据库（设备-故障-处置 多跳推理）=====
 neo4j>=5.23            # AsyncGraphDatabase 异步驱动（bolt 协议）
 
+# ===== N4 LLM 全链路可观测性 =====
+opentelemetry-sdk>=1.28,<2          # OTel 核心 SDK（TracerProvider/SpanExporter）
+opentelemetry-exporter-otlp>=1.28,<2 # OTLP HTTP 导出器（→ Langfuse）
+
+# ===== N2 MCP 工具总线 =====
+mcp>=1.0,<2                          # MCP Python SDK（server + client）
+
 # ===== 后续切片按需追加（暂不安装）=====

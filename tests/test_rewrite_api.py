@@ -1,7 +1,17 @@
 """rewrite-stats / rewrite-events 接口测试（httpx 连容器内 localhost:8001）。"""
 import asyncio
-
 import httpx
+import pytest
+
+def _is_backend_down():
+    try:
+        r = httpx.get("http://localhost:8001/health", timeout=2)
+        return r.status_code != 200
+    except Exception:
+        return True
+
+if _is_backend_down():
+    pytestmark = pytest.mark.skip("后端未运行，跳过该 API 测试")
 
 
 def test_rewrite_stats_requires_admin():

@@ -184,3 +184,50 @@ async def query_triples_by_keywords(words: list[str], limit: int = 8) -> list[di
         )
         rows = [rec async for rec in result]
     return [{"s": rec["s"], "rel": rec["rel"], "o": rec["o"]} for rec in rows]
+
+
+# ===== N1 Agent 记忆图操作 =====
+
+async def upsert_user_preference(user_id: str, entity: str,
+                                  category: str = "preference") -> None:
+    """写入用户偏好关系：(User {id})-[:PREFERS {category}]->(Entity {name})。
+
+    幂等 MERGE：重复写入不产生重复边。User 节点不存在时自动创建。
+    """
+    async with _get().session() as s:
+        await s.run(
+            """
+            MERGE (u:User {id: $user_id})
+            MERGE (e:Entity {name: $entity})
+            MERGE (u)-[r:PREFERS]->(e)
+              ON CREATE SET r.category = $category, r.created_at = timestamp()
+            """,
+            user_id=user_id, entity=entity, category=category,
+        )
+
+
+async def get_user_preferences(user_id: str) -> list[str]:
+    """查询用户偏好实体列表（User→PREFERS→Entity）。"""
+    async with _get().session() as s:
+        result = await s.run(
+            """
+            MATCH (u:User {id: $user_id})-[:PREFERS]->(e:Entity)
+            RETURN e.name AS entity, r.category AS category
+            ORDER BY r.created_at DESC LIMIT 10
+            """,
+            user_id=user_id,
+        )
+        rows = [rec async for rec in result]
+    return [rec["entity"] for rec in rows if rec["entity"]]
+
+
+async def delete_user_preference(user_id: str, entity: str) -> None:
+    """删除用户偏好关系（forget 时调用）。"""
+    async with _get().session() as s:
+        await s.run(
+            """
+            MATCH (u:User {id: $user_id})-[r:PREFERS]->(e:Entity {name: $entity})
+            DELETE r
+            """,
+            user_id=user_id, entity=entity,
+        )

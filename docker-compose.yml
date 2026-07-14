@@ -216,6 +216,36 @@ services:
     depends_on:
       - prometheus
 
+  # ---------- Langfuse：LLM trace 可视化（N4）----------
+  langfuse:
+    image: langfuse/langfuse:latest
+    container_name: grid-langfuse
+    restart: unless-stopped
+    depends_on:
+      - postgres-langfuse
+    environment:
+      DATABASE_URL: postgresql://langfuse:langfuse@postgres-langfuse:5432/langfuse
+      NEXTAUTH_SECRET: ${LANGFUSE_NEXTAUTH_SECRET:-langfuse-secret-2026}
+      NEXTAUTH_URL: http://localhost:3001
+      SALT: ${LANGFUSE_SALT:-langfuse-salt-2026}
+      NEXT_PUBLIC_SIGNUP_DISABLED: "false"
+    ports:
+      - "3001:3000"   # Langfuse UI（避开 Grafana 的 3000）
+    volumes:
+      - ./data/langfuse:/data
+
+  # ---------- Langfuse 专用 PostgreSQL ----------
+  postgres-langfuse:
+    image: postgres:15-alpine
+    container_name: grid-langfuse-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: langfuse
+      POSTGRES_PASSWORD: langfuse
+      POSTGRES_DB: langfuse
+    volumes:
+      - ./data/langfuse-db:/var/lib/postgresql/data
+
 volumes:
   mysql-data:
   grid-backend-data:

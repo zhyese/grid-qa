@@ -247,3 +247,13 @@ export const ignoreGap = (id) => request.post(`/system/evidence-gap/${id}/ignore
 export const deleteGap = (id) => request.delete(`/system/evidence-gap/${id}`)
 export const reportEvidenceGap = (query, answer, confidence, grade, action) =>
   request.post('/qa/evidence-gap/report', { query, answer, confidence, grade, action })
+
+// ===== N1 Agent 记忆管理 =====
+export const getMemories = (params) => request.get('/memory/list', { params })
+export const deleteMemory = (id) => request.delete(`/memory/${id}`)
+export const getMemoryStats = () => request.get('/memory/stats')
+
+// ===== N3 数字孪生 =====
+export const getStationLayout = (stationId = '110kV-demo') => request.get('/twin/station/layout', { params: { stationId } })
+export const getStationOverview = (stationId = '110kV-demo') => request.get('/twin/station/overview', { params: { stationId } })
+export const getDeviceDetail = (deviceId) => request.get(`/twin/device/${deviceId}/detail`)

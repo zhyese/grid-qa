@@ -388,6 +388,9 @@ def test_stream_agent_event_sequence(monkeypatch):
                            tools_used=["search_regulation"])
 
     monkeypatch.setattr("app.services.agent_runtime.run_agent", fake_run)
+    async def fake_cache_get(*a, **k): return None
+    monkeypatch.setattr(qa_service.redis_client, "cache_get_json", fake_cache_get)
+    monkeypatch.setattr(qa_service.settings, "CACHE_PERSIST_ENABLE", False)
 
     class _C: id = "c1"
     async def fake_create(db, username, query): return _C()

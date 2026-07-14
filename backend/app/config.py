@@ -192,6 +192,30 @@ class Settings(BaseSettings):
     NACOS_GROUP: str = "DEFAULT_GROUP"
     NACOS_DATA_ID: str = "grid-qa.properties"
 
+    # ---------- N4 LLM 全链路可观测性 ----------
+    OTEL_SAMPLE_RATE: float = 1.0          # 采样率：开发期 1.0(100%)，上线后 0.1(10%) + 异常必采
+    OTEL_ENDPOINT: str = "http://localhost:3001/api/public/otel"  # Langfuse OTLP HTTP 端点
+    OTEL_SERVICE_NAME: str = "grid-qa-backend"  # OTel service.name 标识
+    # FAITHFULNESS_GATE 已在上方"可信度评测"区定义(0.85)，复用，不重复声明
+
+    # ---------- N1 Agent 长期记忆层 ----------
+    MEMORY_CAPACITY: int = 500             # 单用户记忆容量上限（条）
+    MEMORY_DECAY_90D: float = 0.5          # 90 天未命中 weight × 此值
+    MEMORY_DECAY_180D: float = 0.2         # 180 天未命中 weight × 此值
+    MEMORY_SOFT_DELETE_DAYS: int = 30      # 软删除审计保留天数（过期物理删除）
+    MEMORY_EXTRACT_MIN_TURNS: int = 3      # 工具调用型长对话累积 ≥N 轮才触发抽取
+    MEMORY_COLLECTION: str = "memory_collection"  # Milvus 记忆 collection 名
+
+    # ---------- N2 MCP 工具总线 ----------
+    MCP_SERVERS: str = ""                  # JSON 配置：[{"name":"mock_scada","url":"http://localhost:9100","token":"xxx"}]
+    MCP_TOKEN: str = "grid-mcp-token-2026" # MCP server 对外暴露的鉴权 token
+    MCP_SERVER_HOST: str = "0.0.0.0"       # MCP server 监听地址
+    MCP_SERVER_PORT: int = 9100            # MCP server 监听端口
+    MCP_IP_WHITELIST: str = ""             # IP 白名单（逗号分隔，空=不限）
+
+    # ---------- N3 数字孪生变电站 3D ----------
+    TWIN_LAYOUT_PATH: str = "app/data/station_layout_110kv.json"  # 110kV 站布局模板路径
+
 
 @lru_cache
 def get_settings() -> Settings:

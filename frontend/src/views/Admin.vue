@@ -19,6 +19,7 @@
       <button class="tab" :class="{ active: tab === 'terms' }" @click="loadTerms(); tab = 'terms'" v-if="can('system:config')">📖 词表管理</button>
       <button class="tab" :class="{ active: tab === 'srules' }" @click="loadSrules(); tab = 'srules'" v-if="can('system:config')">🏷️ 语义规则</button>
       <button class="tab" :class="{ active: tab === 'prompt' }" @click="loadPrompt(); tab = 'prompt'" v-if="can('system:config')">📝 Prompt模板</button>
+      <button class="tab" :class="{ active: tab === 'memory' }" @click="loadMemories(); tab = 'memory'" v-if="can('system:config')">🧠 记忆</button>
     </div>
 
     <!-- 反馈管理 -->
@@ -668,6 +669,49 @@
           </table>
         </div>
       </div>
+
+      <!-- N1 记忆管理 -->
+      <div class="card" v-show="tab === 'memory'">
+        <div class="card-header">
+          <h3 class="card-title">🧠 Agent 长期记忆</h3>
+          <button class="btn btn-ghost btn-sm" @click="loadMemories">🔄 刷新</button>
+        </div>
+        <p class="hint" style="margin-top:0;line-height:1.7">
+          Agent 从对话中自动抽取的结构化事实（用户偏好/诊断结论/待确认项），用于跨会话上下文延续。<br/>
+          <b>只读查看 + 软删除</b>（删除后保留30天审计日志）。容量上限 {{ memoryStats.capacity || 500 }} 条/用户。
+        </p>
+        <div v-if="memoryStats.total !== undefined" class="stats-grid" style="margin-bottom:10px">
+          <div class="stat stat-accent"><div class="stat-val">{{ memoryStats.total || 0 }}</div><div class="stat-lbl">总记忆</div></div>
+          <div class="stat stat-accent"><div class="stat-val">{{ memoryStats.active || 0 }}</div><div class="stat-lbl">活跃</div></div>
+          <div class="stat"><div class="stat-val">{{ memoryStats.deleted || 0 }}</div><div class="stat-lbl">已删除</div></div>
+          <div class="stat"><div class="stat-val">{{ memoryStats.users || 0 }}</div><div class="stat-lbl">用户数</div></div>
+        </div>
+        <div style="display:flex;gap:6px;align-items:center;margin:8px 0">
+          <input class="input" v-model="memoryFilter" placeholder="按用户名筛选（空=全部）" @keyup.enter="loadMemories" style="flex:1;max-width:240px" />
+          <button class="btn btn-primary btn-sm" @click="loadMemories">🔍 查询</button>
+        </div>
+        <div style="overflow-x:auto;margin-top:8px">
+          <table class="tbl">
+            <thead><tr><th>用户</th><th>事实</th><th>实体</th><th>分类</th><th>权重</th><th>命中</th><th>创建时间</th><th>状态</th><th>操作</th></tr></thead>
+            <tbody>
+              <tr v-for="m in memories.list" :key="m.factId">
+                <td>{{ m.userId }}</td>
+                <td style="max-width:300px">{{ m.factText }}</td>
+                <td class="muted">{{ m.entity || '-' }}</td>
+                <td><span class="badge" :class="{ 'badge-info': m.category === 'preference', 'badge-warning': m.category === 'diagnosis', 'badge-neutral': m.category === 'pending' }">{{ {preference:'偏好', diagnosis:'诊断', pending:'待确认'}[m.category] || m.category }}</span></td>
+                <td class="muted">{{ m.weight?.toFixed(2) }}</td>
+                <td class="muted">{{ m.hitCount }}</td>
+                <td class="muted">{{ m.createdAt }}</td>
+                <td><span class="badge" :class="m.deleted ? 'badge-danger' : 'badge-success'">{{ m.deleted ? '已删除' : '活跃' }}</span></td>
+                <td><button v-if="!m.deleted" class="btn btn-danger btn-sm" @click="doDeleteMemory(m)">删除</button></td>
+              </tr>
+              <tr v-if="!memories.list?.length"><td colspan="9" class="empty">暂无记忆数据</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="hint" style="margin-top:8px" v-if="memories.total">{{ memories.total }} 条记忆 · 第 {{ memoryPage }} 页</div>
+      </div>
+
       <div class="toast" v-if="toastMsg">{{ toastMsg }}</div>
   </div>
 </template>
@@ -681,7 +725,7 @@ import * as echarts from 'echarts/core'
 import { PieChart, BarChart, ScatterChart, LineChart } from 'echarts/charts'
 import { TooltipComponent, LegendComponent, GridComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
-import { getLogs, getAlerts, configMilvus, configModel, getMilvusConfig, getModelConfig, getProviderHealth, rebuildBm25, getFeedbacks, markFeedbackGolden, getFeedbackStats, alertDispose, getAlertDisposals, getPersonas, upsertPersona, deletePersona, agentRun, getUsers, updateUserRole, updateUserStatus, deleteUser, resetUserPassword, backupDB, listBackups, restoreDB, removeBackup, getLogArchiveStats, archiveLogs, getTerms, addTerm, deleteTerm, getPromptConfig, updatePromptConfig, getSemanticRules, addSemanticRule, deleteSemanticRule, getRetrievalTuneReport, runRetrievalTune, confirmDisposal, rejectDisposal, disposalToTicket, closeDisposal, backupAll, restoreAllBackup, listManifestBackups, deleteManifestBackup } from '../api'
+import { getLogs, getAlerts, configMilvus, configModel, getMilvusConfig, getModelConfig, getProviderHealth, rebuildBm25, getFeedbacks, markFeedbackGolden, getFeedbackStats, alertDispose, getAlertDisposals, getPersonas, upsertPersona, deletePersona, agentRun, getUsers, updateUserRole, updateUserStatus, deleteUser, resetUserPassword, backupDB, listBackups, restoreDB, removeBackup, getLogArchiveStats, archiveLogs, getTerms, addTerm, deleteTerm, getPromptConfig, updatePromptConfig, getSemanticRules, addSemanticRule, deleteSemanticRule, getRetrievalTuneReport, runRetrievalTune, confirmDisposal, rejectDisposal, disposalToTicket, closeDisposal, backupAll, restoreAllBackup, listManifestBackups, deleteManifestBackup, getMemories, deleteMemory, getMemoryStats } from '../api'
 import request from '../api/request'
 
 echarts.use([PieChart, BarChart, ScatterChart, LineChart, TooltipComponent, LegendComponent, GridComponent, CanvasRenderer])
@@ -707,6 +751,11 @@ const srules = ref([])
 const srForm = reactive({ dimension: '', tag: '', kws: '' })
 const promptText = ref('')
 const promptDefault = ref('')
+// N1 记忆管理
+const memories = ref({ total: 0, list: [] })
+const memoryStats = ref({})
+const memoryFilter = ref('')
+const memoryPage = ref(1)
 const personaForm = reactive({ name: '', systemPrompt: '', allowedTools: '', maxIter: null, temperature: null, maxTokens: null, outputFormat: '', fallbackKey: '', enabled: true })
 const feedbacks = ref({ total: 0, list: [] })
 const fbStats = ref(null)
@@ -825,6 +874,22 @@ async function doAddSrule() {
 async function doDelSrule(idx) { if (!confirm('删除该规则？')) return; try { await deleteSemanticRule(idx); toast('已删除'); await loadSrules() } catch (e) { toast('删除失败') } }
 async function loadPrompt() { try { const d = (await getPromptConfig()).data; promptDefault.value = d.default || ''; promptText.value = d.systemPrompt || '' } catch (e) { /* silent */ } }
 async function savePrompt() { try { await updatePromptConfig(promptText.value); toast('Prompt 已保存（下次问答生效）') } catch (e) { toast('保存失败') } }
+
+// N1 记忆管理
+async function loadMemories() {
+  try {
+    const params = { page: memoryPage.value, size: 20 }
+    if (memoryFilter.value.trim()) params.userId = memoryFilter.value.trim()
+    const r = await getMemories(params)
+    memories.value = r.data || { total: 0, list: [] }
+    const s = await getMemoryStats()
+    memoryStats.value = { ...(s.data || {}), capacity: 500 }
+  } catch (e) { toast('加载记忆失败') }
+}
+async function doDeleteMemory(m) {
+  if (!confirm(`删除记忆「${m.factText}」？（软删除，保留30天审计）`)) return
+  try { await deleteMemory(m.factId); toast('已删除'); loadMemories() } catch (e) { toast('删除失败') }
+}
 async function doArchiveLogs() {
   const days = archiveStat.value?.retentionDays || 90
   if (!confirm(`归档超过 ${days} 天的日志？导出 jsonl 后从库删除。`)) return
