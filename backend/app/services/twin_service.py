@@ -18,16 +18,89 @@ from app.core.otel_genai import get_trace_id, trace_span
 # 布局缓存（启动时加载一次）
 _layout_cache: dict[str, dict] = {}
 
-# 设备类型枚举（决定 Three.js 几何体+图标+默认颜色）
+# 设备类型枚举（决定 Three.js 几何体+图标+默认颜色+模型描述符）
+# model 字段：前端按 model 选择专属几何体工厂函数（不再是统一 BoxGeometry）
 DEVICE_TYPES: dict[str, dict] = {
-    "main_transformer": {"icon": "🔀", "color": 0x3498DB, "defaultSize": [2.5, 3, 2.5]},
-    "circuit_breaker": {"icon": "⚡", "color": 0xE74C3C, "defaultSize": [1, 2, 1]},
-    "disconnector": {"icon": "🔌", "color": 0x2ECC71, "defaultSize": [0.8, 1.5, 0.8]},
-    "current_transformer": {"icon": "📊", "color": 0xF39C12, "defaultSize": [0.6, 2, 0.6]},
-    "potential_transformer": {"icon": "📈", "color": 0x9B59B6, "defaultSize": [0.6, 2, 0.6]},
-    "lightning_arrester": {"icon": "🌩️", "color": 0x1ABC9C, "defaultSize": [0.4, 2.5, 0.4]},
-    "busbar": {"icon": "➖", "color": 0x95A5A6, "defaultSize": [8, 0.3, 0.3]},
-    "cable": {"icon": "📡", "color": 0x34495E, "defaultSize": [0.3, 0.3, 6]},
+    # 主变压器：大型油浸式变压器 + 油枕 + 高压套管 + 散热片
+    "main_transformer": {
+        "icon": "🔀",
+        "color": 0x5D6D7E,
+        "defaultSize": [2.5, 3, 2.5],
+        "model": "transformer",
+        "label": "主变压器",
+    },
+    # 断路器：SF6 罐式 + 支柱绝缘子 + 操作机构
+    "circuit_breaker": {
+        "icon": "⚡",
+        "color": 0xC0392B,
+        "defaultSize": [1, 2, 1],
+        "model": "breaker",
+        "label": "断路器",
+    },
+    # 隔离开关：双柱 + 水平刀闸
+    "disconnector": {
+        "icon": "🔌",
+        "color": 0x16A085,
+        "defaultSize": [0.8, 1.5, 0.8],
+        "model": "disconnector",
+        "label": "隔离开关",
+    },
+    # 电流互感器：环形 + 支柱
+    "current_transformer": {
+        "icon": "📊",
+        "color": 0xD68910,
+        "defaultSize": [0.6, 2, 0.6],
+        "model": "ct",
+        "label": "电流互感器",
+    },
+    # 电压互感器：圆筒形 + 支柱
+    "potential_transformer": {
+        "icon": "📈",
+        "color": 0x7D3C98,
+        "defaultSize": [0.6, 2, 0.6],
+        "model": "pt",
+        "label": "电压互感器",
+    },
+    # 避雷器：多节圆柱堆叠 + 顶部球
+    "lightning_arrester": {
+        "icon": "🌩️",
+        "color": 0x1ABC9C,
+        "defaultSize": [0.4, 2.5, 0.4],
+        "model": "arrester",
+        "label": "避雷器",
+    },
+    # 母线：长条 + 支柱绝缘子
+    "busbar": {
+        "icon": "➖",
+        "color": 0x95A5A6,
+        "defaultSize": [8, 0.3, 0.3],
+        "model": "busbar",
+        "label": "母线",
+    },
+    # 电缆：弯曲管道
+    "cable": {
+        "icon": "📡",
+        "color": 0x34495E,
+        "defaultSize": [0.3, 0.3, 6],
+        "model": "cable",
+        "label": "电缆",
+    },
+    # 补偿装置（电抗器/电容器组）：大方块 + 散热鳍
+    "compensation": {
+        "icon": "⚙️",
+        "color": 0x2874A6,
+        "defaultSize": [2, 2, 2],
+        "model": "compensation",
+        "label": "补偿装置",
+    },
+    # 直流/电源系统：机柜造型
+    "powersupply": {
+        "icon": "🔋",
+        "color": 0x117A65,
+        "defaultSize": [1.5, 2, 1.5],
+        "model": "powersupply",
+        "label": "电源系统",
+    },
 }
 
 
@@ -116,12 +189,22 @@ async def get_station_overview(station_id: str = "110kV-demo") -> dict:
         risk_level = risk_item.get("riskLevel", "低")
         color = _color_by_risk(risk_score)
         blink = risk_score >= 10  # 高风险闪烁
+        type_meta = DEVICE_TYPES.get(dev.get("type", ""), {})
+        # 兼容旧 JSON 中 type="disconnector" 的电抗/电容/电源设备 → 走 compensation/powersupply 模型
+        actual_model = type_meta.get("model", "default")
+        if dev.get("type") == "disconnector":
+            # 根据 kgEntity 名字识别具体类型
+            kg = dev.get("kgEntity", "")
+            if "电抗" in kg or "电容" in kg:
+                actual_model = "compensation"
+            elif "直流" in kg or "UPS" in kg or "电源" in kg:
+                actual_model = "powersupply"
         device_statuses.append({
             "deviceId": dev_id,
             "name": dev.get("name", ""),
             "type": dev.get("type", ""),
             "position": dev.get("position", [0, 0, 0]),
-            "size": dev.get("size", DEVICE_TYPES.get(dev.get("type", ""), {}).get("defaultSize", [1, 1, 1])),
+            "size": dev.get("size", type_meta.get("defaultSize", [1, 1, 1])),
             "area": dev.get("area", ""),
             "kgEntity": dev.get("kgEntity", ""),
             "connections": dev.get("connections", []),
@@ -130,7 +213,9 @@ async def get_station_overview(station_id: str = "110kV-demo") -> dict:
             "alertStatus": "active" if blink else "normal",
             "color": color,
             "blink": blink,
-            "icon": DEVICE_TYPES.get(dev.get("type", ""), {}).get("icon", "📦"),
+            "icon": type_meta.get("icon", "📦"),
+            "model": actual_model,  # 前端按此选择几何体工厂
+            "typeLabel": type_meta.get("label", "设备"),
         })
 
     areas = layout.get("areas", [])

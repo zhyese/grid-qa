@@ -208,6 +208,74 @@ def test_get_station_overview_device_has_icon(monkeypatch):
         assert len(dev["icon"]) > 0
 
 
+def test_get_station_overview_device_has_model(monkeypatch):
+    """每个设备状态包含 model 字段（前端按此选 3D 几何体）。"""
+    async def fake_predict(days=30):
+        return {"items": []}
+    monkeypatch.setattr("app.services.fault_prediction_service.predict", fake_predict)
+    result = asyncio.run(get_station_overview("110kV-demo"))
+    for dev in result["devices"]:
+        assert "model" in dev, f"{dev.get('deviceId')} 缺少 model"
+        assert isinstance(dev["model"], str)
+        assert len(dev["model"]) > 0
+
+
+def test_get_station_overview_transformer_uses_transformer_model(monkeypatch):
+    """主变压器设备 model == 'transformer'。"""
+    async def fake_predict(days=30):
+        return {"items": []}
+    monkeypatch.setattr("app.services.fault_prediction_service.predict", fake_predict)
+    result = asyncio.run(get_station_overview("110kV-demo"))
+    t1 = next(d for d in result["devices"] if d["deviceId"] == "T1_main_transformer")
+    assert t1["model"] == "transformer"
+
+
+def test_get_station_overview_breaker_uses_breaker_model(monkeypatch):
+    """断路器设备 model == 'breaker'。"""
+    async def fake_predict(days=30):
+        return {"items": []}
+    monkeypatch.setattr("app.services.fault_prediction_service.predict", fake_predict)
+    result = asyncio.run(get_station_overview("110kV-demo"))
+    cb = next(d for d in result["devices"] if d["deviceId"] == "T1_main_CB")
+    assert cb["model"] == "breaker"
+
+
+def test_get_station_overview_reactor_remapped_to_compensation(monkeypatch):
+    """type='disconnector' 但 kgEntity 含'电抗/电容' → 走 compensation 模型。"""
+    async def fake_predict(days=30):
+        return {"items": []}
+    monkeypatch.setattr("app.services.fault_prediction_service.predict", fake_predict)
+    result = asyncio.run(get_station_overview("110kV-demo"))
+    reactor = next(d for d in result["devices"] if d["deviceId"] == "reactor_bank_01")
+    assert reactor["model"] == "compensation"
+    cap = next(d for d in result["devices"] if d["deviceId"] == "capacitor_bank_01")
+    assert cap["model"] == "compensation"
+
+
+def test_get_station_overview_dc_system_remapped_to_powersupply(monkeypatch):
+    """type='disconnector' 但 kgEntity 含'直流/UPS/电源' → 走 powersupply 模型。"""
+    async def fake_predict(days=30):
+        return {"items": []}
+    monkeypatch.setattr("app.services.fault_prediction_service.predict", fake_predict)
+    result = asyncio.run(get_station_overview("110kV-demo"))
+    dc = next(d for d in result["devices"] if d["deviceId"] == "DC_system")
+    assert dc["model"] == "powersupply"
+    ups = next(d for d in result["devices"] if d["deviceId"] == "UPS_system")
+    assert ups["model"] == "powersupply"
+
+
+def test_get_station_overview_has_type_label(monkeypatch):
+    """每个设备状态包含 typeLabel（人类可读中文名）。"""
+    async def fake_predict(days=30):
+        return {"items": []}
+    monkeypatch.setattr("app.services.fault_prediction_service.predict", fake_predict)
+    result = asyncio.run(get_station_overview("110kV-demo"))
+    for dev in result["devices"]:
+        assert "typeLabel" in dev
+        assert isinstance(dev["typeLabel"], str)
+        assert len(dev["typeLabel"]) > 0
+
+
 # ===== DEVICE_TYPES 枚举 =====
 def test_device_types_has_main_transformer():
     """DEVICE_TYPES 包含主变压器类型。"""
@@ -215,6 +283,8 @@ def test_device_types_has_main_transformer():
     assert "icon" in DEVICE_TYPES["main_transformer"]
     assert "color" in DEVICE_TYPES["main_transformer"]
     assert "defaultSize" in DEVICE_TYPES["main_transformer"]
+    assert "model" in DEVICE_TYPES["main_transformer"]
+    assert DEVICE_TYPES["main_transformer"]["model"] == "transformer"
 
 
 def test_device_types_has_circuit_breaker():
@@ -225,6 +295,29 @@ def test_device_types_has_circuit_breaker():
 def test_device_types_count():
     """DEVICE_TYPES 至少包含 8 种设备类型。"""
     assert len(DEVICE_TYPES) >= 8
+
+
+def test_device_types_each_has_model():
+    """每种设备类型都有 model 字段（前端按此选几何体）。"""
+    for type_name, meta in DEVICE_TYPES.items():
+        assert "model" in meta, f"{type_name} 缺少 model 字段"
+        assert isinstance(meta["model"], str)
+        assert len(meta["model"]) > 0
+
+
+def test_device_types_models_unique():
+    """不同设备类型可以使用同一 model（如电抗/电容共用 compensation）。"""
+    models = [meta.get("model") for meta in DEVICE_TYPES.values()]
+    # 至少 5 种不同的 model（覆盖 transformer/breaker/ct/pt/arrester/busbar 等）
+    assert len(set(models)) >= 5
+
+
+def test_device_types_compensation_and_powersupply():
+    """新增补偿装置和电源系统类型（N3 重构后）。"""
+    assert "compensation" in DEVICE_TYPES
+    assert "powersupply" in DEVICE_TYPES
+    assert DEVICE_TYPES["compensation"]["model"] == "compensation"
+    assert DEVICE_TYPES["powersupply"]["model"] == "powersupply"
 
 
 # ===== get_fault_chain =====
