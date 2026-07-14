@@ -80,6 +80,7 @@ const navItems = computed(() => {
     { to: '/dashboard', icon: '📊', label: '统计看板' },
     { to: '/kg', icon: '🧠', label: '知识图谱' },
     { to: '/kg-3d', icon: '🌐', label: '3D图谱' },
+    { to: '/twin', icon: '🏭', label: '数字孪生' },
     { to: '/ticket', icon: '📋', label: '两票管理' },
   ]
   if (hasPerm(auth.role, 'metric:read')) {

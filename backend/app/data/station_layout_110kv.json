@@ -1,0 +1,49 @@
+{
+  "stationId": "110kV-demo",
+  "stationName": "110kV示范变电站",
+  "voltageLevel": "110kV",
+  "type": "outdoor",
+  "areas": [
+    {"id": "main_transformer_area", "name": "主变区", "position": [0, 0, 0], "size": [12, 0, 8]},
+    {"id": "110kV_switchyard", "name": "110kV配电装置区", "position": [15, 0, 0], "size": [10, 0, 12]},
+    {"id": "10kV_switchgear_room", "name": "10kV开关室", "position": [-12, 0, 0], "size": [8, 4, 6]},
+    {"id": "control_room", "name": "控制室", "position": [-12, 0, 8], "size": [8, 4, 4]},
+    {"id": "reactor_area", "name": "无功补偿区", "position": [0, 0, -8], "size": [6, 0, 4]}
+  ],
+  "devices": [
+    {"deviceId": "T1_main_transformer", "name": "1号主变压器", "type": "main_transformer", "area": "main_transformer_area", "position": [-3, 1.5, 0], "size": [2.5, 3, 2.5], "kgEntity": "1号主变", "connections": ["T1_bushing", "T1_cooler", "T1_OLTC", "T1_main_CB"]},
+    {"deviceId": "T2_main_transformer", "name": "2号主变压器", "type": "main_transformer", "area": "main_transformer_area", "position": [3, 1.5, 0], "size": [2.5, 3, 2.5], "kgEntity": "2号主变", "connections": ["T2_bushing", "T2_cooler", "T2_OLTC", "T2_main_CB"]},
+    {"deviceId": "T1_bushing", "name": "1号主变套管", "type": "circuit_breaker", "area": "main_transformer_area", "position": [-3, 3.5, 0], "size": [0.5, 1, 0.5], "kgEntity": "1号主变套管", "connections": ["T1_main_transformer"]},
+    {"deviceId": "T2_bushing", "name": "2号主变套管", "type": "circuit_breaker", "area": "main_transformer_area", "position": [3, 3.5, 0], "size": [0.5, 1, 0.5], "kgEntity": "2号主变套管", "connections": ["T2_main_transformer"]},
+    {"deviceId": "T1_cooler", "name": "1号主变冷却器", "type": "disconnector", "area": "main_transformer_area", "position": [-5, 1, 0], "size": [1, 2, 1], "kgEntity": "1号主变冷却器", "connections": ["T1_main_transformer"]},
+    {"deviceId": "T2_cooler", "name": "2号主变冷却器", "type": "disconnector", "area": "main_transformer_area", "position": [5, 1, 0], "size": [1, 2, 1], "kgEntity": "2号主变冷却器", "connections": ["T2_main_transformer"]},
+    {"deviceId": "T1_OLTC", "name": "1号主变有载调压", "type": "disconnector", "area": "main_transformer_area", "position": [-3, 1, -2], "size": [1, 1.5, 1], "kgEntity": "1号主变有载调压", "connections": ["T1_main_transformer"]},
+    {"deviceId": "T2_OLTC", "name": "2号主变有载调压", "type": "disconnector", "area": "main_transformer_area", "position": [3, 1, -2], "size": [1, 1.5, 1], "kgEntity": "2号主变有载调压", "connections": ["T2_main_transformer"]},
+
+    {"deviceId": "T1_main_CB", "name": "1号主变断路器", "type": "circuit_breaker", "area": "110kV_switchyard", "position": [10, 1, 0], "size": [1, 2, 1], "kgEntity": "1号主变断路器", "connections": ["T1_main_transformer", "110kV_busbar_N"]},
+    {"deviceId": "T2_main_CB", "name": "2号主变断路器", "type": "circuit_breaker", "area": "110kV_switchyard", "position": [10, 1, 3], "size": [1, 2, 1], "kgEntity": "2号主变断路器", "connections": ["T2_main_transformer", "110kV_busbar_N"]},
+    {"deviceId": "110kV_busbar_N", "name": "110kV北母线", "type": "busbar", "area": "110kV_switchyard", "position": [15, 3, 1.5], "size": [8, 0.3, 0.3], "kgEntity": "110kV北母线", "connections": ["T1_main_CB", "T2_main_CB", "line_110kV_01_CB", "line_110kV_02_CB", "110kV_PT"]},
+    {"deviceId": "110kV_busbar_S", "name": "110kV南母线", "type": "busbar", "area": "110kV_switchyard", "position": [15, 3, -3], "size": [8, 0.3, 0.3], "kgEntity": "110kV南母线", "connections": ["line_110kV_03_CB", "110kV_busbar_tie_CB"]},
+    {"deviceId": "110kV_busbar_tie_CB", "name": "110kV母联断路器", "type": "circuit_breaker", "area": "110kV_switchyard", "position": [15, 2, -0.75], "size": [0.8, 1.5, 0.8], "kgEntity": "110kV母联断路器", "connections": ["110kV_busbar_N", "110kV_busbar_S"]},
+    {"deviceId": "line_110kV_01_CB", "name": "110kV出线01断路器", "type": "circuit_breaker", "area": "110kV_switchyard", "position": [19, 1, 2], "size": [0.8, 2, 0.8], "kgEntity": "110kV出线01", "connections": ["110kV_busbar_N", "line_110kV_01_DS", "line_110kV_01_LA"]},
+    {"deviceId": "line_110kV_01_DS", "name": "110kV出线01隔离开关", "type": "disconnector", "area": "110kV_switchyard", "position": [19, 1, 3.5], "size": [0.6, 1.5, 0.6], "kgEntity": "110kV出线01隔离开关", "connections": ["line_110kV_01_CB"]},
+    {"deviceId": "line_110kV_01_LA", "name": "110kV出线01避雷器", "type": "lightning_arrester", "area": "110kV_switchyard", "position": [19, 1.5, 4.5], "size": [0.4, 2.5, 0.4], "kgEntity": "110kV出线01避雷器", "connections": ["line_110kV_01_CB"]},
+    {"deviceId": "line_110kV_02_CB", "name": "110kV出线02断路器", "type": "circuit_breaker", "area": "110kV_switchyard", "position": [17, 1, 2], "size": [0.8, 2, 0.8], "kgEntity": "110kV出线02", "connections": ["110kV_busbar_N"]},
+    {"deviceId": "line_110kV_03_CB", "name": "110kV出线03断路器", "type": "circuit_breaker", "area": "110kV_switchyard", "position": [17, 1, -3], "size": [0.8, 2, 0.8], "kgEntity": "110kV出线03", "connections": ["110kV_busbar_S"]},
+    {"deviceId": "110kV_PT", "name": "110kV电压互感器", "type": "potential_transformer", "area": "110kV_switchyard", "position": [12, 1, 4], "size": [0.6, 2, 0.6], "kgEntity": "110kV电压互感器", "connections": ["110kV_busbar_N"]},
+    {"deviceId": "110kV_CT", "name": "110kV电流互感器", "type": "current_transformer", "area": "110kV_switchyard", "position": [13, 1, 1], "size": [0.6, 2, 0.6], "kgEntity": "110kV电流互感器", "connections": ["110kV_busbar_N"]},
+
+    {"deviceId": "10kV_busbar_A", "name": "10kV I段母线", "type": "busbar", "area": "10kV_switchgear_room", "position": [-12, 3, 0], "size": [6, 0.3, 0.3], "kgEntity": "10kV I段母线", "connections": ["10kV_feeder_01_CB", "10kV_feeder_02_CB", "T1_main_transformer"]},
+    {"deviceId": "10kV_busbar_B", "name": "10kV II段母线", "type": "busbar", "area": "10kV_switchgear_room", "position": [-12, 3, 4], "size": [6, 0.3, 0.3], "kgEntity": "10kV II段母线", "connections": ["10kV_feeder_03_CB", "T2_main_transformer"]},
+    {"deviceId": "10kV_feeder_01_CB", "name": "10kV出线01断路器", "type": "circuit_breaker", "area": "10kV_switchgear_room", "position": [-10, 2, 0], "size": [0.8, 1.5, 0.8], "kgEntity": "10kV出线01", "connections": ["10kV_busbar_A"]},
+    {"deviceId": "10kV_feeder_02_CB", "name": "10kV出线02断路器", "type": "circuit_breaker", "area": "10kV_switchgear_room", "position": [-8, 2, 0], "size": [0.8, 1.5, 0.8], "kgEntity": "10kV出线02", "connections": ["10kV_busbar_A"]},
+    {"deviceId": "10kV_feeder_03_CB", "name": "10kV出线03断路器", "type": "circuit_breaker", "area": "10kV_switchgear_room", "position": [-10, 2, 4], "size": [0.8, 1.5, 0.8], "kgEntity": "10kV出线03", "connections": ["10kV_busbar_B"]},
+    {"deviceId": "10kV_capacitor_CB", "name": "10kV电容补偿断路器", "type": "circuit_breaker", "area": "10kV_switchgear_room", "position": [-8, 2, 4], "size": [0.8, 1.5, 0.8], "kgEntity": "10kV电容补偿", "connections": ["10kV_busbar_B", "reactor_bank_01"]},
+
+    {"deviceId": "reactor_bank_01", "name": "1号电抗器组", "type": "disconnector", "area": "reactor_area", "position": [0, 1, -8], "size": [2, 2, 2], "kgEntity": "1号电抗器组", "connections": ["10kV_capacitor_CB"]},
+    {"deviceId": "capacitor_bank_01", "name": "1号电容器组", "type": "disconnector", "area": "reactor_area", "position": [3, 1, -8], "size": [2, 2, 2], "kgEntity": "1号电容器组", "connections": ["10kV_capacitor_CB"]},
+
+    {"deviceId": "DC_system", "name": "直流系统", "type": "disconnector", "area": "control_room", "position": [-12, 1, 8], "size": [2, 2, 2], "kgEntity": "直流系统", "connections": []},
+    {"deviceId": "UPS_system", "name": "UPS不间断电源", "type": "disconnector", "area": "control_room", "position": [-10, 1, 8], "size": [1.5, 2, 1.5], "kgEntity": "UPS不间断电源", "connections": ["DC_system"]}
+  ]
+}
