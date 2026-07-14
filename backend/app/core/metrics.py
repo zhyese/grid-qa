@@ -99,6 +99,10 @@ ROUTING_DECISION = Counter("grid_routing_decision_total", "路由决策分布", 
 ROUTING_LATENCY = Histogram("grid_routing_latency_seconds", "路由分类延迟(秒)")
 ROUTING_MISMATCH = Counter("grid_routing_mismatch_total", "路由偏差(预期vs实际)", ["mismatch"])
 
+# 检索调参扫描（只建议模式）：扫描次数 + baseline 指标趋势
+RETRIEVAL_TUNE_TOTAL = Counter("grid_retrieval_tune_total", "检索调参扫描次数")
+RETRIEVAL_BASELINE = Gauge("grid_retrieval_baseline", "检索 baseline 指标", ["metric"])
+
 # ===== 进程内缓存命中 mirror =====
 # 底层逻辑：prometheus_client Counter 进程内无法直接读值（只能抓 /metrics 文本），
 # 而"优化建议"报告需要实时命中率做决策。这里维护一份进程内分层计数 mirror，
@@ -213,6 +217,9 @@ def init_metric_series() -> None:
                             "search_similar_case", "draft_ticket"):
             AGENT_TOOL_CALLS.labels("diagnose", _agent_tool).inc(0)
         AGENT_TOOL_DENIED.labels("draft_ticket").inc(0)
+        # 检索调参 baseline（recall/mrr/ndcg 预注册 0，扫描后更新）
+        for _tune_m in ("recall", "mrr", "ndcg"):
+            RETRIEVAL_BASELINE.labels(_tune_m).set(0)
     except Exception:
         # 预注册失败不影响服务启动
         pass

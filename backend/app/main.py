@@ -255,11 +255,12 @@ async def health():
 
 
 # ---- 路由挂载 ----
-from app.routers import document, domain, kg, qa, retrieval, system  # noqa: E402
+from app.routers import document, domain, kg, qa, retrieval, retrieval_tune_router, system  # noqa: E402
 
 app.include_router(system.router, prefix=settings.API_PREFIX)
 app.include_router(document.router, prefix=settings.API_PREFIX)
 app.include_router(retrieval.router, prefix=settings.API_PREFIX)
+app.include_router(retrieval_tune_router.router, prefix=settings.API_PREFIX)
 app.include_router(qa.router, prefix=settings.API_PREFIX)
 app.include_router(kg.router, prefix=settings.API_PREFIX)
 app.include_router(domain.router, prefix=settings.API_PREFIX)
