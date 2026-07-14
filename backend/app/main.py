@@ -49,6 +49,14 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         degraded("milvus_ensure_collections", e, "Milvus 未启动？跳过 collection 初始化")
 
+    # N1：确保记忆 collection（memory_collection）存在
+    try:
+        from app.clients.milvus_client import ensure_memory_collection
+        ensure_memory_collection()
+        print("[memory] Milvus memory_collection 已就绪")
+    except Exception as e:
+        degraded("milvus_memory_collection", e, "记忆 collection 初始化跳过")
+
     # 预热本地 bge 模型：首次加载需从 HF 下载(经代理 ~80s)，懒加载会让后端启动后
     # 首个问答触发该延迟(用户体感“同一问题偶尔 100s”)。提前在启动期加载进内存，
     # 之后每次 encode 仅 0.02s。离线/无 bge 环境跳过，不阻塞启动。
@@ -65,6 +73,29 @@ async def lifespan(app: FastAPI):
         await neo4j_client.ensure_constraint()  # Neo4j 知识图谱索引（未启用则跳过）
     except Exception as e:
         degraded("neo4j_init", e, "Neo4j 未启动?跳过")
+
+    # N4：初始化 OpenTelemetry（OTLP → Langfuse）
+    try:
+        from app.core.otel_genai import init_otel
+        init_otel()
+        print(f"[otel] 已初始化，采样率={settings.OTEL_SAMPLE_RATE}，端点={settings.OTEL_ENDPOINT}")
+    except Exception as e:
+        print(f"[otel] 初始化跳过：{e}")
+
+    # N2：加载 MCP registry（发现外部 MCP server → 注册进 ToolRegistry）
+    try:
+        from app.mcp.registry import mcp_registry
+        await mcp_registry.load_from_config()
+        n = mcp_registry.server_count()
+        if n:
+            print(f"[mcp] 已加载 {n} 个外部 MCP server")
+            # 发现外部 MCP 工具 → 注册进 ToolRegistry
+            from app.services.agent_tools import register_mcp_tools
+            tool_count = await register_mcp_tools()
+            if tool_count:
+                print(f"[mcp] 已注册 {tool_count} 个外部 MCP 工具")
+    except Exception as e:
+        print(f"[mcp] registry 加载跳过：{e}")
 
     # 监控：预注册业务指标 0 值序列(让事件驱动指标事件发生前就“在场”)
     try:
@@ -265,7 +296,8 @@ async def health():
 
 
 # ---- 路由挂载 ----
-from app.routers import document, domain, kg, qa, retrieval, retrieval_tune_router, system  # noqa: E402
+from app.routers import document, domain, kg, memory, qa, retrieval, retrieval_tune_router, system, twin  # noqa: E402
+from app.mcp.server import router as mcp_router  # noqa: E402
 
 app.include_router(system.router, prefix=settings.API_PREFIX)
 app.include_router(document.router, prefix=settings.API_PREFIX)
@@ -274,6 +306,9 @@ app.include_router(retrieval_tune_router.router, prefix=settings.API_PREFIX)
 app.include_router(qa.router, prefix=settings.API_PREFIX)
 app.include_router(kg.router, prefix=settings.API_PREFIX)
 app.include_router(domain.router, prefix=settings.API_PREFIX)
+app.include_router(memory.router, prefix=settings.API_PREFIX)
+app.include_router(twin.router, prefix=settings.API_PREFIX)
+app.include_router(mcp_router, prefix=settings.API_PREFIX)
 
 
 # ---- 全局异常：BizError -> 统一 {code, message, data}（HTTP 恒 200，业务码放 body）----
