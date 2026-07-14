@@ -91,3 +91,36 @@ def build_default_registry() -> ToolRegistry:
 
 
 DEFAULT_REGISTRY = build_default_registry()
+
+
+# ===== N2 MCP 工具动态注册 =====
+
+async def register_mcp_tools(registry: ToolRegistry = None) -> int:
+    """从 MCP registry 发现外部工具 → schema 转换 → 注册进 ToolRegistry。
+
+    在 main.py lifespan 中 MCP registry 加载后调用。
+    Returns: 注册的工具数量
+    """
+    reg = registry or DEFAULT_REGISTRY
+    try:
+        from app.mcp.registry import mcp_registry
+        from app.mcp.client import mcp_client
+
+        servers = mcp_registry.list_enabled()
+        if not servers:
+            return 0
+
+        discovered = await mcp_client.discover(servers)
+        count = mcp_client.register_tools(reg, discovered)
+
+        # 更新 registry 中的 tools 列表
+        for item in discovered:
+            mcp_registry.update_tools(item["server"], item.get("tools", []))
+
+        if count:
+            print(f"[mcp] 已注册 {count} 个外部 MCP 工具")
+        return count
+    except Exception as e:
+        from app.core.obs import degraded
+        degraded("mcp_register_tools", e)
+        return 0
