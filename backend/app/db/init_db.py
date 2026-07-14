@@ -40,6 +40,11 @@ _COLUMN_MIGRATIONS = [
     ("users", "status", "VARCHAR(16) NOT NULL DEFAULT 'active'"),        # 账号状态（active|inactive 禁用）
     ("documents", "dept", "VARCHAR(64) NOT NULL DEFAULT ''"),            # RBAC 文档部门
     ("documents", "allowed_roles", "VARCHAR(256) NOT NULL DEFAULT ''"),  # RBAC 文档授权角色
+    # 告警处置人工确认闭环（③增强）：转两票关联 + 审核留痕
+    ("alert_disposal", "ticket_id", "VARCHAR(64) NOT NULL DEFAULT ''"),
+    ("alert_disposal", "reviewer", "VARCHAR(64) NOT NULL DEFAULT ''"),
+    ("alert_disposal", "review_note", "VARCHAR(500) NOT NULL DEFAULT ''"),
+    ("alert_disposal", "reviewed_at", "DATETIME NULL"),
 ]
 
 

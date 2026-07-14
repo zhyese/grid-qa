@@ -3,6 +3,7 @@
 仿 rewrite_event_service：bg task 用独立 AsyncSessionLocal。
 """
 import json
+from datetime import datetime
 
 from sqlalchemy import desc, func, select
 
@@ -50,7 +51,7 @@ async def _run_disposal(disp_id: int, alert_text: str, model_type: str | None) -
                 row.diagnosis_json = json.dumps(ans, ensure_ascii=False)[:8000]
                 row.handling = (handling or "")[:2000]
                 row.ticket_draft_json = json.dumps(ticket, ensure_ascii=False)[:4000]
-                row.status = "disposed"
+                row.status = "proposed"
                 await db.commit()
     except Exception as e:
         degraded("alert_disposal_run", e)
@@ -60,7 +61,7 @@ async def _run_disposal(disp_id: int, alert_text: str, model_type: str | None) -
                     select(AlertDisposal).where(AlertDisposal.id == disp_id)
                 )).scalar_one_or_none()
                 if row:
-                    row.status = "disposed"
+                    row.status = "proposed"
                     row.handling = f"自动处置失败: {type(e).__name__}: {e}"[:2000]
                     await db.commit()
         except Exception:
@@ -86,7 +87,97 @@ async def list_disposals(page: int = 1, size: int = 20, status: str | None = Non
                 "severity": r.severity, "title": r.title, "summary": r.summary,
                 "diagnosis": r.diagnosis_json, "handling": r.handling,
                 "ticketDraft": r.ticket_draft_json, "status": r.status, "source": r.source,
+                "ticketId": r.ticket_id, "reviewer": r.reviewer, "reviewNote": r.review_note,
+                "reviewedAt": r.reviewed_at.strftime("%Y-%m-%d %H:%M:%S") if r.reviewed_at else "",
             } for r in rows]}
     except Exception as e:
         degraded("alert_disposal_list", e)
         return {"total": 0, "list": []}
+
+
+# ===== ③增强：人工确认闭环 + 一键转两票 =====
+
+def _to_dict(r: AlertDisposal) -> dict:
+    return {
+        "id": r.id, "severity": r.severity, "title": r.title, "summary": r.summary,
+        "handling": r.handling, "status": r.status, "source": r.source,
+        "ticketId": r.ticket_id, "reviewer": r.reviewer, "reviewNote": r.review_note,
+        "reviewedAt": r.reviewed_at.strftime("%Y-%m-%d %H:%M:%S") if r.reviewed_at else "",
+    }
+
+
+async def confirm_disposal(db, disp_id: int, reviewer: str) -> dict:
+    """admin 采纳处置预案：proposed → confirmed（disposed 兼容旧库存）。"""
+    row = (await db.execute(select(AlertDisposal).where(AlertDisposal.id == disp_id))).scalar_one_or_none()
+    if not row:
+        raise ValueError("处置记录不存在")
+    if row.status not in ("proposed", "disposed"):
+        raise ValueError(f"当前状态 {row.status} 不可确认（需 proposed）")
+    row.status = "confirmed"
+    row.reviewer = reviewer
+    row.reviewed_at = datetime.now()
+    await db.commit()
+    await db.refresh(row)
+    return _to_dict(row)
+
+
+async def reject_disposal(db, disp_id: int, reviewer: str, note: str = "") -> dict:
+    """admin 驳回：→ rejected。"""
+    row = (await db.execute(select(AlertDisposal).where(AlertDisposal.id == disp_id))).scalar_one_or_none()
+    if not row:
+        raise ValueError("处置记录不存在")
+    if row.status not in ("proposed", "disposed", "confirmed"):
+        raise ValueError(f"当前状态 {row.status} 不可驳回")
+    row.status = "rejected"
+    row.reviewer = reviewer
+    row.review_note = (note or "")[:500]
+    row.reviewed_at = datetime.now()
+    await db.commit()
+    await db.refresh(row)
+    return _to_dict(row)
+
+
+async def to_ticket(db, disp_id: int, creator: str = "system", tenant: str = "default") -> dict:
+    """已确认预案 → 创建两票草稿（不自动提交审核，留给人工走 submit_for_review）：confirmed → ticketed。"""
+    from app.services import ticket_lifecycle_service
+    row = (await db.execute(select(AlertDisposal).where(AlertDisposal.id == disp_id))).scalar_one_or_none()
+    if not row:
+        raise ValueError("处置记录不存在")
+    if row.status != "confirmed":
+        raise ValueError("仅已确认(confirmed)预案可转两票")
+    try:
+        draft = json.loads(row.ticket_draft_json) if row.ticket_draft_json else {}
+    except Exception:
+        draft = {}
+    ticket = await ticket_lifecycle_service.create_ticket(
+        db,
+        ticket_type=draft.get("ticket_type") or draft.get("ticketType") or "操作票",
+        task=draft.get("task") or row.title or "告警处置",
+        device=draft.get("device", ""), location=draft.get("location", ""),
+        steps=draft.get("steps") or [],
+        safety=draft.get("safety") or draft.get("safety_measures") or [],
+        risks=draft.get("risks") or [],
+        notes=(draft.get("notes") or f"来源告警：{row.title}"),
+        creator=creator, tenant=tenant,
+    )
+    row.ticket_id = ticket.get("id") or ticket.get("ticketId") or ""
+    row.status = "ticketed"
+    await db.commit()
+    await db.refresh(row)
+    return {"disposal": _to_dict(row), "ticket": ticket}
+
+
+async def close_disposal(db, disp_id: int, reviewer: str, note: str = "") -> dict:
+    """关闭处置（误报/已手动处理，无需两票）。"""
+    row = (await db.execute(select(AlertDisposal).where(AlertDisposal.id == disp_id))).scalar_one_or_none()
+    if not row:
+        raise ValueError("处置记录不存在")
+    if row.status in ("ticketed", "closed"):
+        raise ValueError(f"当前状态 {row.status} 不可关闭")
+    row.status = "closed"
+    row.reviewer = reviewer
+    row.review_note = (note or "")[:500]
+    row.reviewed_at = datetime.now()
+    await db.commit()
+    await db.refresh(row)
+    return _to_dict(row)

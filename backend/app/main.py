@@ -113,6 +113,13 @@ async def lifespan(app: FastAPI):
         print("[log-archive] 日志归档后台任务已启动")
     except Exception as e:
         print(f"[log-archive] 启动跳过：{e}")
+    # 三合一全量定时备份：每 3h（MySQL+Redis+Milvus）
+    try:
+        from app.services.backup_service import backup_all_loop
+        app.state.backup_all_task = asyncio.create_task(backup_all_loop(3))
+        print("[backup] 定时全量备份后台任务已启动（每 3h）")
+    except Exception as e:
+        print(f"[backup] 定时备份启动跳过：{e}")
     # ---- 关闭 ----
     yield
     _task = getattr(app.state, "component_health_task", None)
@@ -127,6 +134,9 @@ async def lifespan(app: FastAPI):
     _log_archive = getattr(app.state, "log_archive_task", None)
     if _log_archive:
         _log_archive.cancel()
+    _backup_all = getattr(app.state, "backup_all_task", None)
+    if _backup_all:
+        _backup_all.cancel()
     try:
         from app.clients import neo4j_client
         await neo4j_client.close()

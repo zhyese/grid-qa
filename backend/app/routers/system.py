@@ -3,7 +3,8 @@ from fastapi import APIRouter, Depends, Query, Request, WebSocket
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.permissions import ALERT_READ, AUDIT_READ, METRIC_READ, USER_MANAGE
+from app.core.limiter import limiter
+from app.core.permissions import ALERT_MANAGE, ALERT_READ, AUDIT_READ, METRIC_READ, USER_MANAGE
 from app.core.response import BizError, success
 from app.db.session import get_db
 from app.dependencies import get_current_user, require_admin, require_perm
@@ -356,6 +357,69 @@ async def alerts_disposals(
     """S3：告警处置记录列表（管理员/审计员）：告警→诊断→处置→操作票草案。"""
     data = await list_disposals(page, size, status=status)
     return success(data, "查询成功")
+
+
+# ===== ③增强：告警处置人工确认闭环 + 一键转两票（ALERT_MANAGE=admin）=====
+
+@router.post("/alerts/disposals/{disp_id}/confirm")
+@limiter.limit("10/minute")
+async def disposal_confirm(request: Request, disp_id: int,
+                           db: AsyncSession = Depends(get_db),
+                           user: User = Depends(require_perm(ALERT_MANAGE))):
+    """采纳处置预案：proposed → confirmed。"""
+    from app.services.alert_disposal_service import confirm_disposal
+    try:
+        data = await confirm_disposal(db, disp_id, reviewer=user.username)
+        await write_log(db, user.username, "告警处置确认", f"记录{disp_id}")
+        return success(data, "已确认")
+    except ValueError as e:
+        raise BizError(str(e), 400)
+
+
+@router.post("/alerts/disposals/{disp_id}/reject")
+@limiter.limit("10/minute")
+async def disposal_reject(request: Request, disp_id: int, note: str = Query(""),
+                          db: AsyncSession = Depends(get_db),
+                          user: User = Depends(require_perm(ALERT_MANAGE))):
+    """驳回处置预案。"""
+    from app.services.alert_disposal_service import reject_disposal
+    try:
+        data = await reject_disposal(db, disp_id, reviewer=user.username, note=note)
+        await write_log(db, user.username, "告警处置驳回", f"记录{disp_id} {note[:40]}")
+        return success(data, "已驳回")
+    except ValueError as e:
+        raise BizError(str(e), 400)
+
+
+@router.post("/alerts/disposals/{disp_id}/to-ticket")
+@limiter.limit("10/minute")
+async def disposal_to_ticket(request: Request, disp_id: int,
+                             db: AsyncSession = Depends(get_db),
+                             user: User = Depends(require_perm(ALERT_MANAGE))):
+    """已确认预案 → 创建两票草稿（confirmed → ticketed），不自动提交审核留给人工。"""
+    from app.services.alert_disposal_service import to_ticket
+    try:
+        data = await to_ticket(db, disp_id, creator=user.username, tenant=user.tenant_id)
+        await write_log(db, user.username, "告警转两票",
+                        f"记录{disp_id} → 票据{data.get('ticket', {}).get('id', '')}")
+        return success(data, "已转两票草稿，请到两票管理提交审核")
+    except ValueError as e:
+        raise BizError(str(e), 400)
+
+
+@router.post("/alerts/disposals/{disp_id}/close")
+@limiter.limit("10/minute")
+async def disposal_close(request: Request, disp_id: int, note: str = Query(""),
+                         db: AsyncSession = Depends(get_db),
+                         user: User = Depends(require_perm(ALERT_MANAGE))):
+    """关闭处置（误报/已手动处理，无需两票）。"""
+    from app.services.alert_disposal_service import close_disposal
+    try:
+        data = await close_disposal(db, disp_id, reviewer=user.username, note=note)
+        await write_log(db, user.username, "告警处置关闭", f"记录{disp_id}")
+        return success(data, "已关闭")
+    except ValueError as e:
+        raise BizError(str(e), 400)
 
 
 @router.get("/agent/personas")
@@ -734,6 +798,64 @@ async def delete_db_backup(
     from app.services.backup_service import delete_backup
     data = await delete_backup(filename)
     await write_log(db, admin.username, "删除备份", filename)
+    return success(data, "已删除")
+
+
+# ===== 三合一备份恢复（MySQL+Redis+Milvus + 定时3h + manifest 元信息）=====
+
+@router.post("/backup/all")
+async def backup_all_db(
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+):
+    """一键三合一全量备份（MySQL+Redis+Milvus）→ manifest_{ts}.json。"""
+    from app.services.backup_service import backup_all
+    try:
+        data = await backup_all()
+        await write_log(db, admin.username, "全量备份",
+                        f"ts={data['ts']} mysql={data['meta']['mysqlRows']}行 "
+                        f"redis={data['meta']['redisKeys']}key milvus={data['meta']['milvusVectors']}向量")
+        return success(data, "三合一备份成功")
+    except Exception as e:
+        raise BizError(f"备份失败：{type(e).__name__}: {e}"[:200], 500)
+
+
+@router.post("/backup/restore-all")
+async def restore_all_db(
+    body: dict,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+):
+    """一键恢复三合一（⚠ 全量覆盖 MySQL+Redis+Milvus）。body: {ts}。"""
+    from app.services.backup_service import restore_all
+    ts = (body or {}).get("ts", "")
+    try:
+        data = await restore_all(ts)
+        await write_log(db, admin.username, "全量恢复", f"ts={ts}")
+        return success(data, "三合一恢复完成")
+    except BizError:
+        raise
+    except Exception as e:
+        raise BizError(f"恢复失败：{type(e).__name__}: {e}"[:200], 500)
+
+
+@router.get("/backup/list")
+async def list_manifest_backups(admin: User = Depends(require_admin)):
+    """列出三合一备份（manifest 元信息：时间/大小/MySQL行/Redis key/Milvus向量）。"""
+    from app.services.backup_service import list_backups
+    return success(await list_backups(), "查询成功")
+
+
+@router.delete("/backup/all/{ts}")
+async def delete_manifest_backup(
+    ts: str,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+):
+    """删除一次三合一备份（manifest + 3 数据文件）。"""
+    from app.services.backup_service import delete_backup_all
+    data = await delete_backup_all(ts)
+    await write_log(db, admin.username, "删除全量备份", ts)
     return success(data, "已删除")
 
 
