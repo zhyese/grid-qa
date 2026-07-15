@@ -83,6 +83,7 @@ import { ref, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { getStationOverview, getDeviceDetail } from '../api'
 import { useAuthStore } from '../stores/auth'
 import * as THREE from 'three'
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import {
   buildDevice,
   buildAreaFloor,
@@ -242,12 +243,12 @@ function render3D() {
     }
 
     // 光照 — 真实太阳光
-    const ambient = new THREE.AmbientLight(0xB0C0D0, 0.4)
+    const ambient = new THREE.AmbientLight(0xB0C0D0, 0.18)
     scene.add(ambient)
-    const hemi = new THREE.HemisphereLight(0x9FC0E8, 0x4A5040, 0.55)
+    const hemi = new THREE.HemisphereLight(0x9FC0E8, 0x4A5040, 0.3)
     scene.add(hemi)
     // 主太阳光
-    const sun = new THREE.DirectionalLight(0xFFF4E0, 1.1)
+    const sun = new THREE.DirectionalLight(0xFFF4E0, 1.7)
     sun.position.set(35, 50, 25)
     sun.castShadow = true
     sun.shadow.mapSize.set(2048, 2048)
@@ -272,9 +273,25 @@ function render3D() {
     envGroup = buildDistrict(envMap)
     scene.add(envGroup)
 
-    // 站内区域地面 + 区域标签
+    // 园区建筑升级：Kenney glTF 真实模型（异步加载，验证 GLTFLoader + 真实建筑渲染）
+    const gltfLoader = new GLTFLoader()
+    const glbBuildings = [
+      ['building-a', -22, -14], ['building-b', 22, -14], ['building-c', -22, 14],
+      ['building-d', 22, 14], ['building-e', 0, -24], ['building-f', 0, 24],
+    ]
+    glbBuildings.forEach(([name, x, z]) => {
+      gltfLoader.load(`/models/kenney_industrial/Models/GLB format/${name}.glb`, (gltf) => {
+        const m = gltf.scene
+        m.scale.set(2.5, 2.5, 2.5)
+        m.position.set(x, 0, z)
+        m.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true } })
+        envGroup.add(m)
+      })
+    })
+
+    // 站内区域地面已由 buildDistrict 内部 platforms 提供，不再调用 buildAreaFloor 避免重叠 z-fight
+    // 区域标签仍然渲染（标签和地面分开，无 z-fight 风险）
     for (const area of overview.value.areas || []) {
-      scene.add(buildAreaFloor(area))
       if (showLabels.value) {
         const pos = area.position || [0, 0, 0]
         const sz = area.size || [4, 0, 4]
@@ -334,9 +351,10 @@ function render3D() {
           if (!target) continue
           const p1 = dev.position || [0, 0, 0]
           const p2 = target.position || [0, 0, 0]
+          // 起止点抬高到设备顶部以上（避开母线/支柱绝缘子几何，避免线穿过设备"闪"）
           const line = buildConnectionLine(
-            [p1[0], p1[1] + Math.max(p1[1] * 0.5, 0.3), p1[2]],
-            [p2[0], p2[1] + Math.max(p2[1] * 0.5, 0.3), p2[2]]
+            [p1[0], p1[1] + Math.max(p1[1] * 0.5, 0.5), p1[2]],
+            [p2[0], p2[1] + Math.max(p2[1] * 0.5, 0.5), p2[2]]
           )
           scene.add(line)
           wireLines.push(line)

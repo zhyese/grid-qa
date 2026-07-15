@@ -10,6 +10,7 @@
  *   3. 性能 — 共享材质（同一颜色/粗糙度共用 Material 实例）
  */
 import * as THREE from 'three'
+import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js'
 
 // ========== 共享材质（按需懒加载，全场景共享） ==========
 const _matCache = new Map()
@@ -114,7 +115,7 @@ function buildInsulator(radiusBottom = 0.18, radiusTop = 0.12, height = 1.0, dis
 // ========== 通用辅助：圆角金属底座 ==========
 function buildBase(width, depth, height = 0.2) {
   const base = new THREE.Mesh(
-    new THREE.BoxGeometry(width, height, depth),
+    new RoundedBoxGeometry(width, height, depth, 2, 0.04),
     concreteMat()
   )
   base.position.y = height / 2
@@ -135,8 +136,9 @@ function buildTransformer(size, riskColor) {
 
   // 主体（油箱）— 风险色
   const bodyMat = metalMat(riskColor, { metalness: 0.5, roughness: 0.55, emissive: riskColor, emissiveIntensity: 0.05 })
-  const body = new THREE.Mesh(new THREE.BoxGeometry(bodyW, bodyH, bodyD), bodyMat)
-  body.position.y = 0.15 * scale + bodyH / 2
+  const body = new THREE.Mesh(new THREE.CylinderGeometry(bodyH * 0.5, bodyH * 0.5, bodyW, 28), bodyMat)
+  body.rotation.z = Math.PI / 2
+  body.position.y = 0.15 * scale + bodyH * 0.5
   body.castShadow = true
   body.receiveShadow = true
   g.add(body)
@@ -195,7 +197,7 @@ function buildTransformer(size, riskColor) {
 
   // 控制箱（旁边）
   const ctrl = new THREE.Mesh(
-    new THREE.BoxGeometry(bodyW * 0.35, 0.8 * scale, bodyD * 0.4),
+    new RoundedBoxGeometry(bodyW * 0.35, 0.8 * scale, bodyD * 0.4, 2, 0.05),
     metalMat(0x404B5C, { metalness: 0.4, roughness: 0.6 })
   )
   ctrl.position.set(bodyW * 0.85, 0.15 * scale + 0.4 * scale, 0)
@@ -247,7 +249,7 @@ function buildBreaker(size, riskColor) {
 
   // 操作机构箱（侧面）
   const op = new THREE.Mesh(
-    new THREE.BoxGeometry(0.4 * scale, 0.6 * scale, 0.35 * scale),
+    new RoundedBoxGeometry(0.4 * scale, 0.6 * scale, 0.35 * scale, 2, 0.05),
     metalMat(0x3A4A5C, { metalness: 0.4, roughness: 0.6 })
   )
   op.position.set(w * 0.6, 0.15 * scale + 0.3 * scale, 0)
@@ -607,6 +609,7 @@ export function buildAreaFloor(area) {
   const g = new THREE.Group()
   const pos = area.position || [0, 0, 0]
   const sz = area.size || [4, 0, 4]
+  // 关键：y 提到 0.025（高于 buildLand 的 platforms 0.005），配合 polygonOffset 防 z-fighting
   const floor = new THREE.Mesh(
     new THREE.PlaneGeometry(sz[0], sz[2]),
     new THREE.MeshStandardMaterial({
@@ -615,11 +618,15 @@ export function buildAreaFloor(area) {
       opacity: 0.55,
       metalness: 0.1,
       roughness: 0.85,
+      polygonOffset: true,
+      polygonOffsetFactor: -2,
+      polygonOffsetUnits: -2,
     })
   )
   floor.rotation.x = -Math.PI / 2
-  floor.position.set(pos[0], 0.005, pos[2])
-  floor.receiveShadow = true
+  floor.position.set(pos[0], 0.025, pos[2])
+  // 半透明地面不接阴影(否则阴影 alpha 叠加会闪烁)
+  floor.receiveShadow = false
   g.add(floor)
 
   // 边框（细线）
@@ -628,7 +635,7 @@ export function buildAreaFloor(area) {
   const corners = [
     [-halfW, 0, -halfD], [halfW, 0, -halfD],
     [halfW, 0, halfD], [-halfW, 0, halfD], [-halfW, 0, -halfD]
-  ].map(c => new THREE.Vector3(c[0] + pos[0], 0.01, c[2] + pos[2]))
+  ].map(c => new THREE.Vector3(c[0] + pos[0], 0.026, c[2] + pos[2]))
   g.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(corners), lineMat))
   return g
 }
@@ -767,12 +774,16 @@ export function buildAreaLabel(text, x, z, color = '#5DADE2') {
   canvas.width = 256
   canvas.height = 64
   const ctx = canvas.getContext('2d')
-  // 背景（圆角矩形 + 半透明）
-  ctx.fillStyle = 'rgba(20, 25, 40, 0.85)'
-  ctx.fillRect(0, 0, 256, 64)
+  // 关键：标签改为完全实心不透明（alpha=1.0），配合 transparent:false 彻底避免 z-sort 闪烁
+  // 背景（实心圆角矩形）
+  const r = 16
+  ctx.fillStyle = 'rgb(20, 25, 40)'
+  ctx.beginPath(); ctx.roundRect(0, 0, 256, 64, r); ctx.fill()
   // 左侧色条
+  ctx.save(); ctx.beginPath(); ctx.roundRect(0, 0, 256, 64, r); ctx.clip()
   ctx.fillStyle = color
   ctx.fillRect(0, 0, 6, 64)
+  ctx.restore()
   // 文字
   ctx.fillStyle = '#FFFFFF'
   ctx.font = 'bold 22px "Microsoft YaHei", "PingFang SC", sans-serif'
@@ -780,10 +791,17 @@ export function buildAreaLabel(text, x, z, color = '#5DADE2') {
   ctx.textBaseline = 'middle'
   ctx.fillText(text, 128, 32)
   const tex = new THREE.CanvasTexture(canvas)
-  const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, opacity: 0.95, depthTest: false })
+  const mat = new THREE.SpriteMaterial({
+    map: tex,
+    transparent: false,
+    depthTest: false,
+    depthWrite: false,
+  })
   const sprite = new THREE.Sprite(mat)
   sprite.position.set(x, 0.3, z)
   sprite.scale.set(4.0, 1.0, 1)
+  // 强制最后画，避免与设备连接线/树遮挡竞争
+  sprite.renderOrder = 100
   return sprite
 }
 
@@ -795,13 +813,15 @@ export function buildDeviceLabel(name, typeIcon, x, y, z, blink = false) {
   canvas.width = 256
   canvas.height = 56
   const ctx = canvas.getContext('2d')
-  // 背景
-  ctx.fillStyle = blink ? 'rgba(120, 30, 30, 0.92)' : 'rgba(15, 20, 35, 0.88)'
-  ctx.fillRect(0, 0, 256, 56)
-  // 边框
+  // 关键：标签改为完全实心不透明（alpha=1.0），配合 transparent:false 彻底避免 z-sort 闪烁
+  // 背景（实心圆角矩形）
+  const r = 14
+  ctx.fillStyle = blink ? 'rgb(120, 30, 30)' : 'rgb(15, 20, 35)'
+  ctx.beginPath(); ctx.roundRect(0, 0, 256, 56, r); ctx.fill()
+  // 边框（圆角）
   ctx.strokeStyle = blink ? '#FF6644' : '#4A5468'
   ctx.lineWidth = 2
-  ctx.strokeRect(1, 1, 254, 54)
+  ctx.beginPath(); ctx.roundRect(1, 1, 254, 54, r - 1); ctx.stroke()
   // icon
   ctx.font = '20px sans-serif'
   ctx.textAlign = 'left'
@@ -813,27 +833,35 @@ export function buildDeviceLabel(name, typeIcon, x, y, z, blink = false) {
   ctx.font = 'bold 16px "Microsoft YaHei", "PingFang SC", sans-serif'
   ctx.fillText(name, 36, 28)
   const tex = new THREE.CanvasTexture(canvas)
-  const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, opacity: 0.95, depthTest: false })
+  const mat = new THREE.SpriteMaterial({
+    map: tex,
+    transparent: false,
+    depthTest: false,
+    depthWrite: false,
+  })
   const sprite = new THREE.Sprite(mat)
   sprite.position.set(x, y, z)
   sprite.scale.set(2.6, 0.55, 1)
+  // 强制最后画，避免与设备/连接线/树遮挡竞争
+  sprite.renderOrder = 100
   return sprite
 }
 
 /**
  * 连接线（架空线/电缆）— 弧形
  */
-export function buildConnectionLine(p1, p2, color = 0x6E7378) {
+export function buildConnectionLine(p1, p2, color = 0x8B95A1) {
   const v1 = new THREE.Vector3(...p1)
   const v2 = new THREE.Vector3(...p2)
-  // 中点抬高（弧形下垂或拱起）
+  // 中点抬高（弧形更明显，避开设备几何）
   const mid = v1.clone().add(v2).multiplyScalar(0.5)
   const dist = v1.distanceTo(v2)
-  mid.y += Math.min(0.6, dist * 0.15)
+  mid.y += Math.max(0.8, dist * 0.2)
   const curve = new THREE.QuadraticBezierCurve3(v1, mid, v2)
   const pts = curve.getPoints(16)
   const geo = new THREE.BufferGeometry().setFromPoints(pts)
-  const mat = new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.45 })
+  // 关键：transparent: false — LineBasicMaterial 透明会 z-sort 闪烁
+  const mat = new THREE.LineBasicMaterial({ color, transparent: false })
   return new THREE.Line(geo, mat)
 }
 

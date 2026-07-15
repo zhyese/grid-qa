@@ -16,6 +16,7 @@
  */
 import * as THREE from 'three'
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js'
+import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js'
 
 // ========== 共享材质缓存(与 deviceFactory.js 共用) ==========
 const _matCache = new Map()
@@ -87,13 +88,19 @@ export function buildLand() {
   g.add(grass)
 
   // 站内混凝土地坪 — 36x28
+  // 关闭 receiveShadow(在它之上的 platforms 已经接阴影),加 polygonOffset 防和 grass/子组件微 z-fight
   const inner = new THREE.Mesh(
     new THREE.PlaneGeometry(36, 28),
-    new THREE.MeshStandardMaterial({ color: 0xB0B3B8, roughness: 0.92, metalness: 0.02 })
+    new THREE.MeshStandardMaterial({
+      color: 0xB0B3B8, roughness: 0.92, metalness: 0.02,
+      polygonOffset: true,
+      polygonOffsetFactor: 1,
+      polygonOffsetUnits: 1,
+    })
   )
   inner.rotation.x = -Math.PI / 2
   inner.position.set(0, 0, 0)
-  inner.receiveShadow = true
+  inner.receiveShadow = false
   g.add(inner)
 
   // 站内分区(深色块,模拟设备基础平台)
@@ -106,9 +113,18 @@ export function buildLand() {
     { pos: [0, 0, -8], size: [7, 5] },           // 无功补偿区
   ]
   for (const p of platforms) {
-    const m = new THREE.Mesh(new THREE.PlaneGeometry(p.size[0], p.size[1]), platMat)
+    const m = new THREE.Mesh(
+      new THREE.PlaneGeometry(p.size[0], p.size[1]),
+      new THREE.MeshStandardMaterial({
+        color: 0x8A8D92,
+        roughness: 0.85,
+        polygonOffset: true,
+        polygonOffsetFactor: 1,
+        polygonOffsetUnits: 1,
+      })
+    )
     m.rotation.x = -Math.PI / 2
-    m.position.set(p.pos[0], 0.005, p.pos[2])
+    m.position.set(p.pos[0], 0.012, p.pos[2])
     m.receiveShadow = true
     g.add(m)
   }
@@ -119,14 +135,21 @@ export function buildLand() {
 // ========== 4. 程序化道路(主干道 + 支路) ==========
 export function buildRoads() {
   const g = new THREE.Group()
+  // 路面 + 人行道材质(路面加 polygonOffset 防和 inner/grass 微 z-fight;路面阴影意义不大,关掉减少阴影边界闪烁)
   const roadMat = () => getMaterial('road-asphalt', () =>
-    new THREE.MeshStandardMaterial({ color: 0x3A3D42, roughness: 0.88, metalness: 0.05 })
+    new THREE.MeshStandardMaterial({
+      color: 0x3A3D42, roughness: 0.88, metalness: 0.05,
+      polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1,
+    })
   )
   const lineMat = () => getMaterial('road-line', () =>
     new THREE.MeshBasicMaterial({ color: 0xF5E8B0 })
   )
   const sidewalkMat = () => getMaterial('sidewalk', () =>
-    new THREE.MeshStandardMaterial({ color: 0xA8A8A8, roughness: 0.92 })
+    new THREE.MeshStandardMaterial({
+      color: 0xA8A8A8, roughness: 0.92,
+      polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1,
+    })
   )
 
   // 主干道 — 站前大道(E-W) + 中央大道(N-S),路宽 6m
@@ -145,22 +168,27 @@ export function buildRoads() {
     )
     road.rotation.x = -Math.PI / 2
     road.rotation.z = -Math.atan2(dz, dx)
-    road.position.set((rd.start[0] + rd.end[0]) / 2, 0.01, (rd.start[2] + rd.end[2]) / 2)
-    road.receiveShadow = true
+    road.position.set((rd.start[0] + rd.end[0]) / 2, 0.011, (rd.start[2] + rd.end[2]) / 2)
+    // 路面不接阴影(阴影边界和路面纹理叠加会有 z-fight 视觉感)
+    road.receiveShadow = false
     g.add(road)
-    // 中央双黄线
+    // 中央双黄线(错开 y 到 0.04 + polygonOffset 防 z-fight)
     const lineGeo = new THREE.PlaneGeometry(len, 0.18)
-    const l1 = new THREE.Mesh(lineGeo, lineMat())
+    const lineMatInst = new THREE.MeshBasicMaterial({
+      color: 0xF5E8B0,
+      polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2,
+    })
+    const l1 = new THREE.Mesh(lineGeo, lineMatInst)
     l1.rotation.x = -Math.PI / 2
     l1.rotation.z = -Math.atan2(dz, dx)
-    l1.position.set(road.position.x, 0.02, road.position.z + 0.25)
+    l1.position.set(road.position.x, 0.04, road.position.z + 0.25)
     g.add(l1)
-    const l2 = new THREE.Mesh(lineGeo, lineMat())
+    const l2 = new THREE.Mesh(lineGeo, lineMatInst)
     l2.rotation.x = -Math.PI / 2
     l2.rotation.z = -Math.atan2(dz, dx)
-    l2.position.set(road.position.x, 0.02, road.position.z - 0.25)
+    l2.position.set(road.position.x, 0.04, road.position.z - 0.25)
     g.add(l2)
-    // 人行道(路两侧)
+    // 人行道(路两侧) — y 错开到 0.02 + 不接阴影
     for (const side of [-1, 1]) {
       const sw = new THREE.Mesh(
         new THREE.PlaneGeometry(len, 1.0),
@@ -168,7 +196,8 @@ export function buildRoads() {
       )
       sw.rotation.x = -Math.PI / 2
       sw.rotation.z = -Math.atan2(dz, dx)
-      sw.position.set(road.position.x, 0.01, road.position.z + side * (rd.width / 2 + 0.6))
+      sw.position.set(road.position.x, 0.02, road.position.z + side * (rd.width / 2 + 0.6))
+      sw.receiveShadow = false
       g.add(sw)
     }
   }
@@ -192,44 +221,62 @@ const BUILDING_CONFIGS = {
 
 function buildGlassTower(w, h, d, color) {
   const tower = new THREE.Group()
+  // 玻璃幕墙材质:加 polygonOffset 防 self-shadow acne,关闭 receiveShadow(金属反射为主,阴影意义不大且会闪)
   const mat = getMaterial(`glass-${color}`, () =>
     new THREE.MeshStandardMaterial({
       color, metalness: 0.85, roughness: 0.08,
       envMapIntensity: 1.0,
+      polygonOffset: true,
+      polygonOffsetFactor: 1,
+      polygonOffsetUnits: 1,
     })
   )
-  const body = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat)
+  const body = new THREE.Mesh(new RoundedBoxGeometry(w, h, d, 2, 0.15), mat)
   body.position.y = h / 2
   body.castShadow = true
-  body.receiveShadow = true
+  body.receiveShadow = false
   tower.add(body)
 
-  // 顶部机房/屋顶
+  // 顶部机房/屋顶(尺寸缩小,留 0.15m 边距避免和 body 边沿 z-fight)
   const mech = new THREE.Mesh(
-    new THREE.BoxGeometry(w * 0.4, 0.8, d * 0.4),
+    new RoundedBoxGeometry(w * 0.35, 0.8, d * 0.35, 2, 0.1),
     new THREE.MeshStandardMaterial({ color: 0x5D6D7E, roughness: 0.7, metalness: 0.4 })
   )
   mech.position.y = h + 0.4
   mech.castShadow = true
   tower.add(mech)
 
-  // 顶部天线
+  // 顶部天线(段数 6→16,法线平滑,消除阴影硬边)
   const antenna = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.05, 0.05, 1.5, 6),
+    new THREE.CylinderGeometry(0.05, 0.05, 1.5, 16),
     new THREE.MeshStandardMaterial({ color: 0xBBBBBB, metalness: 0.8, roughness: 0.3 })
   )
   antenna.position.y = h + 1.3
+  antenna.castShadow = true
   tower.add(antenna)
 
-  // 楼层横线条(每 1.5m 一条)
+  // 楼层横线条(每 1.5m 一条) — 改用 LineSegments(0 厚度,无 z-fight)
   const lineMat = getMaterial('floor-line', () =>
-    new THREE.MeshBasicMaterial({ color: 0x2C3E50 })
+    new THREE.LineBasicMaterial({ color: 0x2C3E50, transparent: true, opacity: 0.7 })
   )
   const floors = Math.floor(h / 1.5)
   for (let i = 1; i < floors; i++) {
     const y = i * 1.5
-    const line = new THREE.Mesh(new THREE.BoxGeometry(w * 1.01, 0.05, d * 1.01), lineMat)
-    line.position.y = y
+    // 4 条线框出楼层分隔
+    const pts = [
+      // 前
+      new THREE.Vector3(-w/2, y, d/2), new THREE.Vector3(w/2, y, d/2),
+      // 后
+      new THREE.Vector3(-w/2, y, -d/2), new THREE.Vector3(w/2, y, -d/2),
+      // 左
+      new THREE.Vector3(-w/2, y, -d/2), new THREE.Vector3(-w/2, y, d/2),
+      // 右
+      new THREE.Vector3(w/2, y, -d/2), new THREE.Vector3(w/2, y, d/2),
+    ]
+    const lineGeo = new THREE.BufferGeometry().setFromPoints(pts)
+    const line = new THREE.LineSegments(lineGeo, lineMat)
+    // renderOrder=1 让楼层线绘制在 body 之后(覆盖在表面)
+    line.renderOrder = 1
     tower.add(line)
   }
 
@@ -238,34 +285,42 @@ function buildGlassTower(w, h, d, color) {
 
 function buildOffice(w, h, d, color) {
   const tower = new THREE.Group()
+  // body 加 polygonOffset 防 self-shadow acne
   const bodyMat = getMaterial(`office-${color}`, () =>
-    new THREE.MeshStandardMaterial({ color, metalness: 0.1, roughness: 0.75 })
+    new THREE.MeshStandardMaterial({
+      color, metalness: 0.1, roughness: 0.75,
+      polygonOffset: true,
+      polygonOffsetFactor: 1,
+      polygonOffsetUnits: 1,
+    })
   )
-  const body = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), bodyMat)
+  const body = new THREE.Mesh(new RoundedBoxGeometry(w, h, d, 2, 0.15), bodyMat)
   body.position.y = h / 2
   body.castShadow = true
   body.receiveShadow = true
   tower.add(body)
 
-  // 窗框(深色十字,模拟格子窗)
+  // 窗框(深色窗带) — 改用 LineSegments(0 厚度,无 z-fight)
   const winMat = getMaterial('office-win', () =>
-    new THREE.MeshStandardMaterial({
-      color: 0x2A3D5C, metalness: 0.4, roughness: 0.2,
-      emissive: 0x1A2A3F, emissiveIntensity: 0.15,
+    new THREE.LineBasicMaterial({
+      color: 0x2A3D5C, transparent: true, opacity: 0.85,
     })
   )
   const floors = Math.max(2, Math.floor(h / 1.2))
-  const cols = Math.max(2, Math.floor(w / 1.2))
-  // 简化为一条横向窗带
+  // 每层画 4 条窗带线框(前/后/左/右)
   for (let i = 0; i < floors; i++) {
-    const y = 0.8 + i * 1.2
+    const y = 0.5 + i * 1.2
     if (y >= h - 0.3) break
-    const stripe = new THREE.Mesh(
-      new THREE.BoxGeometry(w * 1.001, 0.6, d * 1.001),
-      winMat
-    )
-    stripe.position.y = y
-    tower.add(stripe)
+    const pts = [
+      new THREE.Vector3(-w/2, y, d/2), new THREE.Vector3(w/2, y, d/2),
+      new THREE.Vector3(-w/2, y, -d/2), new THREE.Vector3(w/2, y, -d/2),
+      new THREE.Vector3(-w/2, y, -d/2), new THREE.Vector3(-w/2, y, d/2),
+      new THREE.Vector3(w/2, y, -d/2), new THREE.Vector3(w/2, y, d/2),
+    ]
+    const lineGeo = new THREE.BufferGeometry().setFromPoints(pts)
+    const line = new THREE.LineSegments(lineGeo, winMat)
+    line.renderOrder = 1
+    tower.add(line)
   }
   return tower
 }
@@ -276,7 +331,7 @@ function buildFactory(w, h, d, color) {
     new THREE.MeshStandardMaterial({ color, metalness: 0.2, roughness: 0.8 })
   )
   // 锯齿形屋顶(工业厂房典型)
-  const body = new THREE.Mesh(new THREE.BoxGeometry(w, h * 0.6, d), mat)
+  const body = new THREE.Mesh(new RoundedBoxGeometry(w, h * 0.6, d, 2, 0.15), mat)
   body.position.y = h * 0.3
   body.castShadow = true
   tower.add(body)
@@ -284,7 +339,7 @@ function buildFactory(w, h, d, color) {
   for (let i = 0; i < 4; i++) {
     const x = -w / 2 + (w / 4) * (i + 0.5)
     const saw = new THREE.Mesh(
-      new THREE.BoxGeometry(w / 4 - 0.2, h * 0.4, d * 0.9),
+      new RoundedBoxGeometry(w / 4 - 0.2, h * 0.4, d * 0.9, 2, 0.1),
       new THREE.MeshStandardMaterial({ color: 0x5D6D7E, roughness: 0.7, metalness: 0.3 })
     )
     saw.position.set(x, h * 0.6 + h * 0.2, 0)
@@ -300,7 +355,7 @@ function buildWarehouse(w, h, d, color) {
     new THREE.MeshStandardMaterial({ color, metalness: 0.4, roughness: 0.55 })
   )
   // 拱形屋顶(用 CylinderGeometry 截段)
-  const body = new THREE.Mesh(new THREE.BoxGeometry(w, h * 0.5, d), mat)
+  const body = new THREE.Mesh(new RoundedBoxGeometry(w, h * 0.5, d, 2, 0.15), mat)
   body.position.y = h * 0.25
   body.castShadow = true
   tower.add(body)
@@ -318,10 +373,16 @@ function buildWarehouse(w, h, d, color) {
 
 function buildResidential(w, h, d, color) {
   const tower = new THREE.Group()
+  // body 加 polygonOffset 防 self-shadow acne
   const mat = getMaterial(`residential-${color}`, () =>
-    new THREE.MeshStandardMaterial({ color, metalness: 0.1, roughness: 0.85 })
+    new THREE.MeshStandardMaterial({
+      color, metalness: 0.1, roughness: 0.85,
+      polygonOffset: true,
+      polygonOffsetFactor: 1,
+      polygonOffsetUnits: 1,
+    })
   )
-  const body = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat)
+  const body = new THREE.Mesh(new RoundedBoxGeometry(w, h, d, 2, 0.15), mat)
   body.position.y = h / 2
   body.castShadow = true
   body.receiveShadow = true
@@ -334,13 +395,19 @@ function buildResidential(w, h, d, color) {
   roof.position.y = h + 0.5
   roof.castShadow = true
   tower.add(roof)
-  // 阳台(每层)
+  // 阳台(每层) — 紧贴 body 外侧(z = d/2 + 0.31),不突出 w 方向,加 polygonOffset 防 z-fight
+  const balconyMat = new THREE.MeshStandardMaterial({
+    color: 0xFFFFFF, roughness: 0.6,
+    polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2,
+  })
   for (let i = 0; i < Math.floor(h / 1.5); i++) {
+    // 阳台只在 z 正方向一侧,尺寸严格 w(不突出),仅 z 方向突出 0.31m
     const balcony = new THREE.Mesh(
-      new THREE.BoxGeometry(w * 1.05, 0.15, 0.6),
-      new THREE.MeshStandardMaterial({ color: 0xFFFFFF, roughness: 0.6 })
+      new RoundedBoxGeometry(w, 0.15, 0.6, 2, 0.05),
+      balconyMat
     )
     balcony.position.set(0, 0.3 + i * 1.5, d / 2 + 0.3)
+    balcony.castShadow = true
     tower.add(balcony)
   }
   return tower
@@ -519,6 +586,9 @@ export function buildTrees() {
   }
 
   // 创建树
+  // 关键：transparent: false + depthWrite 恢复默认(true)
+  // 原来 transparent:true + depthWrite:false + 两片交叉 = z-sort 闪烁经典组合
+  // alphaTest 已裁掉透明区域,不需要 transparent
   const styles = ['pine', 'round', 'round', 'round', 'sakura']
   const matCache = {}
   for (const [x, y, z] of positions) {
@@ -526,10 +596,9 @@ export function buildTrees() {
     if (!matCache[style]) {
       matCache[style] = new THREE.MeshBasicMaterial({
         map: buildTreeTexture(style),
-        transparent: true,
+        transparent: false,
         alphaTest: 0.4,
         side: THREE.DoubleSide,
-        depthWrite: false,
       })
     }
     const tree = new THREE.Mesh(new THREE.PlaneGeometry(1.6, 3.2), matCache[style])
@@ -596,7 +665,7 @@ function buildFence() {
     const [x2, z2] = corners[i + 1]
     const dx = x2 - x1, dz = z2 - z1
     const len = Math.sqrt(dx * dx + dz * dz)
-    const post = new THREE.Mesh(new THREE.BoxGeometry(0.1, 1.4, 0.1), mat)
+    const post = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 1.4, 8), mat)
     post.position.set(x1, 0.7, z1)
     g.add(post)
     const bar = new THREE.Mesh(
@@ -623,7 +692,7 @@ function buildStationBuildings() {
   })
 
   // 控制室主体
-  const cr = new THREE.Mesh(new THREE.BoxGeometry(8, 4, 4), wallMat)
+  const cr = new THREE.Mesh(new RoundedBoxGeometry(8, 4, 4, 2, 0.3), wallMat)
   cr.position.set(-12, 2, 8)
   cr.castShadow = true
   cr.receiveShadow = true
@@ -646,7 +715,7 @@ function buildStationBuildings() {
   g.add(door)
 
   // 10kV 开关室
-  const sw = new THREE.Mesh(new THREE.BoxGeometry(8, 3.5, 6), wallMat)
+  const sw = new THREE.Mesh(new RoundedBoxGeometry(8, 3.5, 6, 2, 0.3), wallMat)
   sw.position.set(-12, 1.75, 0)
   sw.castShadow = true
   sw.receiveShadow = true
@@ -657,7 +726,7 @@ function buildStationBuildings() {
   // 通风口(顶部小盒子)
   for (let i = -1; i <= 1; i++) {
     const vent = new THREE.Mesh(
-      new THREE.BoxGeometry(0.8, 0.4, 0.8),
+      new RoundedBoxGeometry(0.8, 0.4, 0.8, 2, 0.08),
       new THREE.MeshStandardMaterial({ color: 0x3D3D3D, metalness: 0.5, roughness: 0.6 })
     )
     vent.position.set(-12 + i * 2, 3.8, 0)
