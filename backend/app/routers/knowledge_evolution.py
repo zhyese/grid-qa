@@ -7,7 +7,7 @@ from app.core.response import BizError, success
 from app.db.session import get_db
 from app.dependencies import require_perm
 from app.models.user import User
-from app.schemas.knowledge_evolution import EvolutionScanRequest, DraftReviewRequest
+from app.schemas.knowledge_evolution import EvolutionScanRequest, DraftReviewRequest, DraftWithdrawRequest
 from app.services import knowledge_evolution_service as ev
 from app.services import task_queue_service
 
@@ -60,6 +60,13 @@ async def draft_review(draft_id: str, body: DraftReviewRequest, db: AsyncSession
     return success(data, "已处理")
 
 
-@router.get("/stats")
+@router.post("/drafts/{draft_id}/withdraw")
+async def draft_withdraw(draft_id: str, body: DraftWithdrawRequest, db: AsyncSession = Depends(get_db),
+                         user: User = Depends(require_perm(DOC_MANAGE))):
+    try:
+        data = await ev.withdraw_draft(db, draft_id, user.tenant_id)
+    except ValueError as e:
+        raise BizError(str(e), 400)
+    return success(data, "已撤回")
 async def stats(db: AsyncSession = Depends(get_db), user: User = Depends(require_perm(DOC_READ))):
     return success(await ev.get_stats(db, user.tenant_id), "查询成功")

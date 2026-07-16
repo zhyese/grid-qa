@@ -134,3 +134,43 @@ async def test_review_reject(test_db):
         select(KnowledgeEvolutionDraft).where(KnowledgeEvolutionDraft.id == "d3")
     )).scalar_one()
     assert row.status == "rejected"
+
+
+# ===== T9: 回流幂等 + 撤回 =====
+@pytest.mark.asyncio
+async def test_reflow_idempotent(test_db, monkeypatch):
+    from app.services import knowledge_evolution_service as ev
+    calls = []
+    async def fake_persist(db, draft):
+        calls.append(draft.id); return "chunk_" + draft.id
+    monkeypatch.setattr(ev, "_persist_chunk_to_kb", fake_persist)
+    test_db.add(KnowledgeEvolutionDraft(
+        id="d4", tenant_id="default", cluster_id="c", representative_query="q", status="approved"))
+    await test_db.commit()
+    d = (await test_db.execute(
+        select(KnowledgeEvolutionDraft).where(KnowledgeEvolutionDraft.id == "d4")
+    )).scalar_one()
+    cid1 = await ev.reflow_to_kb(test_db, d)
+    cid2 = await ev.reflow_to_kb(test_db, d)
+    assert cid1 == cid2 and len(calls) == 1      # 幂等：_persist 只调一次
+    assert d.status == "indexed"
+
+
+@pytest.mark.asyncio
+async def test_withdraw(test_db, monkeypatch):
+    from app.services import knowledge_evolution_service as ev
+    from app.models.chunk import Chunk
+    deleted = []
+    async def fake_del(chunk): deleted.append(chunk.id)
+    monkeypatch.setattr(ev, "_delete_chunk_from_milvus", fake_del)
+    test_db.add(Chunk(id="ck1", doc_id="ai-evo-default", chunk_idx=0, content="c"))
+    test_db.add(KnowledgeEvolutionDraft(
+        id="d5", tenant_id="default", cluster_id="c", representative_query="q",
+        status="indexed", chunk_id="ck1"))
+    await test_db.commit()
+    await ev.withdraw_draft(test_db, "d5", "default")
+    row = (await test_db.execute(
+        select(KnowledgeEvolutionDraft).where(KnowledgeEvolutionDraft.id == "d5")
+    )).scalar_one()
+    assert row.status == "withdrawn"
+    assert deleted == ["ck1"]
