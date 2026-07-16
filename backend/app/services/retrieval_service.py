@@ -397,6 +397,15 @@ async def mixed_search(
     except Exception:
         pass
     items = [_to_item(h) for h in pool]
+    # 知识自进化 AI 草稿检索降权（doc_type=ai_evolution；防回环污染；可配 exclude/downgrade/off）
+    _ai_filter = getattr(settings, "AI_EVOLUTION_RETRIEVAL_FILTER", "downgrade")
+    if _ai_filter == "exclude":
+        items = [i for i in items if i.get("docType") != "ai_evolution"]
+    elif _ai_filter == "downgrade":
+        _ai_q = float(getattr(settings, "AI_EVOLUTION_QUALITY_SCORE", 0.6))
+        for i in items:
+            if i.get("docType") == "ai_evolution":
+                i["score"] = float(i.get("score", 0.0) or 0.0) * _ai_q
     # 插件扩展点 · retrieval_filter：第三方可注册检索结果过滤/重排（BRD §5.3.1）
     try:
         from app.services import plugin_registry

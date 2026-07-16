@@ -15,6 +15,7 @@ const routes = [
       { path: 'operations', component: () => import('../views/OperationsCenter.vue'), meta: { auth: true, title: '主动运维', sub: '实时事件 · Agent 建议 · 人工确认 · 持久任务' } },
       { path: 'documents', component: () => import('../views/Documents.vue'), meta: { auth: true, title: '知识库', sub: '上传 · 解析 · 向量化 · 预览' } },
       { path: 'knowledge-governance', component: () => import('../views/KnowledgeGovernance.vue'), meta: { auth: true, roles: ['admin', 'editor'], title: '知识治理', sub: '时效审查 · 冲突发现 · 版本追溯' } },
+      { path: 'knowledge-evolution', component: () => import('../views/KnowledgeEvolution.vue'), meta: { auth: true, roles: ['admin', 'editor'], title: '知识自进化', sub: '盲区聚类 · AI草稿 · 审核回流' } },
       { path: 'dashboard', component: () => import('../views/Dashboard.vue'), meta: { auth: true, title: '统计看板', sub: '知识库规模 + 故障趋势' } },
       { path: 'kg', component: () => import('../views/KgGraph.vue'), meta: { auth: true, title: '知识图谱', sub: '设备-故障-处置 多跳推理' } },
       { path: 'kg-3d', component: () => import('../views/KgGraph3D.vue'), meta: { auth: true, title: '3D图谱', sub: 'Three.js 三维拓扑 · 力导向' } },

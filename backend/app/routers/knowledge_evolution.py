@@ -68,5 +68,8 @@ async def draft_withdraw(draft_id: str, body: DraftWithdrawRequest, db: AsyncSes
     except ValueError as e:
         raise BizError(str(e), 400)
     return success(data, "已撤回")
+
+
+@router.get("/stats")
 async def stats(db: AsyncSession = Depends(get_db), user: User = Depends(require_perm(DOC_READ))):
     return success(await ev.get_stats(db, user.tenant_id), "查询成功")

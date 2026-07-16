@@ -160,6 +160,15 @@ async def lifespan(app: FastAPI):
         print("[task-center] realtime/default/low worker 与事件 dispatcher 已启动")
     except Exception as e:
         degraded("task_center_start", e, "持久化任务 worker 启动失败")
+    # 知识自进化定时扫描（周期 KNOWLEDGE_EVOLUTION_CRON_HOURS，<=0 关闭）
+    try:
+        from app.services.knowledge_evolution_service import evolution_cron_loop
+        from app.config import settings as _settings
+        if float(getattr(_settings, "KNOWLEDGE_EVOLUTION_CRON_HOURS", 24)) > 0:
+            app.state.evolution_cron_task = asyncio.create_task(evolution_cron_loop("default"))
+            print("[evolution] 知识自进化定时扫描后台任务已启动")
+    except Exception as e:
+        print(f"[evolution] 定时扫描启动跳过：{e}")
     # ---- 关闭 ----
     yield
     try:
@@ -183,6 +192,9 @@ async def lifespan(app: FastAPI):
     _backup_all = getattr(app.state, "backup_all_task", None)
     if _backup_all:
         _backup_all.cancel()
+    _evo_cron = getattr(app.state, "evolution_cron_task", None)
+    if _evo_cron:
+        _evo_cron.cancel()
     try:
         from app.clients import neo4j_client
         await neo4j_client.close()

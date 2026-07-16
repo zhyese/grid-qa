@@ -174,3 +174,21 @@ async def test_withdraw(test_db, monkeypatch):
     )).scalar_one()
     assert row.status == "withdrawn"
     assert deleted == ["ck1"]
+
+
+# ===== T10: 配额阻断 =====
+@pytest.mark.asyncio
+async def test_reflow_quota_blocks(test_db, monkeypatch):
+    from app.services import knowledge_evolution_service as ev
+    async def fake_persist(db, draft): return "chunk"
+    async def fake_weekly(db, tenant): return 20   # 达到默认配额 20
+    monkeypatch.setattr(ev, "_persist_chunk_to_kb", fake_persist)
+    monkeypatch.setattr(ev, "_weekly_indexed_count", fake_weekly)
+    test_db.add(KnowledgeEvolutionDraft(
+        id="d6", tenant_id="default", cluster_id="c", representative_query="q", status="approved"))
+    await test_db.commit()
+    d = (await test_db.execute(
+        select(KnowledgeEvolutionDraft).where(KnowledgeEvolutionDraft.id == "d6")
+    )).scalar_one()
+    with pytest.raises(ValueError, match="配额"):
+        await ev.reflow_to_kb(test_db, d)

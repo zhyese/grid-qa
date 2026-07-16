@@ -286,3 +286,12 @@ export const getKnowledgeGovernanceScan = (taskId) => request.get(`/knowledge-go
 export const getKnowledgeIssues = (params = {}) => request.get('/knowledge-governance/issues', { params })
 export const getKnowledgeIssueStats = () => request.get('/knowledge-governance/issues/stats')
 export const reviewKnowledgeIssue = (id, status, note = '') => request.post(`/knowledge-governance/issues/${id}/review`, { status, note })
+
+// ===== 知识自进化闭环 =====
+export const scanKnowledgeEvolution = (data = {}) => request.post('/knowledge-evolution/scan', data)
+export const getEvolutionScanStatus = (taskId) => request.get(`/knowledge-evolution/scan/${taskId}`)
+export const getEvolutionDrafts = (params = {}) => request.get('/knowledge-evolution/drafts', { params })
+export const getEvolutionDraft = (id) => request.get(`/knowledge-evolution/drafts/${id}`)
+export const reviewEvolutionDraft = (id, action, note = '') => request.post(`/knowledge-evolution/drafts/${id}/review`, { action, note })
+export const withdrawEvolutionDraft = (id, note = '') => request.post(`/knowledge-evolution/drafts/${id}/withdraw`, { note })
+export const getEvolutionStats = () => request.get('/knowledge-evolution/stats')

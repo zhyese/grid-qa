@@ -86,6 +86,7 @@ const navItems = computed(() => {
   ]
   if (hasPerm(auth.role, 'doc:manage')) {
     items.splice(4, 0, { to: '/knowledge-governance', icon: '🧭', label: '知识治理' })
+    items.splice(5, 0, { to: '/knowledge-evolution', icon: '🧬', label: '知识自进化' })
   }
   if (hasPerm(auth.role, 'metric:read')) {
     items.push({ to: '/prediction', icon: '🔮', label: '故障预测' })

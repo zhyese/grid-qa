@@ -303,6 +303,13 @@ async def reflow_to_kb(db, draft):
         return draft.chunk_id
     if draft.status != "approved":
         raise ValueError("仅 approved 可回流")
+    # 配额：每周 indexed 上限（防回环污染；KNOWLEDGE_EVOLUTION_WEEKLY_QUOTA，0=不限）
+    from app.config import settings
+    quota = int(getattr(settings, "KNOWLEDGE_EVOLUTION_WEEKLY_QUOTA", WEEKLY_QUOTA_DEFAULT))
+    if quota > 0:
+        weekly = await _weekly_indexed_count(db, draft.tenant_id)
+        if weekly >= quota:
+            raise ValueError(f"本周回流配额已满({weekly}/{quota})")
     chunk_id = await _persist_chunk_to_kb(db, draft)
     draft.chunk_id = chunk_id
     draft.status = "indexed"
@@ -340,3 +347,31 @@ async def withdraw_draft(db, draft_id, tenant):
     r.status = "withdrawn"
     await db.commit()
     return _to_dict(r)
+
+
+# ===== T10: 配额 + 定时入队 =====
+async def _weekly_indexed_count(db, tenant):
+    """本周(7天)已 indexed 草稿数（配额计数）。"""
+    cutoff = utcnow() - timedelta(days=7)
+    return (await db.execute(
+        select(func.count()).select_from(KnowledgeEvolutionDraft).where(
+            KnowledgeEvolutionDraft.tenant_id == tenant,
+            KnowledgeEvolutionDraft.status == "indexed",
+            KnowledgeEvolutionDraft.indexed_at >= cutoff,
+        )
+    )).scalar() or 0
+
+
+async def evolution_cron_loop(tenant: str = "default"):
+    """定时入队自进化扫描（lifespan 启动；周期=KNOWLEDGE_EVOLUTION_CRON_HOURS，<=0 关闭）。"""
+    from app.config import settings
+    interval = float(getattr(settings, "KNOWLEDGE_EVOLUTION_CRON_HOURS", 24))
+    if interval <= 0:
+        return
+    while True:
+        await asyncio.sleep(interval * 3600)
+        try:
+            await enqueue_evolution_scan(tenant)
+            print(f"[evolution] 定时扫描已入队(tenant={tenant})")
+        except Exception as e:
+            degraded("evo_cron_enqueue", e)
