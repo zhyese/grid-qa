@@ -9,6 +9,7 @@ from app.models.knowledge_governance import (  # noqa: F401
     KnowledgeGovernanceReview,
 )
 from app.models.persistent_task import PersistentTask  # noqa: F401
+from app.models.knowledge_evolution import KnowledgeEvolutionDraft  # noqa: F401  知识自进化草稿
 from app.models.realtime_event import (  # noqa: F401
     ProactiveOpsRun,
     RealtimeDeviceMapping,
