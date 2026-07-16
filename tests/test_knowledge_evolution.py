@@ -12,7 +12,7 @@ def _v(x):
     return [i / n for i in x]
 
 
-# ===== T1: 模型 CRUD + 默认值 =====
+# ===== T1: 模型 CRUD =====
 @pytest.mark.asyncio
 async def test_draft_create_and_read(test_db):
     d = KnowledgeEvolutionDraft(
@@ -30,7 +30,7 @@ async def test_draft_create_and_read(test_db):
     assert row.cluster_id == "c1"
 
 
-# ===== T3: 零依赖贪心近邻聚类 =====
+# ===== T3: 聚类 =====
 def test_cluster_groups_similar():
     items = [
         {"query": "油温高", "vec": _v([1, 0.01])},
@@ -47,12 +47,12 @@ def test_cluster_filters_small():
     assert cluster([{"query": "x", "vec": [1, 0]}], threshold=0.5, min_size=3) == []
 
 
-# ===== T4: 盲区判定（mock _retrieve_top1）=====
+# ===== T4: 盲区判定 =====
 @pytest.mark.asyncio
 async def test_identify_blind_spot_is_blind(monkeypatch):
     from app.services import knowledge_evolution_service as ev
     async def fake_top1(db, q, tenant, top_k=1):
-        return [{"score": 0.3, "doc_id": "x"}]   # < 0.55 = 盲区
+        return [{"score": 0.3, "doc_id": "x"}]
     monkeypatch.setattr(ev, "_retrieve_top1", fake_top1)
     c = {"representative_query": "q", "members": [{"query": "q"}]}
     evi = await ev._identify_blind_spot(None, c, "default")
@@ -63,7 +63,47 @@ async def test_identify_blind_spot_is_blind(monkeypatch):
 async def test_identify_blind_spot_not_blind(monkeypatch):
     from app.services import knowledge_evolution_service as ev
     async def fake_top1(db, q, tenant, top_k=1):
-        return [{"score": 0.8, "doc_id": "x"}]   # >= 0.55 = 非盲区
+        return [{"score": 0.8, "doc_id": "x"}]
     monkeypatch.setattr(ev, "_retrieve_top1", fake_top1)
     c = {"representative_query": "q", "members": [{"query": "q"}]}
     assert await ev._identify_blind_spot(None, c, "default") is None
+
+
+# ===== T5: 草稿生成（mock LLM）=====
+@pytest.mark.asyncio
+async def test_generate_draft(monkeypatch):
+    from app.services import knowledge_evolution_service as ev
+    async def fake_llm(prompt, model_type):
+        return '{"title":"t","content":"c","source_refs":[]}'
+    async def fake_docs(db, q, tenant, top_k=3):
+        return []
+    monkeypatch.setattr(ev, "_call_llm_json", fake_llm)
+    monkeypatch.setattr(ev, "_recent_standards", fake_docs)
+    c = {"representative_query": "q", "members": [{"query": "q"}, {"query": "q2"}]}
+    draft = await ev._generate_draft(None, c, {"top1_score": 0.3}, "default", None)
+    assert draft["draft_title"] == "t" and draft["draft_content"] == "c"
+
+
+# ===== T6: run_scan 编排（mock 管道，验证落库）=====
+@pytest.mark.asyncio
+async def test_run_scan_persists_drafts(test_db, monkeypatch):
+    from app.services import knowledge_evolution_service as ev
+    async def fake_extract(db, tenant, since):
+        return ["油温高", "油温高1", "油温高2"]
+    async def fake_embed(qs):
+        return [[1.0, 0.0] for _ in qs]
+    def fake_cluster(items, **k):
+        return [{"cluster_id": "c1", "representative_query": "油温高", "members": [{"query": "油温高"}]}]
+    async def fake_identify(db, c, tenant):
+        return {"top1_score": 0.3, "hit_doc_ids": [], "confidence": "medium"}
+    async def fake_gen(db, c, evi, tenant, mt):
+        return {"draft_title": "t", "draft_content": "c", "source_doc_ids": [], "gap_evidence": evi}
+    monkeypatch.setattr(ev, "_extract_dislike", fake_extract)
+    monkeypatch.setattr(ev, "_embed", fake_embed)
+    monkeypatch.setattr(ev, "cluster", fake_cluster)
+    monkeypatch.setattr(ev, "_identify_blind_spot", fake_identify)
+    monkeypatch.setattr(ev, "_generate_draft", fake_gen)
+    res = await ev.run_scan(test_db, "default", since_hours=168, model_type=None)
+    assert res["drafts"] == 1
+    rows = (await test_db.execute(select(KnowledgeEvolutionDraft))).scalars().all()
+    assert len(rows) == 1 and rows[0].status == "draft"
