@@ -150,7 +150,9 @@ async def ticket_detail(
     user: User = Depends(require_perm(DOMAIN_USE)),
 ):
     """票据详情。"""
-    data = await ticket_lifecycle_service.get_ticket(db, ticket_id)
+    data = await ticket_lifecycle_service.get_ticket(
+        db, ticket_id, tenant=user.tenant_id,
+    )
     if not data:
         from app.core.response import BizError
         raise BizError("票据不存在", 404)
@@ -166,7 +168,9 @@ async def ticket_submit(
     user: User = Depends(require_perm(DOMAIN_USE)),
 ):
     """提交审核（自动跑审核打分）。"""
-    data = await ticket_lifecycle_service.submit_for_review(db, ticket_id)
+    data = await ticket_lifecycle_service.submit_for_review(
+        db, ticket_id, tenant=user.tenant_id,
+    )
     await write_log(db, user.username, "两票提交审核", f"票据{ticket_id}")
     return success(data, "提交成功")
 
@@ -182,7 +186,8 @@ async def ticket_review(
 ):
     """审核票据（通过/驳回）。"""
     data = await ticket_lifecycle_service.review_ticket(
-        db, ticket_id, body.approved, body.comment, reviewer=user.username,
+        db, ticket_id, body.approved, body.comment,
+        reviewer=user.username, tenant=user.tenant_id,
     )
     await write_log(db, user.username, "两票审核", f"票据{ticket_id} {'通过' if body.approved else '驳回'}")
     return success(data, "审核完成")
@@ -197,7 +202,9 @@ async def ticket_issue(
     user: User = Depends(require_perm(DOMAIN_USE)),
 ):
     """签发票据（审核通过后签发）。"""
-    data = await ticket_lifecycle_service.issue_ticket(db, ticket_id, issuer=user.username)
+    data = await ticket_lifecycle_service.issue_ticket(
+        db, ticket_id, issuer=user.username, tenant=user.tenant_id,
+    )
     await write_log(db, user.username, "两票签发", f"票据{ticket_id}")
     return success(data, "签发成功")
 
@@ -215,11 +222,13 @@ async def ticket_execute(
     if body.log:
         data = await ticket_lifecycle_service.complete_execution(
             db, ticket_id, log=body.log, deviation=body.deviation,
+            tenant=user.tenant_id,
         )
         await write_log(db, user.username, "两票执行完成", f"票据{ticket_id}")
     else:
         data = await ticket_lifecycle_service.start_execution(
             db, ticket_id, executor=user.username, supervisor=body.supervisor,
+            tenant=user.tenant_id,
         )
         await write_log(db, user.username, "两票开始执行", f"票据{ticket_id}")
     return success(data, "操作成功")
@@ -234,7 +243,9 @@ async def ticket_archive(
     user: User = Depends(require_perm(DOMAIN_USE)),
 ):
     """归档票据。"""
-    data = await ticket_lifecycle_service.archive_ticket(db, ticket_id)
+    data = await ticket_lifecycle_service.archive_ticket(
+        db, ticket_id, tenant=user.tenant_id,
+    )
     await write_log(db, user.username, "两票归档", f"票据{ticket_id}")
     return success(data, "归档成功")
 
@@ -246,7 +257,9 @@ async def ticket_delete(
     user: User = Depends(require_perm(DOMAIN_USE)),
 ):
     """删除票据（软删）。"""
-    ok = await ticket_lifecycle_service.delete_ticket(db, ticket_id)
+    ok = await ticket_lifecycle_service.delete_ticket(
+        db, ticket_id, tenant=user.tenant_id,
+    )
     return success({"deleted": ok}, "删除成功" if ok else "票据不存在")
 
 

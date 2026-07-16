@@ -210,14 +210,29 @@ async def extract_triples(db: AsyncSession, doc_id: str, model_type: str | None 
             "docName": doc.doc_name, "sample": triples[:30]}
 
 
-async def _get_graph_mysql(db: AsyncSession, entity: str, limit: int) -> dict:
+async def _get_graph_mysql(
+    db: AsyncSession, entity: str, limit: int, *, tenant: str | None = None
+) -> dict:
     """MySQL 一跳查询（Neo4j 不可用时的回退）。"""
-    stmt = select(KgTriple)
+    stmt = select(KgTriple).join(Document, Document.id == KgTriple.doc_id)
+    if tenant:
+        stmt = stmt.where(Document.tenant_id == tenant)
     if entity:
         kw = f"%{entity}%"
         stmt = stmt.where(or_(KgTriple.subject.like(kw), KgTriple.object.like(kw)))
     stmt = stmt.limit(limit)
     rows = (await db.execute(stmt)).scalars().all()
+    if tenant:
+        try:
+            from app.services import knowledge_governance_service
+
+            blocked = await knowledge_governance_service.blocked_document_ids(
+                db, [row.doc_id for row in rows], tenant_id=tenant,
+            )
+            rows = [row for row in rows if row.doc_id not in blocked]
+        except Exception as exc:
+            degraded("kg_graph_governance_filter", exc)
+            rows = []
     nodes: dict[str, dict] = {}
     links: list[dict] = []
     for t in rows:
@@ -232,8 +247,12 @@ async def _get_graph_mysql(db: AsyncSession, entity: str, limit: int) -> dict:
     }
 
 
-async def get_graph(db: AsyncSession, entity: str = "", limit: int = 300) -> dict:
+async def get_graph(
+    db: AsyncSession, entity: str = "", limit: int = 300, *, tenant: str | None = None
+) -> dict:
     """关系图谱：优先 Neo4j 图查询，未启动则回退 MySQL 一跳。"""
+    if tenant is not None:
+        return await _get_graph_mysql(db, entity, limit, tenant=tenant)
     try:
         return await neo4j_client.get_neighbors(entity, limit)
     except Exception as e:
@@ -259,7 +278,13 @@ async def get_hubs(limit: int = 15) -> list[dict]:
         return []
 
 
-async def graph_context(query: str, topk: int = 8) -> list[str]:
+async def graph_context(
+    query: str,
+    topk: int = 8,
+    *,
+    db: AsyncSession | None = None,
+    tenant: str | None = None,
+) -> list[str]:
     """GraphRAG：从 query 提取关键词查 Neo4j 关联三元组，文本化作为问答结构化上下文。
 
     让问答"走 Neo4j"——检索文档分块之外，补充图谱结构化关系（设备-故障-处置链）。
@@ -268,6 +293,39 @@ async def graph_context(query: str, topk: int = 8) -> list[str]:
     words = [w for w in jieba.cut(query) if len(w.strip()) > 1]
     if not words:
         return []
+    if tenant is not None:
+        # Neo4j 旧图尚未携带 tenant 属性；租户上下文下改走带来源文档关联的
+        # MySQL 三元组，避免跨租户读取全局图。
+        if db is None:
+            return []
+        keyword_filters = []
+        for word in words[:8]:
+            like = f"%{word}%"
+            keyword_filters.extend((KgTriple.subject.like(like), KgTriple.object.like(like)))
+        rows = (await db.execute(
+            select(KgTriple)
+            .join(Document, Document.id == KgTriple.doc_id)
+            .where(
+                Document.tenant_id == tenant,
+                or_(*keyword_filters),
+            )
+            .limit(max(topk, 1) * 3)
+        )).scalars().all()
+        try:
+            from app.services import knowledge_governance_service
+
+            blocked = await knowledge_governance_service.blocked_document_ids(
+                db, [row.doc_id for row in rows], tenant_id=tenant,
+            )
+        except Exception as exc:
+            degraded("kg_graph_governance_filter", exc)
+            blocked = {row.doc_id for row in rows}
+        filtered = [
+            f"{row.subject} --{row.relation}--> {row.object}"
+            for row in rows
+            if row.subject and row.object and row.doc_id not in blocked
+        ]
+        return filtered[:topk]
     try:
         rows = await neo4j_client.query_triples_by_keywords(words, topk)
     except Exception as e:

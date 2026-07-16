@@ -37,7 +37,7 @@ async def graph(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    data = await kg_service.get_graph(db, entity, limit)
+    data = await kg_service.get_graph(db, entity, limit, tenant=user.tenant_id)
     return success(data, "查询成功")
 
 

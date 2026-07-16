@@ -1,5 +1,7 @@
 """系统接口：登录 / 注册 / 操作日志（角色+时间过滤） / 配置（管理员，Redis 持久化）。"""
-from fastapi import APIRouter, Depends, Query, Request, WebSocket
+import hmac
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, WebSocket
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -218,6 +220,8 @@ async def health_providers(admin: User = Depends(require_admin)):
 async def nacos_config_route(admin: User = Depends(require_admin)):
     """拉取 Nacos 配置中心配置（测试连通 + 查看覆盖项）。"""
     from app.clients.nacos_client import fetch_config
+    import hmac
+
     from app.config import settings
 
     try:
@@ -248,8 +252,10 @@ async def alerts_webhook(
     """
     from app.config import settings
 
-    if token != settings.ALERT_WEBHOOK_TOKEN:
-        raise BizError("告警 webhook token 无效", 403)
+    if not settings.ALERT_WEBHOOK_TOKEN:
+        raise HTTPException(status_code=503, detail="告警 webhook token 未配置")
+    if not hmac.compare_digest(token or "", settings.ALERT_WEBHOOK_TOKEN):
+        raise HTTPException(status_code=403, detail="告警 webhook token 无效")
     try:
         body = await request.json()
     except Exception:
@@ -257,6 +263,7 @@ async def alerts_webhook(
     alerts = body.get("alerts") or []
     from app.core import metrics
 
+    ingest_failures = 0
     for a in alerts:
         labels = a.get("labels") or {}
         ann = a.get("annotations") or {}
@@ -277,11 +284,58 @@ async def alerts_webhook(
                                         "summary": summary, "state": state, "time": content[-26:]})
         except Exception:
             pass
-        # S3：触发自动处置（写 pending 快，disposal 跑在 bg task，不阻塞 webhook 响应）
+        # 统一进入“实时事件 → 持久任务 → 主动 Agent”闭环。Grafana 指纹作为幂等键，
+        # resolved 事件只归档，不再触发诊断；原始 payload 完整保留用于审计。
         try:
-            await trigger_disposal(sev, title, summary, source="webhook")
-        except Exception:
-            pass
+            import hashlib
+
+            from app.schemas.realtime_event import RealtimeDeviceRef, RealtimeEventIn
+            from app.services.realtime_event_service import ingest_event
+
+            source_device_id = str(
+                labels.get("device_id") or labels.get("deviceId")
+                or labels.get("instance") or ""
+            )
+            raw_id = "|".join((
+                str(a.get("fingerprint") or title),
+                str(state or ""),
+                str(a.get("startsAt") or ""),
+                str(a.get("endsAt") or ""),
+                source_device_id,
+            ))
+            event_id = hashlib.sha256(raw_id.encode("utf-8")).hexdigest()[:32]
+            event_type = "recovered" if state in {"resolved", "recovered"} else "grafana_alert"
+            await ingest_event(
+                db,
+                RealtimeEventIn(
+                    eventId=event_id,
+                    source="generic",
+                    eventType=event_type,
+                    severity=sev,
+                    occurredAt=a.get("startsAt") or None,
+                    title=title,
+                    summary=summary,
+                    device=RealtimeDeviceRef(
+                        sourceDeviceId=source_device_id,
+                        name=str(labels.get("device_name") or labels.get("deviceName") or ""),
+                        type=str(labels.get("device_type") or labels.get("deviceType") or ""),
+                        station=str(labels.get("station") or labels.get("stationName") or ""),
+                    ),
+                    payload={"grafana": a, "labels": labels, "annotations": ann},
+                ),
+                tenant_id=settings.ALERT_WEBHOOK_TENANT,
+                actor="Grafana",
+            )
+        except Exception as e:
+            from app.core.obs import degraded
+
+            degraded("grafana_realtime_ingest", e)
+            ingest_failures += 1
+    if ingest_failures:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Grafana 告警接入失败 {ingest_failures}/{len(alerts)} 条，请稍后重试",
+        )
     return success({"received": len(alerts)}, "告警已接收")
 
 
@@ -340,9 +394,10 @@ async def alerts_dispose(
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(require_admin),
 ):
-    """S3：手动触发告警自动处置（演示/测试用）。写 pending → bg task 跑 ALERT_PERSONA。"""
+    """S3：手动触发告警自动处置。写 pending → 持久化任务跑 ALERT_PERSONA。"""
     disp_id = await trigger_disposal(body.severity, body.title, body.summary,
-                                     source="manual", model_type=body.modelType)
+                                     source="manual", model_type=body.modelType,
+                                     tenant_id=admin.tenant_id)
     await write_log(db, admin.username, "告警处置", f"手动触发 {body.title[:40]} → #{disp_id}")
     return success({"id": disp_id}, "已触发处置")
 
@@ -355,7 +410,7 @@ async def alerts_disposals(
     user: User = Depends(require_perm(ALERT_READ)),
 ):
     """S3：告警处置记录列表（管理员/审计员）：告警→诊断→处置→操作票草案。"""
-    data = await list_disposals(page, size, status=status)
+    data = await list_disposals(page, size, status=status, tenant_id=user.tenant_id)
     return success(data, "查询成功")
 
 
@@ -369,7 +424,9 @@ async def disposal_confirm(request: Request, disp_id: int,
     """采纳处置预案：proposed → confirmed。"""
     from app.services.alert_disposal_service import confirm_disposal
     try:
-        data = await confirm_disposal(db, disp_id, reviewer=user.username)
+        data = await confirm_disposal(
+            db, disp_id, reviewer=user.username, tenant_id=user.tenant_id
+        )
         await write_log(db, user.username, "告警处置确认", f"记录{disp_id}")
         return success(data, "已确认")
     except ValueError as e:
@@ -384,7 +441,10 @@ async def disposal_reject(request: Request, disp_id: int, note: str = Query(""),
     """驳回处置预案。"""
     from app.services.alert_disposal_service import reject_disposal
     try:
-        data = await reject_disposal(db, disp_id, reviewer=user.username, note=note)
+        data = await reject_disposal(
+            db, disp_id, reviewer=user.username, note=note,
+            tenant_id=user.tenant_id,
+        )
         await write_log(db, user.username, "告警处置驳回", f"记录{disp_id} {note[:40]}")
         return success(data, "已驳回")
     except ValueError as e:
@@ -415,7 +475,10 @@ async def disposal_close(request: Request, disp_id: int, note: str = Query(""),
     """关闭处置（误报/已手动处理，无需两票）。"""
     from app.services.alert_disposal_service import close_disposal
     try:
-        data = await close_disposal(db, disp_id, reviewer=user.username, note=note)
+        data = await close_disposal(
+            db, disp_id, reviewer=user.username, note=note,
+            tenant_id=user.tenant_id,
+        )
         await write_log(db, user.username, "告警处置关闭", f"记录{disp_id}")
         return success(data, "已关闭")
     except ValueError as e:

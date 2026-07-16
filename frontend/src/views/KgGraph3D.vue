@@ -16,6 +16,14 @@
         <span class="badge badge-neutral">{{ graph.nodes?.length || 0 }} 节点</span>
         <span class="badge badge-neutral">{{ graph.links?.length || 0 }} 关系</span>
       </div>
+      <div class="graph-legend" v-if="graph && is3D">
+        <span><i class="dot" style="background:#3498db"></i>设备</span>
+        <span><i class="dot" style="background:#e74c3c"></i>故障</span>
+        <span><i class="dot" style="background:#2ecc71"></i>操作</span>
+        <span><i class="dot" style="background:#9b59b6"></i>规程</span>
+        <span><i class="dot" style="background:#f39c12"></i>参数</span>
+        <span><i class="dot" style="background:#1abc9c"></i>部件</span>
+      </div>
     </div>
 
     <div class="card" v-if="selected">
@@ -120,17 +128,36 @@ function render3D() {
         }
       }
 
-      // 节点颜色按类型
-      const typeColors = {
-        Equipment: 0x3498db, Fault: 0xe74c3c, Action: 0x2ecc71,
-        default: 0x95a5a6,
+      // 按「知识维度」分 6 类着色。后端 category 仅按三元组主/宾(SPO)二分，不体现语义类别；
+      // 故基于节点 name 的电网运维领域关键词做语义归类，落到 6 个知识维度。
+      const DIM_COLORS = {
+        equipment: 0x3498db, // 设备/装置 - 蓝
+        fault:     0xe74c3c, // 故障/异常 - 红
+        action:    0x2ecc71, // 操作/处置 - 绿
+        rule:      0x9b59b6, // 规程/制度 - 紫
+        metric:    0xf39c12, // 参数/指标 - 橙
+        component: 0x1abc9c, // 部件/材料 - 青
+        default:   0x95a5a6,
+      }
+      // 分类优先级：数值参数 > 故障 > 规程 > 操作 > 设备 > 部件（含数字/阈值的先判，避免被关键词误判）
+      const classify = (raw) => {
+        const s = (raw || '').toString()
+        if (/[0-9.]+\s*(℃|°C|Pa|MPa|kV|kA|kV|V|A|Ω|MΩ|mL|μL|%|Hz|rpm|kW|MW)/.test(s) ||
+            /(不低于|不高于|不超过|至少|以上|以下|约为|左右|≤|≥)/.test(s)) return 'metric'
+        if (/(泄漏|卡涩|喷油|超标|接地|拒动|误动|放电|击穿|故障|异响|老化|缺陷|烧穿|受潮|过热|异常|跳闸|闭锁|磨损|发热)/.test(s)) return 'fault'
+        if (/(票|制度|规程|监护|许可|措施|巡回|交接班|两票|三制)/.test(s)) return 'rule'
+        if (/^(用|检查|测量|验电|停电|装设|拆除|更换|清洗|回收|抽离|巡视|试验|操作|解体|倒闸|悬挂|穿戴|执行|关注|倾听|申请|判断|选用|进行|做好|持续|严禁|不得|禁止|由|每)/.test(s)) return 'action'
+        if (/(变压器|断路器|隔离开关|互感器|开关柜|继电器|线路|电缆|母线|避雷器|兆欧表|GIS|气室|配电|输电|发电机|电抗器|电容器)/.test(s)) return 'equipment'
+        return 'component'
       }
       const spheres = []
       for (let i = 0; i < N; i++) {
-        const color = typeColors[nodes[i]?.type] || typeColors.default
-        const size = Math.min(1.0, Math.max(0.3, (nodes[i]?.outDegree || 1) * 0.15))
-        const geo = new THREE.SphereGeometry(size, 16, 16)
-        const mat = new THREE.MeshPhongMaterial({ color, emissive: color, emissiveIntensity: 0.3 })
+        const color = DIM_COLORS[classify(nodes[i]?.name)] ?? DIM_COLORS.default
+        // 节点大小按 symbolSize 映射（数据 28~36 → 0.7~1.3 可视区间）
+        const sym = nodes[i]?.symbolSize || 28
+        const size = Math.min(1.3, Math.max(0.7, sym / 28))
+        const geo = new THREE.SphereGeometry(size, 18, 18)
+        const mat = new THREE.MeshPhongMaterial({ color, emissive: color, emissiveIntensity: 0.45 })
         const mesh = new THREE.Mesh(geo, mat)
         mesh.position.set(positions[i].x, positions[i].y, positions[i].z)
         scene.add(mesh)
@@ -306,4 +333,7 @@ onUnmounted(() => { cleanup(); document.removeEventListener('fullscreenchange', 
 .graph-info { position: absolute; top: 50px; right: 10px; display: flex; gap: 6px; }
 .fs-btn { position: absolute; top: 10px; right: 10px; z-index: 10; width: 34px; height: 34px; border-radius: var(--radius-sm); background: rgba(0,0,0,.55); color: #fff; border: 1px solid rgba(255,255,255,.25); cursor: pointer; font-size: 16px; display: flex; align-items: center; justify-content: center; }
 .fs-btn:hover { background: rgba(0,0,0,.75); }
+.graph-legend { position: absolute; left: 10px; bottom: 10px; display: flex; flex-wrap: wrap; gap: 6px 12px; padding: 8px 10px; background: rgba(0,0,0,.5); border: 1px solid rgba(255,255,255,.15); border-radius: var(--radius-sm); color: #e6e6e6; font-size: 12px; max-width: 60%; }
+.graph-legend span { display: inline-flex; align-items: center; gap: 4px; }
+.graph-legend .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; }
 </style>

@@ -48,8 +48,11 @@ async def warmup_hot_queries(
     for row in rows:
         try:
             data = json.loads(row.answer) if isinstance(row.answer, str) else row.answer
-            # 用原始 cache_key 回写 Redis
-            key = row.cache_key or f"qa:{row.model_type}:{row.query_normalized}"
+            # 用租户化 cache_key 回写 Redis；历史旧 key 不再参与租户问答命中。
+            tenant = getattr(row, "tenant_id", None) or "default"
+            model = row.model_type or "default"
+            expected_prefix = f"qa:{tenant}:{model}:"
+            key = row.cache_key if (row.cache_key or "").startswith(expected_prefix) else f"{expected_prefix}{row.query_normalized}"
             ok = await redis_client.cache_set_json_safe(key, data, settings.QA_CACHE_TTL)
             if ok:
                 warmed += 1
@@ -81,7 +84,7 @@ async def warmup_from_file(filepath: str = "golden_qa.json") -> int:
             continue
         from app.services import term_service
         nq = term_service.normalize(query)
-        key = f"qa:default:{nq}"
+        key = f"qa:default:default:{nq}"
         val = {
             "answer": item.get("answer", ""),
             "retrievalSource": item.get("retrievalSource", []),

@@ -367,6 +367,30 @@ async def mixed_search(
         except Exception as e:
             degraded("raptor_retrieve", e)
 
+    # 7.5) 知识治理硬门禁：明确撤回、被替代、未生效或已过期的文档不得进入 LLM 上下文。
+    # 没有治理元数据的历史文档暂时保持兼容，由治理扫描持续生成补录问题。
+    _governed_ids = {h.get("doc_id") or h.get("docId") for h in pool}
+    _governed_ids.discard(None)
+    _governed_ids.discard("")
+    if _governed_ids:
+        try:
+            from app.services import knowledge_governance_service
+
+            _blocked_ids = await knowledge_governance_service.blocked_document_ids(
+                db, _governed_ids, tenant_id=tenant,
+            )
+            if _blocked_ids:
+                pool = [
+                    h for h in pool
+                    if (h.get("doc_id") or h.get("docId")) not in _blocked_ids
+                ]
+        except Exception as e:
+            # 生产租户查询采用 fail-closed，避免治理存储异常时把失效知识送入 LLM；
+            # 未传 tenant 的离线评测/兼容调用维持原行为。
+            degraded("knowledge_governance_filter", e)
+            if tenant:
+                pool = []
+
     try:
         from app.core import metrics
         metrics.RETRIEVAL_LATENCY.observe(time.time() - _t0)

@@ -276,12 +276,22 @@ async def confirm_and_sync(gap_id: int, final_answer: str, operator: str,
             await document_service.vectorize_document(db, doc_id)
             # 3) 缓存双写（qa_cache high + Redis）
             result = {
-                "answer": final_answer, "retrievalSource": [], "confidence": "high",
+                "answer": final_answer,
+                "retrievalSource": [{
+                    "docId": doc_id,
+                    "docName": f"FAQ:{nq[:40]}.md",
+                    "docType": settings.EVIDENCE_GAP_FAQ_DOCTYPE,
+                    "chunkIdx": 0,
+                    "chunk": final_answer,
+                    "score": 1.0,
+                    "sources": ["evidence_gap_faq"],
+                }],
+                "confidence": "high",
                 "hallucinationRate": 0.0, "cached": True, "cacheLayer": "redis",
             }
-            await cache_set_mysql(db, model_type, nq, nq, result)
+            await cache_set_mysql(db, model_type, nq, nq, result, tenant_id=row.tenant)
             await redis_client.cache_set_json(
-                f"qa:{model_type or 'default'}:{nq}", result, settings.QA_CACHE_TTL,
+                f"qa:{row.tenant or 'default'}:{model_type or 'default'}:{nq}", result, settings.QA_CACHE_TTL,
             )
             # 4) 状态 synced
             row.final_answer = final_answer

@@ -15,7 +15,8 @@ class QaCache(Base):
     __tablename__ = "qa_cache"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    cache_key: Mapped[str] = mapped_column(String(512), nullable=False, comment="缓存键: qa:{model}:{normalized}")
+    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False, default="default", index=True)
+    cache_key: Mapped[str] = mapped_column(String(512), nullable=False, comment="缓存键: qa:{tenant}:{model}:{normalized}")
     model_type: Mapped[str] = mapped_column(String(32), nullable=False, default="")
     query_hash: Mapped[str] = mapped_column(
         String(32), nullable=False, unique=True, index=True,
@@ -38,9 +39,9 @@ class QaCache(Base):
     is_deleted: Mapped[bool] = mapped_column(Integer, default=0, comment="软删标记")
 
     @staticmethod
-    def build_hash(model_type: str, normalized_query: str) -> str:
+    def build_hash(model_type: str | None, normalized_query: str, tenant_id: str = "default") -> str:
         """MD5 哈希：cache_key → 32 位 hex，用于 MySQL 精确匹配。"""
-        raw = f"qa:{model_type or 'default'}:{normalized_query}"
+        raw = f"qa:{tenant_id or 'default'}:{model_type or 'default'}:{normalized_query}"
         return hashlib.md5(raw.encode("utf-8")).hexdigest()
 
     @staticmethod

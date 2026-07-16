@@ -1,7 +1,7 @@
 """两票全生命周期管理模型：草稿→审核→签发→执行→归档。"""
 import enum
 
-from sqlalchemy import Column, DateTime, Enum, Integer, String, Text, func
+from sqlalchemy import Column, DateTime, Enum, Integer, String, Text, UniqueConstraint, func
 
 from app.db.base import Base
 
@@ -24,9 +24,14 @@ class TicketType(str, enum.Enum):
 
 class Ticket(Base):
     __tablename__ = "tickets"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "source_ref", name="uq_tickets_tenant_source_ref"),
+    )
 
     id = Column(String(32), primary_key=True)
     tenant_id = Column(String(64), default="default", index=True)
+    # 外部业务来源幂等键；普通人工建票为 NULL，可重复。
+    source_ref = Column(String(128), nullable=True)
 
     # 基本信息
     ticket_type = Column(Enum(TicketType), nullable=False, default=TicketType.OPERATION)

@@ -5,6 +5,7 @@
 """
 from functools import lru_cache
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -171,7 +172,15 @@ class Settings(BaseSettings):
     HIGH_RISK_KEYWORDS: str = "停电,拉闸,合闸,接地,挂地线,带电,登高,攀登,放电,倒闸"
 
     # ---------- 告警闭环（Grafana alerting → webhook 落库进日志页）----------
-    ALERT_WEBHOOK_TOKEN: str = "grid-alert-token-2026"  # Grafana contact point 回调共享密钥（免 JWT）
+    ALERT_WEBHOOK_TOKEN: str = ""  # Grafana contact point 回调共享密钥（免 JWT）；未配置时拒绝接入
+    ALERT_WEBHOOK_TENANT: str = "default"     # Grafana webhook 固定写入租户，禁止由请求头任意指定
+    # 实时接入凭据必须显式配置，绝不复用源码内置的 Grafana webhook token。
+    # 单凭据只授权 REALTIME_EVENT_CREDENTIAL_TENANT；多租户连接器使用 JSON 映射。
+    REALTIME_EVENT_CREDENTIAL_TENANT: str = "default"
+    REALTIME_EVENT_TOKEN: str = ""
+    REALTIME_EVENT_SIGNING_SECRET: str = ""
+    REALTIME_EVENT_TENANT_TOKENS: dict[str, str] = Field(default_factory=dict)
+    REALTIME_EVENT_TENANT_SIGNING_SECRETS: dict[str, str] = Field(default_factory=dict)
 
     # ---------- 可信度评测（真 faithfulness，替代粗糙启发式）----------
     ONLINE_FAITHFULNESS_ENABLE: bool = True  # 线上答案异步 LLM-judge，前端拉取覆盖"幻觉率"展示

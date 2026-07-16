@@ -11,6 +11,9 @@ class AlertDisposal(Base):
     __tablename__ = "alert_disposal"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    tenant_id: Mapped[str] = mapped_column(
+        String(64), nullable=False, default="default", index=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), index=True)
     severity: Mapped[str] = mapped_column(String(16), default="warning")
     title: Mapped[str] = mapped_column(String(256), default="")

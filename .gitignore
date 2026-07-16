@@ -52,6 +52,8 @@ logs/
 !使用手册.md
 
 # ===== 工具/临时产物（不入库）=====
+.agents/
+.codex/
 .mimicode/
 .workbuddy/
 .worktrees/

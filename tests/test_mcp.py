@@ -394,11 +394,12 @@ def test_mcp_client_call_tool_success(monkeypatch):
             pass
 
         async def post(self, url, **kw):
+            assert kw["headers"]["X-Tenant-Id"] == "tenant-a"
             return Response(200, json={"result": "电压: 110kV"})
 
     monkeypatch.setattr("app.mcp.client.httpx.AsyncClient", FakeAsyncClient)
     result = asyncio.run(client.call_tool("http://localhost:9100", "query_telemetry",
-                                           {"device_id": "T1"}))
+                                           {"device_id": "T1"}, tenant_id="tenant-a"))
     assert "110kV" in result
 
 

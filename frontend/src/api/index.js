@@ -257,3 +257,32 @@ export const getMemoryStats = () => request.get('/memory/stats')
 export const getStationLayout = (stationId = '110kV-demo') => request.get('/twin/station/layout', { params: { stationId } })
 export const getStationOverview = (stationId = '110kV-demo') => request.get('/twin/station/overview', { params: { stationId } })
 export const getDeviceDetail = (deviceId) => request.get(`/twin/device/${deviceId}/detail`)
+
+// ===== 实时数据接入 + 主动运维闭环 =====
+export const getRealtimeEvents = (params = {}) => request.get('/realtime/events', { params })
+export const getProactiveRuns = (params = {}) => request.get('/realtime/runs', { params })
+export const getProactiveRun = (id) => request.get(`/realtime/runs/${id}`)
+export const confirmProactiveRun = (id, note = '') => request.post(`/realtime/runs/${id}/confirm`, { note })
+export const rejectProactiveRun = (id, note = '') => request.post(`/realtime/runs/${id}/reject`, { note })
+export const retryProactiveRun = (id, modelType = null) => request.post(`/realtime/runs/${id}/retry`, { modelType })
+export const proactiveRunToTicket = (id) => request.post(`/realtime/runs/${id}/to-ticket`)
+export const getDeviceMappings = (params = {}) => request.get('/realtime/device-mappings', { params })
+export const saveDeviceMapping = (data) => request.put('/realtime/device-mappings', data)
+
+// ===== 持久化任务队列与事件中心 =====
+export const getTaskCenterStats = () => request.get('/system/task-center/stats')
+export const getPersistentTasks = (params = {}) => request.get('/system/task-center/tasks', { params })
+export const retryPersistentTask = (id) => request.post(`/system/task-center/tasks/${id}/retry`)
+export const terminatePersistentTask = (id, reason = '人工终止') => request.post(`/system/task-center/tasks/${id}/terminate`, { reason })
+export const getDomainEvents = (params = {}) => request.get('/system/task-center/events', { params })
+export const retryDomainEvent = (id) => request.post(`/system/task-center/events/${id}/retry`)
+
+// ===== 知识时效与冲突治理 =====
+export const getGovernedDocuments = (params = {}) => request.get('/knowledge-governance/documents', { params })
+export const getKnowledgeProfile = (docId) => request.get(`/knowledge-governance/documents/${docId}/profile`)
+export const saveKnowledgeProfile = (docId, data) => request.put(`/knowledge-governance/documents/${docId}/profile`, data)
+export const runKnowledgeGovernanceScan = (data = {}) => request.post('/knowledge-governance/scan', data)
+export const getKnowledgeGovernanceScan = (taskId) => request.get(`/knowledge-governance/scan/${taskId}`)
+export const getKnowledgeIssues = (params = {}) => request.get('/knowledge-governance/issues', { params })
+export const getKnowledgeIssueStats = () => request.get('/knowledge-governance/issues/stats')
+export const reviewKnowledgeIssue = (id, status, note = '') => request.post(`/knowledge-governance/issues/${id}/review`, { status, note })

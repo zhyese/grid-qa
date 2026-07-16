@@ -63,35 +63,103 @@ from app.services import agent_tools
 
 
 def test_search_regulation_wraps_mixed_search(monkeypatch):
-    async def fake_mixed(db, q, topk, model_type=None):
+    seen = {}
+
+    async def fake_mixed(db, q, topk, model_type=None, tenant=None):
+        seen["tenant"] = tenant
         return [{"docName": "手册A", "chunk": "油温超过95度应..."}]
     monkeypatch.setattr(agent_tools.retrieval_service, "mixed_search", fake_mixed)
-    out = asyncio.run(agent_tools._t_search_regulation(db=None, model_type=None, query="油温高"))
+    out = asyncio.run(agent_tools._t_search_regulation(
+        db=None, model_type=None, query="油温高", tenant="tenant-a",
+    ))
     assert "手册A" in out and "油温" in out
+    assert seen["tenant"] == "tenant-a"
+
+
+def test_tool_registry_forces_trusted_tenant_over_llm_argument(monkeypatch):
+    seen = {}
+
+    async def fake_audit(*args, **kwargs):
+        return None
+
+    async def handler(db, model_type, query, tenant=None):
+        seen.update(query=query, tenant=tenant)
+        return "ok"
+
+    monkeypatch.setattr(
+        "app.services.agent_tool_audit_service.log_tool_call", fake_audit,
+    )
+    registry = ToolRegistry()
+    registry.register(Tool("tenant_tool", "d", {}, handler))
+    result, error = asyncio.run(registry.run(
+        None,
+        None,
+        "tenant_tool",
+        {"query": "q", "tenant": "attacker-tenant"},
+        ctx={"username": "ops", "tenant": "trusted-tenant"},
+    ))
+    assert error is False and result == "ok"
+    assert seen == {"query": "q", "tenant": "trusted-tenant"}
+
+
+def test_tool_registry_rejects_non_tenant_aware_handler():
+    async def handler(db, model_type, query):
+        return query
+
+    registry = ToolRegistry()
+    registry.register(Tool("legacy_tool", "d", {}, handler))
+    result, error = asyncio.run(registry.run(
+        None,
+        None,
+        "legacy_tool",
+        {"query": "q"},
+        ctx={"tenant": "tenant-a"},
+    ))
+    assert error is True
+    assert "租户隔离" in result
 
 
 def test_query_equipment_graph_empty_returns_hint(monkeypatch):
-    async def fake_graph(entity, limit):
+    seen = {}
+
+    async def fake_graph(entity, limit, *, db=None, tenant=None):
+        seen.update(db=db, tenant=tenant)
         return []
     monkeypatch.setattr(agent_tools.kg_service, "graph_context", fake_graph)
-    out = asyncio.run(agent_tools._t_query_equipment_graph(None, None, entity="1号主变"))
+    marker_db = object()
+    out = asyncio.run(agent_tools._t_query_equipment_graph(
+        marker_db, None, entity="1号主变", tenant="tenant-a",
+    ))
     assert "无" in out
+    assert seen == {"db": marker_db, "tenant": "tenant-a"}
 
 
 def test_search_similar_case_wraps_domain(monkeypatch):
-    async def fake_case(db, symptom, mt, topk):
+    seen = {}
+
+    async def fake_case(db, symptom, mt, topk, *, tenant=None):
+        seen["tenant"] = tenant
         return {"cases": [{"docName": "案例X", "text": "历史上风扇故障..."}]}
     monkeypatch.setattr(agent_tools.domain_service, "similar_case", fake_case)
-    out = asyncio.run(agent_tools._t_search_similar_case(None, None, symptom="过热"))
+    out = asyncio.run(agent_tools._t_search_similar_case(
+        None, None, symptom="过热", tenant="tenant-a",
+    ))
     assert "案例X" in out
+    assert seen["tenant"] == "tenant-a"
 
 
 def test_draft_ticket_wraps_domain(monkeypatch):
-    async def fake_ticket(db, task, mt, topk):
+    seen = {}
+
+    async def fake_ticket(db, task, mt, topk, *, tenant=None):
+        seen["tenant"] = tenant
         return {"ticket": {"device": "1号主变", "steps": ["断开开关"], "safety": ["验电"], "risks": []}}
     monkeypatch.setattr(agent_tools.domain_service, "generate_ticket", fake_ticket)
-    out = asyncio.run(agent_tools._t_draft_ticket(None, None, task="转检修"))
+    out = asyncio.run(agent_tools._t_draft_ticket(
+        None, None, task="转检修", tenant="tenant-a",
+    ))
     assert "1号主变" in out and "断开开关" in out
+    assert seen["tenant"] == "tenant-a"
 
 
 def test_default_registry_has_four_tools():

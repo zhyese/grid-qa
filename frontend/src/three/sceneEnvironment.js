@@ -17,6 +17,7 @@
 import * as THREE from 'three'
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js'
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js'
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 
 // ========== 共享材质缓存(与 deviceFactory.js 共用) ==========
 const _matCache = new Map()
@@ -630,8 +631,22 @@ export function buildDistrict(envMap) {
   // 道路
   g.add(buildRoads())
 
-  // 建筑群
-  g.add(buildCityBlock({ seed: 42 }))
+  // 建筑群：Kenney glTF 真实模型（环形 25 栋外圈，替换程序化方盒）
+  const _loader = new GLTFLoader()
+  const _names = ['building-a','building-b','building-c','building-d','building-e','building-f','building-g','building-h','building-i','building-j','building-k','building-l','building-m','building-n','building-o','building-p','building-q','building-r','building-s','building-t']
+  for (let i = 0; i < 25; i++) {
+    const ang = (i / 25) * Math.PI * 2
+    const r = 24 + (i % 3) * 3
+    const nm = _names[i % _names.length]
+    _loader.load(`/models/kenney_industrial/Models/GLB format/${nm}.glb`, (gltf) => {
+      const m = gltf.scene
+      m.scale.set(2.5, 2.5, 2.5)
+      m.position.set(Math.cos(ang) * r, 0, Math.sin(ang) * r)
+      m.rotation.y = -ang + Math.PI / 2
+      m.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true } })
+      g.add(m)
+    })
+  }
 
   // 树木
   g.add(buildTrees())

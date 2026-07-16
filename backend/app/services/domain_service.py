@@ -129,12 +129,25 @@ async def diagnose(db, symptom: str, model_type: str | None = None, topk: int = 
     }
 
 
-async def similar_case(db, symptom: str, model_type: str | None = None, topk: int = 5) -> dict:
+async def similar_case(
+    db,
+    symptom: str,
+    model_type: str | None = None,
+    topk: int = 5,
+    *,
+    tenant: str | None = None,
+) -> dict:
     """相似历史故障案例检索（D2）：限定故障案例库 docType=故障案例。"""
     _guard(symptom)
     try:
         result = await retrieval_service.mixed_search(
-            db, symptom, topk, doc_type="故障案例", model_type=model_type)
+            db,
+            symptom,
+            topk,
+            doc_type="故障案例",
+            model_type=model_type,
+            tenant=tenant,
+        )
     except Exception as e:
         degraded("similar_case", e)
         result = []
@@ -150,13 +163,22 @@ async def similar_case(db, symptom: str, model_type: str | None = None, topk: in
     }
 
 
-async def generate_ticket(db, task: str, model_type: str | None = None, topk: int = 5) -> dict:
+async def generate_ticket(
+    db,
+    task: str,
+    model_type: str | None = None,
+    topk: int = 5,
+    *,
+    tenant: str | None = None,
+) -> dict:
     """两票辅助生成（D3）：操作任务 → 检索规程 → 结构化操作票。"""
     _guard(task)
     provider = get_llm_provider(model_type)
     contexts: list[dict] = []
     try:
-        contexts = await retrieval_service.mixed_search(db, task, topk, model_type=model_type)
+        contexts = await retrieval_service.mixed_search(
+            db, task, topk, model_type=model_type, tenant=tenant,
+        )
     except Exception as e:
         degraded("ticket_retrieve", e)
     refs = "\n\n".join(f"[{i + 1}] {(c.get('chunk') or '')[:300]}" for i, c in enumerate(contexts))

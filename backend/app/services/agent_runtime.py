@@ -4,6 +4,7 @@
 循环 / per-tool 异常隔离 / 降级 / 指标沿用 diagnose_agent_service 既有实现。
 工具集中定义在 agent_tools.py（run_agent 内 lazy import 避免循环）。
 """
+import inspect
 import json
 import re
 import time
@@ -29,7 +30,7 @@ class Tool:
     name: str
     description: str
     parameters: dict
-    handler: Callable[[AsyncSession, Optional[str], dict], Awaitable[str]]
+    handler: Callable[..., Awaitable[str]]
 
     @property
     def schema(self) -> dict:
@@ -79,9 +80,27 @@ class ToolRegistry:
         t = self._tools.get(name)
         if not t:
             return f"未知工具: {name}", True
+        tool_args = dict(args) if isinstance(args, dict) else {}
+        # tenant 是运行时保留参数，LLM/用户参数无权指定或覆盖。
+        for reserved in ("tenant", "tenant_id", "tenantId"):
+            tool_args.pop(reserved, None)
+        if ctx is not None:
+            tenant = str(ctx.get("tenant") or "default").strip() or "default"
+            try:
+                parameters = inspect.signature(t.handler).parameters.values()
+                tenant_aware = any(
+                    parameter.name == "tenant"
+                    or parameter.kind is inspect.Parameter.VAR_KEYWORD
+                    for parameter in parameters
+                )
+            except (TypeError, ValueError):
+                tenant_aware = False
+            if not tenant_aware:
+                return f"工具 {name} 未声明租户隔离能力，已拒绝调用", True
+            tool_args["tenant"] = tenant
         error = False
         try:
-            result = await t.handler(db, model_type, **(args or {}))
+            result = await t.handler(db, model_type, **tool_args)
         except Exception as e:
             degraded(f"agent_tool_{name}", e)
             result = f"工具 {name} 执行失败: {type(e).__name__}: {e}"
@@ -93,7 +112,7 @@ class ToolRegistry:
                 from app.services.agent_tool_audit_service import log_tool_call
                 asyncio.ensure_future(log_tool_call(
                     persona=ctx.get("persona", ""), tool=name,
-                    iter=ctx.get("iter", 0), args=args or {}, result=result or "",
+                    iter=ctx.get("iter", 0), args=tool_args, result=result or "",
                     error=error, username=ctx.get("username", ""),
                     tenant=ctx.get("tenant", "default"), role=ctx.get("role", ""),
                     degraded_flag=error,

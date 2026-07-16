@@ -7,6 +7,7 @@ import asyncio
 _bg_tasks: set = set()  # 持有后台 task 引用，防 GC
 
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 
 from app.clients import redis_client
 from app.config import settings
@@ -14,13 +15,18 @@ from app.core import safety
 from app.core.obs import degraded
 from app.providers.factory import get_llm_provider
 from app.rag import citation, prompt_templates
+from app.models.document import Document
 from app.services import config_service, conversation_service, kg_service, retrieval_service, term_service
 
 _HISTORY_LIMIT = 6  # 拼接最近 3 轮（6 条消息）
 
 
-def _cache_key(model_type: str | None, query: str) -> str:
-    return f"qa:{model_type or 'default'}:{query}"
+def _cache_tenant(tenant: str | None) -> str:
+    return (tenant or "default").strip() or "default"
+
+
+def _cache_key(model_type: str | None, query: str, tenant: str | None = "default") -> str:
+    return f"qa:{_cache_tenant(tenant)}:{model_type or 'default'}:{query}"
 
 
 async def _is_blacklisted(nq: str) -> bool:
@@ -30,6 +36,44 @@ async def _is_blacklisted(nq: str) -> bool:
         return await is_query_blacklisted(nq)
     except Exception:
         return False
+
+
+async def _cache_knowledge_valid(
+    db: AsyncSession, cached: dict | None, tenant: str | None,
+) -> bool:
+    """缓存命中前复核其证据文档时效，防止已撤回/过期知识继续回答。"""
+    if not cached:
+        return False
+    doc_ids = {
+        str(item.get("docId") or item.get("doc_id") or "")
+        for item in (cached.get("retrievalSource") or [])
+        if isinstance(item, dict)
+    }
+    doc_ids.discard("")
+    if not doc_ids:
+        return not bool(tenant)
+    try:
+        if tenant:
+            owned = (
+                await db.execute(
+                    select(Document.id).where(
+                        Document.id.in_(doc_ids),
+                        Document.tenant_id == tenant,
+                    )
+                )
+            ).scalars().all()
+            if set(owned) != doc_ids:
+                return False
+        from app.services import knowledge_governance_service
+
+        blocked = await knowledge_governance_service.blocked_document_ids(
+            db, doc_ids, tenant_id=tenant,
+        )
+        return not blocked
+    except Exception as exc:
+        degraded("knowledge_governance_cache_gate", exc)
+        # 带租户的生产问答采用 fail-closed；离线/兼容调用未提供 tenant 时不改变旧行为。
+        return not bool(tenant)
 
 
 async def _crag_correct(
@@ -182,11 +226,11 @@ async def answer(
     if is_single and not await _is_blacklisted(nq):
         # L1: Redis 热点缓存（精确 key 匹配）
         try:
-            cached = await redis_client.cache_get_json(_cache_key(model_type, nq))
+            cached = await redis_client.cache_get_json(_cache_key(model_type, nq, tenant))
         except Exception as e:
             degraded("qa_cache_get", e)
             cached = None
-        if cached:
+        if cached and await _cache_knowledge_valid(db, cached, tenant):
             cached["cached"] = True
             cached["cacheLayer"] = "redis"
             cached["responseTime"] = round(time.time() - t0, 3)
@@ -202,8 +246,8 @@ async def answer(
         if settings.CACHE_PERSIST_ENABLE:
             try:
                 from app.services.cache_persist import cache_get_mysql
-                mysql_cached = await cache_get_mysql(db, model_type, nq)
-                if mysql_cached:
+                mysql_cached = await cache_get_mysql(db, model_type, nq, tenant_id=tenant)
+                if mysql_cached and await _cache_knowledge_valid(db, mysql_cached, tenant):
                     mysql_cached["cached"] = True
                     mysql_cached["cacheLayer"] = "mysql"
                     mysql_cached["responseTime"] = round(time.time() - t0, 3)
@@ -221,8 +265,12 @@ async def answer(
         if getattr(settings, "SEMANTIC_CACHE_ENABLE", False):
             try:
                 from app.rag.semantic_cache import semantic_cache_get
-                sc_data, sc_type, sc_sim = await semantic_cache_get(model_type, nq)
-                if sc_data and sc_type in ("semantic_high", "semantic_medium"):
+                sc_data, sc_type, sc_sim = await semantic_cache_get(model_type, nq, tenant_id=tenant)
+                if (
+                    sc_data
+                    and sc_type in ("semantic_high", "semantic_medium")
+                    and await _cache_knowledge_valid(db, sc_data, tenant)
+                ):
                     sc_data["cached"] = True
                     sc_data["cacheLayer"] = sc_type
                     sc_data["semanticSimilarity"] = round(sc_sim, 4)
@@ -248,8 +296,8 @@ async def answer(
     # 场景：用户点推荐问题(完整 query)接续对话，答案不依赖上下文，可安全命中
     if conversation_id and search_q == nq and not await _is_blacklisted(nq):
         try:
-            cached = await redis_client.cache_get_json(_cache_key(model_type, nq))
-            if cached:
+            cached = await redis_client.cache_get_json(_cache_key(model_type, nq, tenant))
+            if cached and await _cache_knowledge_valid(db, cached, tenant):
                 cached["cached"] = True
                 cached["cacheLayer"] = "redis"
                 cached["responseTime"] = round(time.time() - t0, 3)
@@ -302,7 +350,7 @@ async def answer(
     graph: list[str] = []
     if settings.KG_RAG_ENABLE:
         try:
-            graph = await kg_service.graph_context(nq)
+            graph = await kg_service.graph_context(nq, db=db, tenant=tenant)
         except Exception as e:
             degraded("kg_graph_context", e)
             graph = []
@@ -366,19 +414,19 @@ async def answer(
         if settings.CACHE_PERSIST_ENABLE:
             try:
                 from app.services.cache_persist import cache_set_mysql
-                await cache_set_mysql(db, model_type, nq, query, result)
+                await cache_set_mysql(db, model_type, nq, query, result, tenant_id=tenant)
             except Exception as e:
                 degraded("qa_cache_mysql_set", e)
         # L1: Redis 热点（后写，MySQL 已成功）
         try:
-            await redis_client.cache_set_json(_cache_key(model_type, nq), result, settings.QA_CACHE_TTL)
+            await redis_client.cache_set_json(_cache_key(model_type, nq, tenant), result, settings.QA_CACHE_TTL)
         except Exception as e:
             degraded("qa_cache_set", e)
         # L1.5: 语义缓存索引（异步，不阻塞）
         if getattr(settings, "SEMANTIC_CACHE_ENABLE", False):
             try:
                 from app.rag.semantic_cache import semantic_cache_set
-                await semantic_cache_set(model_type, nq, _cache_key(model_type, nq))
+                await semantic_cache_set(model_type, nq, _cache_key(model_type, nq, tenant), tenant_id=tenant)
             except Exception as e:
                 degraded("semantic_cache_set", e)
     try:
@@ -423,7 +471,7 @@ async def _stream_agent(db, query, model_type, conversation_id, username, tenant
 
     is_single = not conversation_id
     nq = term_service.normalize(query)
-    key = _cache_key(model_type, nq)
+    key = _cache_key(model_type, nq, tenant)
     _p = model_type or settings.LLM_PROVIDER
 
     # 单轮查缓存（L1 Redis → L2 MySQL），命中→流式返缓存答案（不跑 agent，秒级）
@@ -436,10 +484,14 @@ async def _stream_agent(db, query, model_type, conversation_id, username, tenant
         if not cached and getattr(settings, "CACHE_PERSIST_ENABLE", False):
             try:
                 from app.services.cache_persist import cache_get_mysql
-                cached = await cache_get_mysql(db, model_type, nq)
+                cached = await cache_get_mysql(db, model_type, nq, tenant_id=tenant)
             except Exception as e:
                 degraded("agent_cache_mysql", e)
-        if cached and cached.get("answer"):
+        if (
+            cached
+            and cached.get("answer")
+            and await _cache_knowledge_valid(db, cached, tenant)
+        ):
             conv = await conversation_service.create_conversation(db, username, query)
             cid = conv.id
             try:
@@ -502,7 +554,7 @@ async def _stream_agent(db, query, model_type, conversation_id, username, tenant
                     if getattr(settings, "CACHE_PERSIST_ENABLE", False):
                         try:
                             from app.services.cache_persist import cache_set_mysql
-                            await cache_set_mysql(db, model_type, nq, query, cache_result)
+                            await cache_set_mysql(db, model_type, nq, query, cache_result, tenant_id=tenant)
                         except Exception as e:
                             degraded("agent_cache_mysql_set", e)
                     try:
@@ -566,11 +618,11 @@ async def stream_answer(
     if is_single and not regen and not await _is_blacklisted(nq):
         # L1: Redis 热点
         try:
-            cached = await redis_client.cache_get_json(_cache_key(model_type, nq))
+            cached = await redis_client.cache_get_json(_cache_key(model_type, nq, tenant))
         except Exception as e:
             degraded("qa_cache_get", e)
             cached = None
-        if cached:
+        if cached and await _cache_knowledge_valid(db, cached, tenant):
             conv = await conversation_service.create_conversation(db, username, query)
             cid = conv.id
             try:
@@ -598,8 +650,8 @@ async def stream_answer(
         if settings.CACHE_PERSIST_ENABLE:
             try:
                 from app.services.cache_persist import cache_get_mysql
-                mysql_cached = await cache_get_mysql(db, model_type, nq)
-                if mysql_cached:
+                mysql_cached = await cache_get_mysql(db, model_type, nq, tenant_id=tenant)
+                if mysql_cached and await _cache_knowledge_valid(db, mysql_cached, tenant):
                     conv = await conversation_service.create_conversation(db, username, query)
                     cid = conv.id
                     try:
@@ -629,8 +681,12 @@ async def stream_answer(
         if getattr(settings, "SEMANTIC_CACHE_ENABLE", False):
             try:
                 from app.rag.semantic_cache import semantic_cache_get
-                sc_data, sc_type, sc_sim = await semantic_cache_get(model_type, nq)
-                if sc_data and sc_type in ("semantic_high", "semantic_medium"):
+                sc_data, sc_type, sc_sim = await semantic_cache_get(model_type, nq, tenant_id=tenant)
+                if (
+                    sc_data
+                    and sc_type in ("semantic_high", "semantic_medium")
+                    and await _cache_knowledge_valid(db, sc_data, tenant)
+                ):
                     conv = await conversation_service.create_conversation(db, username, query)
                     cid = conv.id
                     try:
@@ -667,8 +723,8 @@ async def stream_answer(
     # 多轮且 query 完整(search_q==nq) → 也查 Redis 热点（流式，存消息接续对话）
     if conversation_id and search_q == nq and not regen and not await _is_blacklisted(nq):
         try:
-            cached = await redis_client.cache_get_json(_cache_key(model_type, nq))
-            if cached:
+            cached = await redis_client.cache_get_json(_cache_key(model_type, nq, tenant))
+            if cached and await _cache_knowledge_valid(db, cached, tenant):
                 try:
                     await conversation_service.save_message(db, conversation_id, "user", query)
                     await conversation_service.save_message(db, conversation_id, "assistant", cached.get("answer", ""))
@@ -716,7 +772,7 @@ async def stream_answer(
     graph: list[str] = []
     if settings.KG_RAG_ENABLE:
         try:
-            graph = await kg_service.graph_context(nq)
+            graph = await kg_service.graph_context(nq, db=db, tenant=tenant)
         except Exception as e:
             degraded("kg_graph_context", e)
             graph = []
@@ -808,19 +864,19 @@ async def stream_answer(
         if settings.CACHE_PERSIST_ENABLE:
             try:
                 from app.services.cache_persist import cache_set_mysql
-                await cache_set_mysql(db, model_type, nq, query, cache_data)
+                await cache_set_mysql(db, model_type, nq, query, cache_data, tenant_id=tenant)
             except Exception as e:
                 degraded("qa_cache_mysql_set_stream", e)
         # L1: Redis 热点（后写）
         try:
-            await redis_client.cache_set_json(_cache_key(model_type, nq), cache_data, settings.QA_CACHE_TTL)
+            await redis_client.cache_set_json(_cache_key(model_type, nq, tenant), cache_data, settings.QA_CACHE_TTL)
         except Exception as e:
             degraded("qa_cache_set", e)
         # L1.5: 语义缓存索引（向量化入库，供后续相似查询命中）
         if getattr(settings, "SEMANTIC_CACHE_ENABLE", False):
             try:
                 from app.rag.semantic_cache import semantic_cache_set
-                await semantic_cache_set(model_type, nq, _cache_key(model_type, nq))
+                await semantic_cache_set(model_type, nq, _cache_key(model_type, nq, tenant), tenant_id=tenant)
             except Exception as e:
                 degraded("semantic_cache_set_stream", e)
     try:

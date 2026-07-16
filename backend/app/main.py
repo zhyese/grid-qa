@@ -151,8 +151,23 @@ async def lifespan(app: FastAPI):
         print("[backup] 定时全量备份后台任务已启动（每 3h）")
     except Exception as e:
         print(f"[backup] 定时备份启动跳过：{e}")
+    # 所有 provider、MCP 工具和运行时配置就绪后再消费积压任务，避免启动窗口内
+    # 的主动诊断拿到不完整工具集。任务/事件先落 MySQL，进程重启后可恢复。
+    try:
+        from app.tasks.lifecycle import start_background_workers
+
+        await start_background_workers(app)
+        print("[task-center] realtime/default/low worker 与事件 dispatcher 已启动")
+    except Exception as e:
+        degraded("task_center_start", e, "持久化任务 worker 启动失败")
     # ---- 关闭 ----
     yield
+    try:
+        from app.tasks.lifecycle import stop_background_workers
+
+        await stop_background_workers(app)
+    except Exception as e:
+        degraded("task_center_stop", e)
     _task = getattr(app.state, "component_health_task", None)
     if _task:
         _task.cancel()
@@ -296,7 +311,20 @@ async def health():
 
 
 # ---- 路由挂载 ----
-from app.routers import document, domain, kg, memory, qa, retrieval, retrieval_tune_router, system, twin  # noqa: E402
+from app.routers import (  # noqa: E402
+    document,
+    domain,
+    kg,
+    knowledge_governance,
+    memory,
+    qa,
+    realtime_event,
+    retrieval,
+    retrieval_tune_router,
+    system,
+    task_center,
+    twin,
+)
 from app.mcp.server import router as mcp_router  # noqa: E402
 
 app.include_router(system.router, prefix=settings.API_PREFIX)
@@ -308,6 +336,9 @@ app.include_router(kg.router, prefix=settings.API_PREFIX)
 app.include_router(domain.router, prefix=settings.API_PREFIX)
 app.include_router(memory.router, prefix=settings.API_PREFIX)
 app.include_router(twin.router, prefix=settings.API_PREFIX)
+app.include_router(task_center.router, prefix=settings.API_PREFIX)
+app.include_router(realtime_event.router, prefix=settings.API_PREFIX)
+app.include_router(knowledge_governance.router, prefix=settings.API_PREFIX)
 app.include_router(mcp_router, prefix=settings.API_PREFIX)
 
 

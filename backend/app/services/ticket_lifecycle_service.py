@@ -20,14 +20,34 @@ def _now():
     return datetime.now()
 
 
+def _ticket_query(ticket_id: str, tenant: str = "default"):
+    return select(Ticket).where(
+        Ticket.id == ticket_id,
+        Ticket.tenant_id == tenant,
+        Ticket.is_deleted == 0,
+    )
+
+
 async def create_ticket(
     db: AsyncSession, *,
     ticket_type: str = "操作票", task: str = "", device: str = "",
     location: str = "", steps: list[str] | None = None,
     safety: list[str] | None = None, risks: list[str] | None = None,
     notes: str = "", creator: str = "", tenant: str = "default",
+    source_ref: str | None = None, commit: bool = True,
 ) -> dict:
-    """创建新票据（草稿状态）。"""
+    """创建新票据（草稿状态）；source_ref 可与上游业务原子幂等关联。"""
+    source_ref = (source_ref or "").strip() or None
+    if source_ref:
+        existing = (await db.execute(
+            select(Ticket).where(
+                Ticket.tenant_id == tenant,
+                Ticket.source_ref == source_ref,
+                Ticket.is_deleted == 0,
+            )
+        )).scalar_one_or_none()
+        if existing:
+            return _ticket_to_dict(existing)
     ticket = Ticket(
         id=uuid.uuid4().hex,
         tenant_id=tenant,
@@ -42,16 +62,21 @@ async def create_ticket(
         risks=json.dumps(risks or [], ensure_ascii=False),
         notes=notes,
         creator=creator,
+        source_ref=source_ref,
     )
     db.add(ticket)
-    await db.commit()
+    await db.flush()
+    if commit:
+        await db.commit()
     await db.refresh(ticket)   # 显式回填 server_default 字段，避免 _ticket_to_dict 触发 lazy load → MissingGreenlet
     return _ticket_to_dict(ticket)
 
 
-async def get_ticket(db: AsyncSession, ticket_id: str) -> dict | None:
+async def get_ticket(
+    db: AsyncSession, ticket_id: str, *, tenant: str = "default",
+) -> dict | None:
     """查询单张票据。"""
-    t = (await db.execute(select(Ticket).where(Ticket.id == ticket_id, Ticket.is_deleted == 0))).scalar_one_or_none()
+    t = (await db.execute(_ticket_query(ticket_id, tenant))).scalar_one_or_none()
     return _ticket_to_dict(t) if t else None
 
 
@@ -80,10 +105,10 @@ async def list_tickets(
 
 
 async def update_ticket_content(
-    db: AsyncSession, ticket_id: str, **kwargs,
+    db: AsyncSession, ticket_id: str, tenant: str = "default", **kwargs,
 ) -> dict | None:
     """修改票据内容（仅 draft 状态可改）。"""
-    t = (await db.execute(select(Ticket).where(Ticket.id == ticket_id, Ticket.is_deleted == 0))).scalar_one_or_none()
+    t = (await db.execute(_ticket_query(ticket_id, tenant))).scalar_one_or_none()
     if not t:
         return None
     if t.status != TicketStatus.DRAFT:
@@ -99,9 +124,11 @@ async def update_ticket_content(
     return _ticket_to_dict(t)
 
 
-async def submit_for_review(db: AsyncSession, ticket_id: str) -> dict:
+async def submit_for_review(
+    db: AsyncSession, ticket_id: str, *, tenant: str = "default",
+) -> dict:
     """提交审核：draft → pending_review，并自动跑审核。"""
-    t = (await db.execute(select(Ticket).where(Ticket.id == ticket_id, Ticket.is_deleted == 0))).scalar_one_or_none()
+    t = (await db.execute(_ticket_query(ticket_id, tenant))).scalar_one_or_none()
     if not t:
         raise ValueError("票据不存在")
     if t.status != TicketStatus.DRAFT:
@@ -129,10 +156,10 @@ async def submit_for_review(db: AsyncSession, ticket_id: str) -> dict:
 
 async def review_ticket(
     db: AsyncSession, ticket_id: str, approved: bool, comment: str = "",
-    reviewer: str = "",
+    reviewer: str = "", tenant: str = "default",
 ) -> dict:
     """审核通过/驳回。"""
-    t = (await db.execute(select(Ticket).where(Ticket.id == ticket_id, Ticket.is_deleted == 0))).scalar_one_or_none()
+    t = (await db.execute(_ticket_query(ticket_id, tenant))).scalar_one_or_none()
     if not t:
         raise ValueError("票据不存在")
     if t.status not in (TicketStatus.PENDING_REVIEW, TicketStatus.REVIEWED):
@@ -149,9 +176,11 @@ async def review_ticket(
     return _ticket_to_dict(t)
 
 
-async def issue_ticket(db: AsyncSession, ticket_id: str, issuer: str = "") -> dict:
+async def issue_ticket(
+    db: AsyncSession, ticket_id: str, issuer: str = "", *, tenant: str = "default",
+) -> dict:
     """签发票据：reviewed → issued。"""
-    t = (await db.execute(select(Ticket).where(Ticket.id == ticket_id, Ticket.is_deleted == 0))).scalar_one_or_none()
+    t = (await db.execute(_ticket_query(ticket_id, tenant))).scalar_one_or_none()
     if not t:
         raise ValueError("票据不存在")
     if t.status != TicketStatus.REVIEWED:
@@ -166,9 +195,10 @@ async def issue_ticket(db: AsyncSession, ticket_id: str, issuer: str = "") -> di
 
 async def start_execution(
     db: AsyncSession, ticket_id: str, executor: str = "", supervisor: str = "",
+    *, tenant: str = "default",
 ) -> dict:
     """开始执行：issued → in_execution。"""
-    t = (await db.execute(select(Ticket).where(Ticket.id == ticket_id, Ticket.is_deleted == 0))).scalar_one_or_none()
+    t = (await db.execute(_ticket_query(ticket_id, tenant))).scalar_one_or_none()
     if not t:
         raise ValueError("票据不存在")
     if t.status != TicketStatus.ISSUED:
@@ -184,9 +214,10 @@ async def start_execution(
 
 async def complete_execution(
     db: AsyncSession, ticket_id: str, log: str = "", deviation: str = "",
+    *, tenant: str = "default",
 ) -> dict:
     """完成执行：in_execution → completed。"""
-    t = (await db.execute(select(Ticket).where(Ticket.id == ticket_id, Ticket.is_deleted == 0))).scalar_one_or_none()
+    t = (await db.execute(_ticket_query(ticket_id, tenant))).scalar_one_or_none()
     if not t:
         raise ValueError("票据不存在")
     if t.status != TicketStatus.IN_EXECUTION:
@@ -202,9 +233,11 @@ async def complete_execution(
     return _ticket_to_dict(t)
 
 
-async def archive_ticket(db: AsyncSession, ticket_id: str) -> dict:
+async def archive_ticket(
+    db: AsyncSession, ticket_id: str, *, tenant: str = "default",
+) -> dict:
     """归档票据：completed → archived。"""
-    t = (await db.execute(select(Ticket).where(Ticket.id == ticket_id, Ticket.is_deleted == 0))).scalar_one_or_none()
+    t = (await db.execute(_ticket_query(ticket_id, tenant))).scalar_one_or_none()
     if not t:
         raise ValueError("票据不存在")
     if t.status != TicketStatus.COMPLETED:
@@ -216,9 +249,11 @@ async def archive_ticket(db: AsyncSession, ticket_id: str) -> dict:
     return _ticket_to_dict(t)
 
 
-async def delete_ticket(db: AsyncSession, ticket_id: str) -> bool:
+async def delete_ticket(
+    db: AsyncSession, ticket_id: str, *, tenant: str = "default",
+) -> bool:
     """软删票据。"""
-    t = (await db.execute(select(Ticket).where(Ticket.id == ticket_id, Ticket.is_deleted == 0))).scalar_one_or_none()
+    t = (await db.execute(_ticket_query(ticket_id, tenant))).scalar_one_or_none()
     if not t:
         return False
     t.is_deleted = 1
@@ -261,6 +296,7 @@ async def get_ticket_stats(db: AsyncSession, tenant: str = "default") -> dict:
 def _ticket_to_dict(t: Ticket) -> dict:
     return {
         "id": t.id,
+        "sourceRef": getattr(t, "source_ref", None) or "",
         "ticketType": t.ticket_type.value if t.ticket_type else "操作票",
         "status": t.status.value if t.status else "draft",
         "title": t.title,

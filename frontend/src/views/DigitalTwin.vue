@@ -273,22 +273,6 @@ function render3D() {
     envGroup = buildDistrict(envMap)
     scene.add(envGroup)
 
-    // 园区建筑升级：Kenney glTF 真实模型（异步加载，验证 GLTFLoader + 真实建筑渲染）
-    const gltfLoader = new GLTFLoader()
-    const glbBuildings = [
-      ['building-a', -22, -14], ['building-b', 22, -14], ['building-c', -22, 14],
-      ['building-d', 22, 14], ['building-e', 0, -24], ['building-f', 0, 24],
-    ]
-    glbBuildings.forEach(([name, x, z]) => {
-      gltfLoader.load(`/models/kenney_industrial/Models/GLB format/${name}.glb`, (gltf) => {
-        const m = gltf.scene
-        m.scale.set(2.5, 2.5, 2.5)
-        m.position.set(x, 0, z)
-        m.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true } })
-        envGroup.add(m)
-      })
-    })
-
     // 站内区域地面已由 buildDistrict 内部 platforms 提供，不再调用 buildAreaFloor 避免重叠 z-fight
     // 区域标签仍然渲染（标签和地面分开，无 z-fight 风险）
     for (const area of overview.value.areas || []) {

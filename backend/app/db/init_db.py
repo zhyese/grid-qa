@@ -2,6 +2,18 @@
 from sqlalchemy import select, text
 
 from app.config import settings
+from app.models.domain_event import DomainEvent, EventDelivery  # noqa: F401
+from app.models.knowledge_governance import (  # noqa: F401
+    KnowledgeDocumentMetadata,
+    KnowledgeGovernanceIssue,
+    KnowledgeGovernanceReview,
+)
+from app.models.persistent_task import PersistentTask  # noqa: F401
+from app.models.realtime_event import (  # noqa: F401
+    ProactiveOpsRun,
+    RealtimeDeviceMapping,
+    RealtimeEvent,
+)
 from app.core.security import hash_password
 from app.db.base import Base
 from app.db.session import AsyncSessionLocal, engine
@@ -13,6 +25,7 @@ from app.models.feedback import Feedback  # noqa: F401  确保表被注册
 from app.models.kg_triple import KgTriple  # noqa: F401  确保表被注册
 from app.models.operation_log import OperationLog  # noqa: F401  确保表被注册
 from app.models.qa_cache import QaCache  # noqa: F401  确保表被注册
+from app.models.ticket import Ticket  # noqa: F401  确保两票表与来源幂等约束被注册
 from app.models.user import User  # noqa: F401
 from app.models.agent_tool_call import AgentToolCall  # noqa: F401  S4 工具调用审计
 from app.models.alert_disposal import AlertDisposal  # noqa: F401  S3 告警处置
@@ -46,6 +59,22 @@ _COLUMN_MIGRATIONS = [
     ("alert_disposal", "reviewer", "VARCHAR(64) NOT NULL DEFAULT ''"),
     ("alert_disposal", "review_note", "VARCHAR(500) NOT NULL DEFAULT ''"),
     ("alert_disposal", "reviewed_at", "DATETIME NULL"),
+    ("alert_disposal", "tenant_id", "VARCHAR(64) NOT NULL DEFAULT 'default'"),
+    ("tickets", "source_ref", "VARCHAR(128) NULL"),
+    ("qa_cache", "tenant_id", "VARCHAR(64) NOT NULL DEFAULT 'default'"),
+]
+
+_INDEX_MIGRATIONS = [
+    (
+        "tickets",
+        "uq_tickets_tenant_source_ref",
+        "UNIQUE INDEX `uq_tickets_tenant_source_ref` (`tenant_id`, `source_ref`)",
+    ),
+    (
+        "alert_disposal",
+        "ix_alert_disposal_tenant_status_created",
+        "INDEX `ix_alert_disposal_tenant_status_created` (`tenant_id`, `status`, `created_at`)",
+    ),
 ]
 
 
@@ -57,6 +86,11 @@ async def _ensure_columns() -> None:
                 await conn.execute(text(f"ALTER TABLE `{table}` ADD COLUMN `{col}` {typedef}"))
             except Exception:
                 pass  # 列已存在（1060）或表不存在，跳过
+        for table, _name, definition in _INDEX_MIGRATIONS:
+            try:
+                await conn.execute(text(f"ALTER TABLE `{table}` ADD {definition}"))
+            except Exception:
+                pass  # 索引已存在（1061）或表不存在，跳过
 
 
 async def init_db() -> None:

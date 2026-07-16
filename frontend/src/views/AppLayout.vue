@@ -76,6 +76,7 @@ const navItems = computed(() => {
   const items = [
     { to: '/chat', icon: '💬', label: '智能问答' },
     { to: '/diagnose', icon: '🩺', label: '故障诊断' },
+    { to: '/operations', icon: '⚡', label: '主动运维' },
     { to: '/documents', icon: '📄', label: '知识库' },
     { to: '/dashboard', icon: '📊', label: '统计看板' },
     { to: '/kg', icon: '🧠', label: '知识图谱' },
@@ -83,6 +84,9 @@ const navItems = computed(() => {
     { to: '/twin', icon: '🏭', label: '数字孪生' },
     { to: '/ticket', icon: '📋', label: '两票管理' },
   ]
+  if (hasPerm(auth.role, 'doc:manage')) {
+    items.splice(4, 0, { to: '/knowledge-governance', icon: '🧭', label: '知识治理' })
+  }
   if (hasPerm(auth.role, 'metric:read')) {
     items.push({ to: '/prediction', icon: '🔮', label: '故障预测' })
   }

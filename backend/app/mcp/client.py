@@ -94,8 +94,14 @@ class McpClient:
 
                 # 创建闭包捕获 server_url 和 tool_name
                 def make_handler(srv_url, t_name, srv_token=""):
-                    async def handler(db, model_type, **args):
-                        return await self.call_tool(srv_url, t_name, args, srv_token)
+                    async def handler(db, model_type, tenant=None, **args):
+                        return await self.call_tool(
+                            srv_url,
+                            t_name,
+                            args,
+                            srv_token,
+                            tenant_id=tenant or "",
+                        )
                     return handler
 
                 tool = Tool(
@@ -108,8 +114,15 @@ class McpClient:
                 count += 1
         return count
 
-    async def call_tool(self, server_url: str, tool_name: str,
-                        args: dict, token: str = "") -> str:
+    async def call_tool(
+        self,
+        server_url: str,
+        tool_name: str,
+        args: dict,
+        token: str = "",
+        *,
+        tenant_id: str = "",
+    ) -> str:
         """调用外部 MCP server 的工具。
 
         Returns: 工具结果文本（LLM 可读）
@@ -118,7 +131,7 @@ class McpClient:
             try:
                 resp = await client.post(
                     f"{server_url}/mcp/tools/call",
-                    headers=self._auth_headers(token),
+                    headers=self._auth_headers(token, tenant_id=tenant_id),
                     json={"name": tool_name, "arguments": args or {}},
                 )
                 if resp.status_code == 200:
@@ -137,11 +150,13 @@ class McpClient:
                 degraded("mcp_call_tool", e)
                 return f"工具调用异常: {type(e).__name__}: {e}"
 
-    def _auth_headers(self, token: str) -> dict:
+    def _auth_headers(self, token: str, *, tenant_id: str = "") -> dict:
         """构建鉴权 header。"""
         headers = {"Content-Type": "application/json"}
         if token:
             headers["Authorization"] = f"Bearer {token}"
+        if tenant_id:
+            headers["X-Tenant-Id"] = tenant_id
         return headers
 
 

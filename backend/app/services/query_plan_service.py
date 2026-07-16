@@ -88,7 +88,7 @@ async def synthesize_answer(
     for i, sr in enumerate(sub_results):
         q = sr.get("query", "")
         ctx = sr.get("contexts", [])
-        ctx_str = "\n".join(f"  [{j+1}] {(c.get('docName','')+'):' if c.get('docName') else ''}{(c.get('chunk','') or '')[:200]}"
+        ctx_str = "\n".join(f"  [{j+1}] {(c.get('docName', '') + ':') if c.get('docName') else ''}{(c.get('chunk', '') or '')[:200]}"
                             for j, c in enumerate(ctx[:3])) if ctx else "  无检索结果"
         q_type = sr.get("type", "fact")
         parts.append(f"子问题{i+1}({q_type}): {q}\n资料:\n{ctx_str}")

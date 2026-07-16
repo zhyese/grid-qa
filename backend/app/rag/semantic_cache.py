@@ -8,9 +8,9 @@
 - 匹配用 numpy matmul：全量余弦一次 BLAS 搞定（5000 条 50ms→~1ms）。
 - set() 用进程内 asyncio.Lock 串行化读-改-写，避免并发覆盖丢条目。
 
-存储结构（v2，与旧 float-list 格式隔离，旧索引 3 天 TTL 自然过期）：
-- 精确缓存：qa:{model}:{query} → {answer, ...}（沿用）
-- 语义索引：qa_semantic:index:v2 → [{query, emb(b64), cache_key, ts}]
+存储结构（v3，与旧 float-list/全局索引隔离，旧索引 TTL 自然过期）：
+- 精确缓存：qa:{tenant}:{model}:{query} → {answer, ...}
+- 语义索引：qa_semantic:tenant:{tenant}:index:v3 → [{query, emb(b64), cache_key, ts}]
 """
 import asyncio
 import base64
@@ -24,13 +24,20 @@ from app.core.obs import degraded
 from app.services import embedding_service
 
 _SEMANTIC_PREFIX = "qa_semantic"
-_SEMANTIC_INDEX_KEY = f"{_SEMANTIC_PREFIX}:index:v2"   # v2：fp16 b64 格式，与旧 index 隔离
 _SEMANTIC_TTL = 86400 * 3       # 3 天
 _SIMILARITY_HIGH = 0.92          # 直接命中
 _SIMILARITY_MEDIUM = 0.85        # 快速验证
 _MAX_INDEX_SIZE = 5000           # 语义索引上限
 
 _set_lock = asyncio.Lock()       # 串行化 set 的读-改-写，避免并发覆盖丢条目
+
+
+def _cache_tenant(tenant_id: str | None) -> str:
+    return (tenant_id or "default").strip() or "default"
+
+
+def _semantic_index_key(tenant_id: str | None) -> str:
+    return f"{_SEMANTIC_PREFIX}:tenant:{_cache_tenant(tenant_id)}:index:v3"
 
 
 def _emb_to_b64(vec: list[float]) -> str:
@@ -44,13 +51,15 @@ def _b64_to_emb(s: str) -> np.ndarray:
     return np.frombuffer(base64.b64decode(s), dtype=np.float16).astype(np.float32)
 
 
-async def get_cached_key(model_type: str | None, query: str) -> str | None:
+async def get_cached_key(
+    model_type: str | None, query: str, tenant_id: str | None = "default",
+) -> str | None:
     """获取精确缓存 key（兼容现有缓存）。"""
-    return f"qa:{model_type or 'default'}:{query}"
+    return f"qa:{_cache_tenant(tenant_id)}:{model_type or 'default'}:{query}"
 
 
 async def semantic_cache_get(
-    model_type: str | None, query: str,
+    model_type: str | None, query: str, *, tenant_id: str | None = "default",
 ) -> tuple[dict | None, str, float]:
     """语义缓存查询。
 
@@ -66,7 +75,7 @@ async def semantic_cache_get(
         return None, "miss", 0.0
 
     # 1) 先尝试精确命中（已有 Redis L1）
-    exact_key = await get_cached_key(model_type, nq)
+    exact_key = await get_cached_key(model_type, nq, tenant_id)
     try:
         exact = await redis_client.cache_get_json(exact_key)
     except Exception:
@@ -81,8 +90,9 @@ async def semantic_cache_get(
         degraded("semantic_cache_embed", e)
         return None, "miss", 0.0
 
+    model = model_type or "default"
     try:
-        index = await redis_client.cache_get_json(_SEMANTIC_INDEX_KEY) or []
+        index = await redis_client.cache_get_json(_semantic_index_key(tenant_id)) or []
     except Exception:
         index = []
     if not index:
@@ -91,6 +101,8 @@ async def semantic_cache_get(
     # 抽取 b64 embedding → fp16 矩阵（跳过损坏/无 emb 条目）
     rows: list[tuple[np.ndarray, dict]] = []
     for e in index:
+        if e.get("model_type", "default") != model:
+            continue
         b = e.get("emb")
         if not b:
             continue
@@ -138,7 +150,7 @@ async def semantic_cache_get(
 
 async def semantic_cache_set(
     model_type: str | None, query: str, cache_key: str,
-    embedding: list[float] | None = None,
+    embedding: list[float] | None = None, *, tenant_id: str | None = "default",
 ) -> None:
     """将查询及其 embedding 加入语义索引。"""
     if not getattr(settings, "SEMANTIC_CACHE_ENABLE", False):
@@ -160,16 +172,18 @@ async def semantic_cache_set(
     # 读-改-写串行化（进程内锁），避免并发覆盖丢条目
     async with _set_lock:
         try:
-            index = await redis_client.cache_get_json(_SEMANTIC_INDEX_KEY) or []
+            index = await redis_client.cache_get_json(_semantic_index_key(tenant_id)) or []
         except Exception:
             index = []
 
         # 去重：相同 query 已存在则更新
         updated = False
         for e in index:
-            if e.get("query") == nq:
+            if e.get("query") == nq and e.get("model_type", "default") == (model_type or "default"):
                 e["emb"] = emb_b64
                 e["cache_key"] = cache_key
+                e["tenant_id"] = _cache_tenant(tenant_id)
+                e["model_type"] = model_type or "default"
                 e["ts"] = time.time()
                 updated = True
                 break
@@ -180,6 +194,8 @@ async def semantic_cache_set(
                 index = index[-_MAX_INDEX_SIZE + 100:]  # 保留最新的 4900 条
             index.append({
                 "query": nq,
+                "tenant_id": _cache_tenant(tenant_id),
+                "model_type": model_type or "default",
                 "emb": emb_b64,
                 "cache_key": cache_key,
                 "ts": time.time(),
@@ -187,12 +203,14 @@ async def semantic_cache_set(
 
         # 写回
         try:
-            await redis_client.cache_set_json(_SEMANTIC_INDEX_KEY, index, _SEMANTIC_TTL)
+            await redis_client.cache_set_json(_semantic_index_key(tenant_id), index, _SEMANTIC_TTL)
         except Exception as e:
             degraded("semantic_cache_index_write", e)
 
 
-async def semantic_cache_invalidate(model_type: str | None, query: str) -> None:
+async def semantic_cache_invalidate(
+    model_type: str | None, query: str, tenant_id: str | None = "default",
+) -> None:
     """失效语义缓存中特定 query 的条目。"""
     if not getattr(settings, "SEMANTIC_CACHE_ENABLE", False):
         return
@@ -201,8 +219,14 @@ async def semantic_cache_invalidate(model_type: str | None, query: str) -> None:
         return
     async with _set_lock:
         try:
-            index = await redis_client.cache_get_json(_SEMANTIC_INDEX_KEY) or []
-            index = [e for e in index if e.get("query") != nq]
-            await redis_client.cache_set_json(_SEMANTIC_INDEX_KEY, index, _SEMANTIC_TTL)
+            index = await redis_client.cache_get_json(_semantic_index_key(tenant_id)) or []
+            index = [
+                e for e in index
+                if not (
+                    e.get("query") == nq
+                    and e.get("model_type", "default") == (model_type or "default")
+                )
+            ]
+            await redis_client.cache_set_json(_semantic_index_key(tenant_id), index, _SEMANTIC_TTL)
         except Exception:
             pass

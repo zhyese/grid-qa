@@ -23,14 +23,16 @@ from app.models.qa_cache import QaCache
 
 
 async def cache_get_mysql(
-    db: AsyncSession, model_type: str | None, normalized_query: str,
+    db: AsyncSession, model_type: str | None, normalized_query: str, tenant_id: str = "default",
 ) -> dict | None:
     """L2: MySQL 二级缓存查询。命中后异步回写 Redis + 更新 hit_count。"""
-    query_hash = QaCache.build_hash(model_type, normalized_query)
+    tenant_id = tenant_id or "default"
+    query_hash = QaCache.build_hash(model_type, normalized_query, tenant_id)
     try:
         row = (
             await db.execute(
                 select(QaCache).where(
+                    QaCache.tenant_id == tenant_id,
                     QaCache.query_hash == query_hash,
                     QaCache.expires_at > func.now(),
                     QaCache.is_deleted == 0,
@@ -54,7 +56,7 @@ async def cache_get_mysql(
 
     # 异步回写 Redis（不阻塞响应）
     try:
-        cache_key = f"qa:{model_type or 'default'}:{normalized_query}"
+        cache_key = f"qa:{tenant_id}:{model_type or 'default'}:{normalized_query}"
         data = json.loads(row.answer) if isinstance(row.answer, str) else row.answer
         asyncio.ensure_future(
             redis_client.cache_set_json(cache_key, data, settings.QA_CACHE_TTL)
@@ -83,14 +85,16 @@ async def cache_set_mysql(
     normalized_query: str,
     original_query: str,
     result: dict,
+    tenant_id: str = "default",
 ) -> None:
     """Write-Through: 写入 MySQL 二级缓存（ON DUPLICATE KEY UPDATE）。
 
     先写 MySQL（持久化保证），成功后外部再写 Redis。
     MySQL 写入失败不阻塞——降级记录后仍可走 Redis 热缓存。
     """
-    cache_key = f"qa:{model_type or 'default'}:{normalized_query}"
-    query_hash = QaCache.build_hash(model_type, normalized_query)
+    tenant_id = tenant_id or "default"
+    cache_key = f"qa:{tenant_id}:{model_type or 'default'}:{normalized_query}"
+    query_hash = QaCache.build_hash(model_type, normalized_query, tenant_id)
     answer_json = json.dumps(result, ensure_ascii=False)
     ttl = QaCache.ttl_for_query(normalized_query) if settings.CACHE_TIERED_TTL_ENABLE else settings.QA_CACHE_TTL
     now = datetime.utcnow()
@@ -100,7 +104,10 @@ async def cache_set_mysql(
         # 先查是否存在（避免 ON DUPLICATE KEY UPDATE 的方言兼容问题）
         existing = (
             await db.execute(
-                select(QaCache.id, QaCache.hit_count).where(QaCache.query_hash == query_hash)
+                select(QaCache.id, QaCache.hit_count).where(
+                    QaCache.tenant_id == tenant_id,
+                    QaCache.query_hash == query_hash,
+                )
             )
         ).one_or_none()
 
@@ -113,7 +120,7 @@ async def cache_set_mysql(
                        hallucination_rate=:hall, hit_count=hit_count+1,
                        ttl_seconds=:ttl, expires_at=:exp, last_hit_at=:hit_at,
                        updated_at=:now
-                    WHERE query_hash=:qh"""
+                    WHERE tenant_id=:tenant_id AND query_hash=:qh"""
                 ),
                 {
                     "answer": answer_json,
@@ -124,6 +131,7 @@ async def cache_set_mysql(
                     "exp": expires_at,
                     "hit_at": now,
                     "now": now,
+                    "tenant_id": tenant_id,
                     "qh": query_hash,
                 },
             )
@@ -132,15 +140,16 @@ async def cache_set_mysql(
             await db.execute(
                 text(
                     """INSERT INTO qa_cache
-                       (cache_key, model_type, query_hash, query_normalized, query_original,
+                       (tenant_id, cache_key, model_type, query_hash, query_normalized, query_original,
                         answer, retrieval_sources, confidence, hallucination_rate,
                         hit_count, ttl_seconds, expires_at, last_hit_at, created_at, updated_at,
                         is_deleted)
                     VALUES
-                       (:ck, :mt, :qh, :qn, :qo, :ans, :src, :conf, :hall,
+                       (:tenant_id, :ck, :mt, :qh, :qn, :qo, :ans, :src, :conf, :hall,
                         :hc, :ttl, :exp, :hit_at, :now, :now, 0)"""
                 ),
                 {
+                    "tenant_id": tenant_id,
                     "ck": cache_key,
                     "mt": model_type or "default",
                     "qh": query_hash,
