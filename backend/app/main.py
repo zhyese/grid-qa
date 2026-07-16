@@ -316,6 +316,7 @@ from app.routers import (  # noqa: E402
     domain,
     kg,
     knowledge_governance,
+    knowledge_evolution,
     memory,
     qa,
     realtime_event,
@@ -339,6 +340,7 @@ app.include_router(twin.router, prefix=settings.API_PREFIX)
 app.include_router(task_center.router, prefix=settings.API_PREFIX)
 app.include_router(realtime_event.router, prefix=settings.API_PREFIX)
 app.include_router(knowledge_governance.router, prefix=settings.API_PREFIX)
+app.include_router(knowledge_evolution.router, prefix=settings.API_PREFIX)
 app.include_router(mcp_router, prefix=settings.API_PREFIX)
 
 

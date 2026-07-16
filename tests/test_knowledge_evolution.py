@@ -107,3 +107,30 @@ async def test_run_scan_persists_drafts(test_db, monkeypatch):
     assert res["drafts"] == 1
     rows = (await test_db.execute(select(KnowledgeEvolutionDraft))).scalars().all()
     assert len(rows) == 1 and rows[0].status == "draft"
+
+
+# ===== T8: 审核状态流转 =====
+@pytest.mark.asyncio
+async def test_review_approve(test_db):
+    from app.services import knowledge_evolution_service as ev
+    test_db.add(KnowledgeEvolutionDraft(
+        id="d2", tenant_id="default", cluster_id="c1", representative_query="q"))
+    await test_db.commit()
+    await ev.review_draft(test_db, "d2", "default", action="approve", note="ok", reviewer="admin")
+    row = (await test_db.execute(
+        select(KnowledgeEvolutionDraft).where(KnowledgeEvolutionDraft.id == "d2")
+    )).scalar_one()
+    assert row.status == "approved" and row.reviewer == "admin"
+
+
+@pytest.mark.asyncio
+async def test_review_reject(test_db):
+    from app.services import knowledge_evolution_service as ev
+    test_db.add(KnowledgeEvolutionDraft(
+        id="d3", tenant_id="default", cluster_id="c1", representative_query="q"))
+    await test_db.commit()
+    await ev.review_draft(test_db, "d3", "default", action="reject", note="bad", reviewer="admin")
+    row = (await test_db.execute(
+        select(KnowledgeEvolutionDraft).where(KnowledgeEvolutionDraft.id == "d3")
+    )).scalar_one()
+    assert row.status == "rejected"

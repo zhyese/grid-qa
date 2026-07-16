@@ -188,3 +188,63 @@ async def enqueue_evolution_scan(tenant, *, since_hours=168, model_type=None):
             tenant_id=tenant, max_attempts=2, commit=True,
         )
     return task_queue_service.task_to_dict(task) if task else None
+
+
+# ===== T8: 查询 + 审核 + 统计 =====
+def _to_dict(r):
+    return {
+        "id": r.id, "clusterId": r.cluster_id, "representativeQuery": r.representative_query,
+        "memberQueries": json.loads(r.member_queries_json or "[]"),
+        "gapEvidence": json.loads(r.gap_evidence_json or "{}"),
+        "sourceDocIds": json.loads(r.source_doc_ids_json or "[]"),
+        "draftTitle": r.draft_title, "draftContent": r.draft_content,
+        "status": r.status, "chunkId": r.chunk_id, "qualityScore": r.quality_score,
+        "reviewer": r.reviewer, "reviewNote": r.review_note,
+        "reviewedAt": r.reviewed_at.isoformat() if r.reviewed_at else None,
+        "createdAt": r.created_at.isoformat() if r.created_at else None,
+        "indexedAt": r.indexed_at.isoformat() if r.indexed_at else None,
+    }
+
+
+async def list_drafts(db, tenant, *, status="", page=1, size=20):
+    stmt = select(KnowledgeEvolutionDraft).where(KnowledgeEvolutionDraft.tenant_id == tenant)
+    if status:
+        stmt = stmt.where(KnowledgeEvolutionDraft.status == status)
+    stmt = stmt.order_by(KnowledgeEvolutionDraft.created_at.desc()).offset((page - 1) * size).limit(size)
+    rows = (await db.execute(stmt)).scalars().all()
+    return {"total": len(rows), "list": [_to_dict(r) for r in rows]}
+
+
+async def get_draft(db, draft_id, tenant):
+    r = (await db.execute(
+        select(KnowledgeEvolutionDraft).where(
+            KnowledgeEvolutionDraft.id == draft_id, KnowledgeEvolutionDraft.tenant_id == tenant)
+    )).scalar_one_or_none()
+    return _to_dict(r) if r else None
+
+
+async def review_draft(db, draft_id, tenant, *, action, note, reviewer):
+    """审核：draft → approved(approve) / rejected(reject)。非 draft 不可审。"""
+    r = (await db.execute(
+        select(KnowledgeEvolutionDraft).where(
+            KnowledgeEvolutionDraft.id == draft_id, KnowledgeEvolutionDraft.tenant_id == tenant)
+    )).scalar_one_or_none()
+    if not r:
+        raise ValueError("草稿不存在")
+    if r.status != "draft":
+        raise ValueError(f"当前状态 {r.status} 不可审核")
+    r.status = "approved" if action == "approve" else "rejected"
+    r.reviewer = reviewer[:64]
+    r.review_note = note[:500]
+    r.reviewed_at = utcnow()
+    await db.commit()
+    return _to_dict(r)
+
+
+async def get_stats(db, tenant):
+    from collections import Counter
+    rows = (await db.execute(
+        select(KnowledgeEvolutionDraft).where(KnowledgeEvolutionDraft.tenant_id == tenant)
+    )).scalars().all()
+    c = Counter(r.status for r in rows)
+    return {"byStatus": dict(c), "total": len(rows)}

@@ -25,6 +25,20 @@ async def knowledge_governance_scan(payload: dict, context: TaskContext) -> dict
     return await handle_knowledge_governance_scan(payload, context)
 
 
+@task_handler("knowledge_evolution.scan")
+async def knowledge_evolution_scan(payload: dict, context: TaskContext) -> dict:
+    """知识自进化扫描：dislike 聚类→盲区→LLM 草稿。租户边界以 TaskContext 为准。"""
+    from app.services import knowledge_evolution_service
+
+    async with AsyncSessionLocal() as db:
+        result = await knowledge_evolution_service.run_scan(
+            db, context.tenant_id,
+            since_hours=payload.get("since_hours", 168),
+            model_type=payload.get("model_type"),
+        )
+    return {"taskId": context.task_id, "result": result}
+
+
 # 导入模块会注册 ``proactive_ops.process``。保留业务模块自身的 handler 身份，
 # 避免管理进程与 worker 进程分别注册两个不同 wrapper。
 from app.services import realtime_event_service as _realtime_event_service  # noqa: E402,F401
