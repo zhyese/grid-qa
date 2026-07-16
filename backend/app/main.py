@@ -169,6 +169,13 @@ async def lifespan(app: FastAPI):
             print("[evolution] 知识自进化定时扫描后台任务已启动")
     except Exception as e:
         print(f"[evolution] 定时扫描启动跳过：{e}")
+    # 证据补全定时深度补全+落库（周期 EVIDENCE_GAP_DEEP_INTERVAL 秒，<=0 关闭）
+    try:
+        from app.services.evidence_gap_service import deep_cron_loop
+        app.state.evidence_gap_cron_task = asyncio.create_task(deep_cron_loop("default"))
+        print("[evidence-gap] 证据补全定时深度补全已启动")
+    except Exception as e:
+        print(f"[evidence-gap] 定时补全启动跳过：{e}")
     # ---- 关闭 ----
     yield
     try:
@@ -195,6 +202,9 @@ async def lifespan(app: FastAPI):
     _evo_cron = getattr(app.state, "evolution_cron_task", None)
     if _evo_cron:
         _evo_cron.cancel()
+    _gap_cron = getattr(app.state, "evidence_gap_cron_task", None)
+    if _gap_cron:
+        _gap_cron.cancel()
     try:
         from app.clients import neo4j_client
         await neo4j_client.close()

@@ -4,6 +4,8 @@ bg task 用独立 AsyncSessionLocal（防 session 并发 500）。
 """
 from datetime import datetime
 
+import asyncio
+
 from sqlalchemy import desc, func, select
 
 from app.core.obs import degraded
@@ -334,3 +336,52 @@ async def retag_faq_equipment() -> dict:
     except Exception as e:
         degraded("evidence_gap_retag", e)
         return {"updated": 0, "error": str(e)}
+
+
+async def batch_deep_and_sync(tenant: str = "default", limit: int = 5,
+                              model_type: str | None = None) -> dict:
+    """定时批量：pending → deep_draft → 自动落库(confirm_and_sync 用 ai_draft 当 final_answer)。
+
+    串行 limit 条（Agent deep_draft 较重，串行防 LLM 限流）。失败条目 status 不变，下轮重试。
+    """
+    stats = {"scanned": 0, "drafted": 0, "synced": 0, "failed": 0}
+    try:
+        async with AsyncSessionLocal() as db:
+            rows = (await db.execute(
+                select(EvidenceGap).where(
+                    EvidenceGap.status == "pending", EvidenceGap.tenant_id == tenant
+                ).order_by(EvidenceGap.ts.asc()).limit(limit)
+            )).scalars().all()
+        stats["scanned"] = len(rows)
+        for r in rows:
+            try:
+                draft = await deep_draft(r.id, model_type)
+                if not (draft or "").strip():
+                    stats["failed"] += 1
+                    continue
+                stats["drafted"] += 1
+                res = await confirm_and_sync(r.id, draft, "auto-deep-sync", model_type)
+                stats["synced" if res.get("ok") else "failed"] += 1
+            except Exception as e:
+                degraded("evidence_gap_batch_deep_one", e)
+                stats["failed"] += 1
+    except Exception as e:
+        degraded("evidence_gap_batch_scan", e)
+    return stats
+
+
+async def deep_cron_loop(tenant: str = "default"):
+    """定时深度补全+落库（lifespan 启动；周期=EVIDENCE_GAP_DEEP_INTERVAL 秒，<=0 关闭；批量=EVIDENCE_GAP_DEEP_BATCH）。"""
+    from app.config import settings
+    interval = float(getattr(settings, "EVIDENCE_GAP_DEEP_INTERVAL", 180))
+    limit = int(getattr(settings, "EVIDENCE_GAP_DEEP_BATCH", 5))
+    if interval <= 0:
+        return
+    while True:
+        await asyncio.sleep(interval)
+        try:
+            s = await batch_deep_and_sync(tenant, limit)
+            if s["scanned"]:
+                print(f"[evidence-gap] 定时深度补全+落库: {s}")
+        except Exception as e:
+            degraded("evidence_gap_deep_cron", e)
