@@ -1,7 +1,10 @@
 """RewriteEvent service 单测：log 写入 + stats 聚合 + events_page 分页（用容器真 DB）。"""
 import asyncio
+import pytest
 
 from app.services import rewrite_event_service as svc
+
+pytestmark = pytest.mark.integration  # 依赖容器真 DB（MySQL），CI 无 DB 跳过
 
 
 def test_log_and_stats():

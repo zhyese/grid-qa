@@ -1,7 +1,10 @@
 """evidence_gap_service 单测：collect 去重 + list/get 结构（容器真 DB）。"""
 import asyncio
 from datetime import datetime
+import pytest
 from app.services import evidence_gap_service as svc
+
+pytestmark = pytest.mark.integration  # 依赖容器真 DB（MySQL），CI 无 DB 跳过
 
 
 def test_collect_dedup():

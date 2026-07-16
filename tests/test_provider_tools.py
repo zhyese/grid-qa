@@ -1,7 +1,10 @@
 """Provider chat_with_tools 单测（function-calling 解析）。"""
 import asyncio
 from types import SimpleNamespace
+import pytest
 from app.providers.llm.deepseek_llm import DeepSeekLLM
+
+pytestmark = pytest.mark.integration  # 依赖 LLM API key，CI 无 secret 跳过
 
 
 def _make_resp(content, tool_calls=None):

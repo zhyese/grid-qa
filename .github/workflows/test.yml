@@ -21,7 +21,7 @@ jobs:
       - name: golden 问答集格式校验（检索质量回归基准）
         run: python scripts/validate_golden.py
       - name: 单元测试（排除需后端服务的集成测试）
-        run: python -m pytest tests/ -q --ignore=tests/test_api.py
+        run: python -m pytest tests/ -q --ignore=tests/test_api.py -m "not integration"
       # 注：真实检索召回评测(python scripts/eval_retrieval.py)需 Milvus+embedding 服务，
       # 依赖运行态，不在此 CI 跑；改为本地/定时跑，报告归档 reports/，recall<92% 退出码1。
       # 注：生成质量评测(python scripts/eval_generation.py)需后端+LLM，消耗 token，
