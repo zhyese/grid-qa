@@ -386,19 +386,20 @@
               <option value="expired">已过保</option>
             </select>
             <span class="badge" :class="{pending:'badge-info',ai_drafted:'badge-warning',synced:'badge-success',ignored:'badge-neutral'}[g.status]">{{ {pending:'待处理',ai_drafted:'已续写',synced:'已同步',ignored:'已忽略'}[g.status] }}</span>
-            <strong class="opt-title">{{ g.query }}</strong>
+            <strong class="opt-title" style="cursor:pointer" @click="g._expanded = !g._expanded" :title="'点击' + (g._expanded ? '收起' : '展开全部答案')">{{ g._expanded ? '▼' : '▶' }} {{ g.query }}</strong>
+            <span v-if="g.operator === 'auto-deep-sync'" class="badge badge-success" style="margin-left:6px">✅ 自动深度补全</span>
           </div>
-          <div class="opt-detail">原答案：{{ (g.originalAnswer || '').slice(0, 80) }}</div>
+          <div class="opt-detail">原答案：{{ g._expanded ? (g.originalAnswer || '') : (g.originalAnswer || '').slice(0, 80) }}</div>
           <AgentTrace :steps="g.agentSteps" />
           <div v-if="g.aiDraft" class="opt-detail" style="margin-top:6px">
-            <b>AI草稿{{ g.deepStreaming ? '（生成中…）' : '（点击下方文本可直接编辑）' }}：</b>
+            <b>AI草稿<span v-if="g.operator === 'auto-deep-sync'"> ✅（自动深度补全）</span>{{ g.deepStreaming ? '（生成中…）' : '（点击下方文本可直接编辑）' }}：</b>
             <div v-if="g._editing" style="margin-top:4px">
               <textarea v-model="g.aiDraft" rows="8" class="input" style="width:100%;font-size:12px"></textarea>
               <div style="margin-top:4px"><button class="btn btn-success btn-sm" @click="saveAiDraftInline(g)">💾 保存草稿</button> <button class="btn btn-ghost btn-sm" @click="g._editing = false">取消</button></div>
             </div>
             <div v-else @click="!g.deepStreaming && (g._editing = true)" style="cursor:text;white-space:pre-wrap;margin-top:4px;padding:8px 10px;background:var(--surface);border-radius:6px;min-height:50px;max-height:240px;overflow-y:auto;border:1px dashed var(--border)" title="点击编辑">{{ g.aiDraft }}</div>
           </div>
-          <div v-if="g.status==='synced'" class="opt-detail" style="color:var(--success)">最终：{{ (g.finalAnswer || '').slice(0, 100) }}</div>
+          <div v-if="g.status==='synced'" class="opt-detail" :style="{color:'var(--success)', whiteSpace:'pre-wrap'}">最终：{{ g._expanded ? (g.finalAnswer || '') : (g.finalAnswer || '').slice(0, 100) }}</div>
           <div style="margin-top:6px">
             <button v-if="g.status==='pending'" class="btn btn-primary btn-sm" @click="egDraft(g)">🤖 AI续写</button>
             <button v-if="g.status==='pending' || g.status==='ai_drafted'" class="btn btn-ghost btn-sm" @click="egDeepDraft(g)" title="用 Agent 引擎多轮调工具交叉验证，比续写更深（复用深度思考同款引擎）">🧠 深度补全</button>

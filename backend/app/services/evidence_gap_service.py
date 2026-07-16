@@ -52,6 +52,7 @@ async def list_gaps(status: str | None = None, page: int = 1, size: int = 20) ->
                 "query": r.query, "originalAnswer": (r.original_answer or "")[:200],
                 "confidence": r.confidence, "status": r.status, "source": r.source,
                 "aiDraft": r.ai_draft, "finalAnswer": r.final_answer, "syncedDocId": r.synced_doc_id,
+                "operator": r.operator,
             } for r in rows]}
     except Exception as e:
         degraded("evidence_gap_list", e)
