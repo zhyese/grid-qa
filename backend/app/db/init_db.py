@@ -63,6 +63,7 @@ _COLUMN_MIGRATIONS = [
     ("alert_disposal", "tenant_id", "VARCHAR(64) NOT NULL DEFAULT 'default'"),
     ("tickets", "source_ref", "VARCHAR(128) NULL"),
     ("qa_cache", "tenant_id", "VARCHAR(64) NOT NULL DEFAULT 'default'"),
+    ("evidence_gap", "is_deleted", "TINYINT(1) NOT NULL DEFAULT 0"),  # 证据补全逻辑删除
 ]
 
 _INDEX_MIGRATIONS = [

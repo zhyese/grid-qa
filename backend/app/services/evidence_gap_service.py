@@ -40,8 +40,8 @@ async def collect(query: str, answer: str, confidence: str, grade: str, action: 
 async def list_gaps(status: str | None = None, page: int = 1, size: int = 20) -> dict:
     try:
         async with AsyncSessionLocal() as db:
-            q = select(EvidenceGap).order_by(desc(EvidenceGap.ts))
-            cq = select(func.count()).select_from(EvidenceGap)
+            q = select(EvidenceGap).where(EvidenceGap.is_deleted == 0).order_by(desc(EvidenceGap.ts))
+            cq = select(func.count()).select_from(EvidenceGap).where(EvidenceGap.is_deleted == 0)
             if status:
                 q = q.where(EvidenceGap.status == status)
                 cq = cq.where(EvidenceGap.status == status)

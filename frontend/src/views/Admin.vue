@@ -367,6 +367,8 @@
         <div class="card-header">
           <h3 class="card-title">📝 证据补全（medium/refused 人工兜底回流）</h3>
           <button class="btn btn-ghost btn-sm" @click="retagFaq" title="补全旧FAQ的设备标签（从答案提取）">🏷️ 补设备标签</button>
+          <label class="btn btn-ghost btn-sm" style="cursor:pointer"><input type="checkbox" @change="toggleEgAll($event)" :checked="egList.length && egSelected.length === egList.length" /> 全选</label>
+          <button v-if="egSelected.length" class="btn btn-danger btn-sm" @click="egBatchDelete">🗑 批量删除({{ egSelected.length }})</button>
           <select v-model="egFilter" @change="loadEvidenceGaps" class="btn btn-ghost btn-sm">
             <option value="">全部</option><option value="pending">待处理</option>
             <option value="ai_drafted">已续写</option><option value="synced">已同步</option>
@@ -376,6 +378,7 @@
         <div v-if="!egList.length" class="empty">暂无证据补全记录（medium/refused 自动收集 + Chat 上报）</div>
         <div class="opt-card" v-for="g in egList" :key="g.id" :class="g.confidence==='refused'?'sev-high':'sev-medium'">
           <div class="opt-header">
+            <input type="checkbox" :value="g.id" v-model="egSelected" />
             <select v-model="g.confidence" @change="saveConf(g)" class="badge" :class="confBadgeClass(g.confidence)" title="点击标注 confidence">
               <option value="sufficient">证据充足</option>
               <option value="medium">证据有限</option>
@@ -406,6 +409,7 @@
             <button v-if="g.status!=='synced' && g.status!=='ignored'" class="btn btn-ghost btn-sm" @click="egEdit(g)">✏️ 人工编辑</button>
             <button v-if="g.status==='ai_drafted' || g.status==='confirmed'" class="btn btn-success btn-sm" @click="egConfirm(g)">✓ 确认同步</button>
             <button v-if="g.status!=='synced' && g.status!=='ignored'" class="btn btn-ghost btn-sm" @click="egIgnore(g)">忽略</button>
+            <button class="btn btn-danger btn-sm" @click="egDelete(g)">🗑 删除</button>
           </div>
         </div>
       </div>
@@ -1001,7 +1005,7 @@ async function removeBlacklist(q) {
 }
 const rwStats = ref(null); const rwEvents = ref([]); const rwPeriod = ref('today')
 const rwPieEl = ref(null); const rwScatterEl = ref(null); const rwTrendEl = ref(null)
-const egList = ref([]); const egFilter = ref('pending')
+const egList = ref([]); const egFilter = ref('pending'); const egSelected = ref([])
 async function loadEvidenceGaps() {
   try {
     const d = (await request.get('/system/evidence-gap', { params: { status: egFilter.value || undefined, size: 50 } })).data
@@ -1092,6 +1096,20 @@ async function egConfirm(g) {
 async function egIgnore(g) {
   try { await request.post(`/system/evidence-gap/${g.id}/ignore`); g.status = 'ignored'; toast('已忽略') }
   catch (e) { toast('失败') }
+}
+async function egDelete(g) {
+  if (!confirm(`确认删除「${(g.query || '').slice(0, 30)}」？（逻辑删除，可恢复）`)) return
+  try { await request.delete(`/system/evidence-gap/${g.id}`); toast('已删除'); await loadEvidenceGaps() }
+  catch (e) { toast('删除失败') }
+}
+async function egBatchDelete() {
+  if (!egSelected.value.length) return toast('请先勾选')
+  if (!confirm(`确认批量删除 ${egSelected.value.length} 条？（逻辑删除）`)) return
+  try { await request.post('/system/evidence-gap/batch-delete', { ids: egSelected.value }); toast('已批量删除'); egSelected.value = []; await loadEvidenceGaps() }
+  catch (e) { toast('批量删除失败') }
+}
+function toggleEgAll(e) {
+  egSelected.value = e.target.checked ? egList.value.map(g => g.id) : []
 }
 async function loadRewrite() {
   try {

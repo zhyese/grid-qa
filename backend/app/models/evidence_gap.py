@@ -29,3 +29,4 @@ class EvidenceGap(Base):
     tenant: Mapped[str] = mapped_column(String(32), default="default")
     operator: Mapped[str] = mapped_column(String(64), default="")
     handled_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
+    is_deleted: Mapped[int] = mapped_column(Integer, default=0)  # 逻辑删除 0否1是

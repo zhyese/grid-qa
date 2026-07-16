@@ -731,13 +731,29 @@ async def evidence_gap_delete(
     gap_id: int, db: AsyncSession = Depends(get_db),
     admin: User = Depends(require_admin),
 ):
-    """删除一条证据补全记录。"""
+    """逻辑删除一条证据补全记录（is_deleted=1，不物理删）。"""
     from app.models.evidence_gap import EvidenceGap
     row = (await db.execute(select(EvidenceGap).where(EvidenceGap.id == gap_id))).scalar_one_or_none()
     if row:
-        await db.delete(row)
+        row.is_deleted = 1
         await db.commit()
     return success(None, "已删除")
+
+
+@router.post("/evidence-gap/batch-delete")
+async def evidence_gap_batch_delete(
+    body: dict, db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+):
+    """批量逻辑删除（is_deleted=1）。body: {ids:[1,2,...]}"""
+    from app.models.evidence_gap import EvidenceGap
+    ids = body.get("ids") or []
+    if ids:
+        rows = (await db.execute(select(EvidenceGap).where(EvidenceGap.id.in_(ids)))).scalars().all()
+        for r in rows:
+            r.is_deleted = 1
+        await db.commit()
+    return success({"deleted": len(ids)}, "已批量删除")
 
 
 # ===== P2-⑦ LLM 成本追踪 =====
