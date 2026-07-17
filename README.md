@@ -229,7 +229,7 @@ flowchart TD
     classDef route fill:#fff8e1,stroke:#f9a825
     classDef recall fill:#e3f2fd,stroke:#1976d2
     classDef refine fill:#e8f5e9,stroke:#2e7d32
-    classDef graph fill:#f3e5f5,stroke:#7b1fa2
+    classDef grph fill:#f3e5f5,stroke:#7b1fa2
 
     A["term 归一 + 安全 guard<br/>qa_service.py:209-210"]:::guard
     B{"多轮?"}:::route
@@ -245,7 +245,7 @@ flowchart TD
     RR --> MF["元数据后置过滤<br/>docType/equipment/ACL<br/>retrieval_service.py:302"]:::refine
     MF --> MM["MMR λ=0.5 去冗余<br/>mmr.py:18"]:::refine
     MM --> PB["small-to-big 父块召回<br/>(可选)"]:::refine
-    PB --> G["GraphRAG 图谱上下文<br/>kg_service.graph_context<br/>qa_service.py:351"]:::graph
+    PB --> G["GraphRAG 图谱上下文<br/>kg_service.graph_context<br/>qa_service.py:351"]:::grph
     G --> OUT([→ 交给增强/生成]):::refine
 ```
 
