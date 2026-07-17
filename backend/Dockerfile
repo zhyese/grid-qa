@@ -10,7 +10,7 @@ RUN sed -i 's/deb.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list.d/debia
 
 COPY requirements.txt .
 # 先装 CPU-only torch（避开 GPU/CUDA 几 GB；bge 走 CPU 推理够用），再装其余依赖
-RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu --trusted-host download.pytorch.org && \
+RUN pip install --no-cache-dir torch==2.13.0 --index-url https://download.pytorch.org/whl/cpu --trusted-host download.pytorch.org && \
     pip install --no-cache-dir -r requirements.txt -i https://mirrors.aliyun.com/pypi/simple/ --trusted-host mirrors.aliyun.com
 
 COPY . .

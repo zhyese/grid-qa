@@ -6,5 +6,5 @@ scrape_configs:
   - job_name: grid-qa-backend
     metrics_path: /metrics
     static_configs:
-      # 本地 uvicorn 用 host.docker.internal(容器→宿主机); docker全栈时也可(8001映射)
-      - targets: ['host.docker.internal:8001']
+      # 全栈部署：prometheus 与 backend 同 compose 网络，直接走 service name
+      - targets: ['backend:8001']

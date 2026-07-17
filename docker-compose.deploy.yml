@@ -23,10 +23,12 @@ services:
       - "3307:3306"
     volumes:
       - ./data/mysql:/var/lib/mysql
+      - ./docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d:ro   # 首次启动(空库)自动导入 grid_qa.sql
     command:
       --character-set-server=utf8mb4
       --collation-server=utf8mb4_unicode_ci
       --default-authentication-plugin=mysql_native_password
+      --lower_case_table_names=1   # 与 Windows 建库一致,跨平台表名大小写行为对齐
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-p${MYSQL_ROOT_PASSWORD:-root123456}"]
       interval: 10s
@@ -162,13 +164,16 @@ services:
       MINIO_ENDPOINT: minio:9000
       MILVUS_HOST: milvus
       NEO4J_URI: bolt://neo4j:7687
-      HTTPS_PROXY: http://host.docker.internal:7897
-      HTTP_PROXY: http://host.docker.internal:7897
-      NO_PROXY: localhost,127.0.0.1,mysql,minio,milvus,redis,neo4j,prometheus,grafana
+      # 代理参数化：默认空=直连(Linux 默认); 需走代理时在 .env 设 HTTP_PROXY/HTTPS_PROXY
+      HTTPS_PROXY: ${HTTPS_PROXY:-}
+      HTTP_PROXY: ${HTTP_PROXY:-}
+      NO_PROXY: ${NO_PROXY:-localhost,127.0.0.1,mysql,minio,milvus,redis,neo4j,prometheus,grafana}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     ports:
       - "8001:8001"
+    volumes:
+      - ./data/hf-cache:/root/.cache   # bge/rapidocr 模型缓存随包分发,接收方零下载
 
   # ---------- 前端（nginx）----------
   frontend:

@@ -1,0 +1,8 @@
+# 强制脚本与关键配置行尾为 LF，保证 Linux 部署不因 CRLF 报 "/bin/bash^M: bad interpreter"
+# 收窄到部署相关文件类型，避免触发全库 renormalization
+*.sh       text eol=lf
+*.yml      text eol=lf
+*.yaml     text eol=lf
+Dockerfile text eol=lf
+.env*      text eol=lf
+install.sh text eol=lf

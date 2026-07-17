@@ -59,3 +59,9 @@ logs/
 .worktrees/
 *.stackdump
 ai-trends-2026.html
+
+# ===== 发行打包产物（不入库）=====
+/release/
+/grid-qa-release-*.tar.gz
+/docker-entrypoint-initdb.d/*.sql
+/data/hf-cache/
