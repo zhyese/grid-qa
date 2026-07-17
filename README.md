@@ -120,6 +120,86 @@ flowchart LR
 
 > **端口约定**:MySQL **3307**(避让本机)、后端 **8001**、Milvus 19530、MinIO 9000/9001、Redis 6379、Neo4j 7474/7687、Grafana 3000、Prometheus 9090。
 
+### 1.3 端到端全链路(用户提问 → 答案 → 闭环)
+
+> 这张图把**检索 / 增强 / 生成**三大功能串成一条完整链路。先看全景,再到第三/四/五章看各模块细节。
+> 核心分两段:**① 主链路(同步)**——从用户提问到答案返回;**② 闭环(异步)**——答案返回后,反馈与"答得不好"的 case 转化为知识库增长,让下次检索更准。
+
+#### ① 主链路:一次提问的完整时序
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant FE as 前端
+    participant GW as API层<br/>(鉴权+限流+插件+护栏)
+    participant Cache as 三级缓存
+    participant Ret as 检索<br/>(路由+召回+精排)
+    participant Aug as 增强<br/>(CRAG+GraphRAG+prompt)
+    participant LLM as LLM 流式生成
+    participant Async as 异步闭环
+
+    FE->>GW: POST /qa/answer(stream) + JWT
+    GW->>GW: ① 鉴权 require_perm + 限流 30/min
+    GW->>GW: ② 插件 query_preprocess(length_guard)
+    GW->>GW: ③ 护栏: injection 告警 + Self-RAG 非运维拒答
+    GW->>Cache: ④ 单轮查 L1 Redis → L2 MySQL → L1.5 Semantic
+    alt 缓存命中
+        Cache-->>FE: 秒回(cacheLayer=redis/mysql/semantic)
+    else miss(多轮不读缓存)
+        GW->>Ret: ⑤ 指代消解 → 6维路由 → 改写/双路召回/RRF/rerank/MMR
+        Ret-->>Aug: contexts(已过 ACL+治理过滤)
+        Aug->>Aug: ⑥ CRAG 分级(复用 rerank 分,不调 LLM)
+        opt incorrect(低相关 < 0.3)
+            Aug->>Ret: 改写 force 重检索
+            Note right of Aug: 仍低分 → refused 保守拒答(零幻觉)
+        end
+        Aug->>Aug: ⑦ GraphRAG 查 Neo4j 三元组(topk=8)
+        Aug->>LLM: ⑧ prompt(父块 + 图谱 + 置信度指令)
+        loop 逐 token(SSE: meta → token×N → done)
+            LLM-->>FE: 答案片段(打字机)
+        end
+        LLM->>GW: ⑨ 脱敏(PII) + 证据角标自动补全
+        GW->>Cache: ⑩ Write-Through 回写 L2→L1(仅单轮 + confidence=high)
+        GW->>GW: ⑪ 持久化对话(user + assistant)
+    end
+    Note over GW,Async: ⑫ 以下异步,不阻塞首字/响应
+    GW->>Async: LLM-judge 质量采样(rel/faith/completeness)
+    GW->>Async: 证据缺口收集(confidence = medium/refused)
+    FE->>GW: 反馈 👍 / 👎
+    GW->>Async: dislike 沉淀 → 知识自进化扫描入队
+```
+
+#### ② 闭环:答案返回后,系统如何自我改进
+
+答案返回**不是终点**。每一次"答得不好"(用户 👎、或 CRAG 判 medium/refused)都会进入两条回流闭环,把缺口补回知识库,下次同类问题即可命中:
+
+```mermaid
+flowchart LR
+    classDef ans fill:#e3f2fd,stroke:#1976d2
+    classDef gap fill:#ffebee,stroke:#c62828
+    classDef evo fill:#ede7f6,stroke:#6a1b9a
+    classDef kb fill:#e8f5e9,stroke:#2e7d32
+
+    ANS([答案返回]):::ans
+    ANS --> FB{"用户反馈"}:::ans
+    ANS -. "medium/refused" .-> EG([证据缺口 EvidenceGap]):::gap
+    FB -. "👎 dislike" .-> EVO([知识自进化扫描]):::evo
+
+    EG --> DEEP["deep_draft<br/>Agent 多轮补全<br/>cron 180s 批量5"]:::evo
+    DEEP --> RV1{"人工审核"}:::evo
+    RV1 -- approved --> SY1["回流: MinIO + Document<br/>+ Milvus<br/>doc_type=证据补全FAQ"]:::kb
+
+    EVO --> BL["dislike 聚类(0.82)<br/>→ Milvus 盲区(top1&lt;0.55)<br/>→ LLM 规程草稿"]:::evo
+    BL --> RV2{"人工审核"}:::evo
+    RV2 -- approved --> SY2["回流 Milvus<br/>doc_type=ai_evolution<br/>quality=0.6 降权<br/>周配额 ≤20"]:::kb
+
+    SY1 --> NXT([下次检索:新证据可命中]):::kb
+    SY2 --> NXT
+    NXT -. "quality 降权 + 治理 blocked" .-> IMP([影响检索排序/过滤]):::kb
+```
+
+> **闭环的底层逻辑**:主链路是"消费知识",闭环是"生产知识"。CRAG 的 `medium/refused` 和用户的 `dislike` 不是丢掉,而是**标注出知识库的盲区** → Agent 自动补全 → 人工审核兜底 → 回流时**降权 + 配额**防 AI 草稿污染(详见 [6.2 知识自进化](#62-知识自进化闭环-s16)与 [4.3 证据缺口](#43-证据缺口evidence-gap补全闭环))。
+
 ---
 
 ## 二、业务架构
