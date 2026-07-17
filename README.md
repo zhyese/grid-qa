@@ -1,1045 +1,1315 @@
 # 电网运维 RAG 智能问答系统
 
-基于大模型 + RAG 的电网自主运维智能问答系统：**自然语言提问 → ★智能路由 → 混合检索 → 自纠错 → 可信答案生成**，覆盖变电、配电、输电三大场景，为一线运维提供可直接落地的故障处理方案。
+基于大模型 + RAG 的电网自主运维智能问答系统:**自然语言提问 → 智能路由 → 混合检索 → 三级缓存 → CRAG 自纠错 → 可信答案生成**,覆盖变电、配电、输电三大场景,为一线运维提供可直接落地的故障处理方案。
 
-> 前端 Vue 3（Dify/Linear 风）· 后端 FastAPI · 三家云大模型（DeepSeek/阿里百炼/火山方舟）可切换 · ★智能路由（sparse/dense/hybrid）· ★三级缓存（Redis→MySQL→LLM）· 双 Embedding 路由（云 + 本地 bge）· GraphRAG（Neo4j 多跳）· Corrective RAG 自纠错 · 多租户 · 多模态 VLM · Milvus + MinIO + MySQL + Redis + Nacos
-
----
-
-## ✨ 核心特性
-
-### 🤖 问答与检索
-- **★ 智能路由（Phase A）**：查询特征自动选择检索路径——短术语/标准引用→sparse(BM25)，故障口语/同义词→dense(向量)，默认→hybrid(全链路)。60%+ 查询跳过冗余检索分支，p95 检索延迟降 30-50%
-- **★ 三级缓存**：Redis L1 (10MB LRU, 72h TTL) → MySQL L2 (qa_cache 表) → LLM L3。命中率 ~20%→75%，加权延迟 ~10s→3s，API 费用节省 ~75%
-- **三家云大模型可切换**：DeepSeek / 通义千问 / 豆包，均兼容 OpenAI 协议，配置即切；`/qa/answer` 的 `modelType` 支持按请求切换
-- **双 Embedding 路由**：文档大走云、小走本地 bge（双 collection，向量空间隔离），检索双查融合
-- **混合检索**：HNSW 稠密 + BM25 稀疏 + RRF 融合 + 百炼 gte-rerank 重排 + MMR 多样性
-- **流式问答**：SSE 逐 token 输出（meta/token/done 三段事件）
-- **多轮对话**：历史持久化，追问带上下文
-
-### 🛡️ 可信与自纠错（2026 RAG 趋势）
-- **★ Corrective RAG 自纠错**：检索后用 rerank 分数分级（correct/ambiguous/incorrect），低相关触发 query 改写重检索，仍无强相关则 **refused 保守拒答**（零幻觉），把事后 LLM-judge 升级为实时前置护栏
-- **可信答案**：引用标注 + 高风险操作安全提示 + LLM-as-judge 幻觉评估（评测集 0%）
-- **💡 智能推荐**：答完推 3 个相关追问，引导深挖
-
-### 🧠 知识图谱
-- **Neo4j 多跳推理**：LLM 抽取设备-故障-处置三元组，多跳影响链 + 枢纽实体分析（MySQL 做不到的因果传播）
-- **🔗 GraphRAG**：问答融合知识图谱结构化上下文；向量化自动建图谱，读+写+删三链路打通，不再孤岛
-
-### 📊 可观测与运维
-- **Grafana 监控（22+7 面板）**：请求/延迟/LLM/Embedding/★缓存分层/★路由决策/幻觉/反馈/知识库/CRAG/安全事件/领域调用/基础组件健康/静默降级…
-- **★ 降级可观测**：业务/IO 失败统一 `DEGRADED` 指标 + 日志，盲降级不再被吞（Neo4j 挂/rerank 挂/缓存挂一目了然）
-- **★ Provider 健康检查**：`/system/health/providers` 主动探测抓账户欠费/key 失效；`/health` 配置态快照
-- **基础组件健康指标**：MySQL/Milvus/Redis/MinIO 探活结果进 Prometheus，Grafana 可监控可告警
-
-### ⚙️ 工程地基
-- **★ 检索质量回归门禁**：golden 问答集（30 条）+ recall/MRR + faithfulness 评测 + CI 门禁（recall<92% / faithfulness<0.85 退出码 1），把"感觉还行"变"数据说话"
-- **配置全对齐**：`.env.example` 与 `config.py` 字段一一对应（含 v2 全部开关），新部署不踩坑
-- **完整管理**：JWT 鉴权、角色权限、操作日志、Milvus/模型参数配置、健康探活、结构化日志
-- **限流防护**：9 个关键接口限流（问答/检索/上传/解析/向量化/反馈/推荐/图谱抽取），防成本攻击
-- **测试覆盖**：69 个单元测试（chunk/term/rrf/obs/kg/document/crag/parse/eval/crag_v2/safety/kg_normalize/self_rag/multimodal）
-- **生产就绪**：Docker Compose 一键全栈（10 服务，含 Nacos）、gunicorn 多 worker、Alembic 迁移、CI/CD
+> 前端 Vue 3 · 后端 FastAPI · 三家云大模型(DeepSeek/阿里百炼/火山方舟)可切换 · 智能路由 · 三级缓存(Redis→MySQL→Semantic)· 双 Embedding 并查 · GraphRAG(Neo4j 多跳)· Corrective RAG 自纠错 · 知识自进化闭环 · RBAC + 文档级 ACL · Prometheus/Grafana 全链路可观测
 
 ---
 
-## 🏗️ 系统架构
+## 📑 目录
+
+- [一、项目架构](#一项目架构)
+- [二、业务架构](#二业务架构)
+- [三、RAG 核心·检索 Retrieval](#三rag-核心检索-retrieval)
+- [四、RAG 核心·增强 Augmentation](#四rag-核心增强-augmentation)
+- [五、RAG 核心·生成 Generation](#五rag-核心生成-generation)
+- [六、横切能力](#六横切能力)
+- [七、数据存储职责](#七数据存储职责)
+- [八、技术栈](#八技术栈)
+- [九、目录结构](#九目录结构)
+- [十、快速开始](#十快速开始)
+- [十一、配置说明](#十一配置说明)
+- [十二、API 接口](#十二api-接口)
+- [十三、质量保障与评测](#十三质量保障与评测)
+- [十四、部署](#十四部署)
+- [十五、FAQ](#十五faq)
+- [十六、开发进度](#十六开发进度)
+
+---
+
+## 一、项目架构
+
+系统采用**六层分层架构**:从接入层(前端+nginx)到基础设施层(Docker Compose 编排),RAG 引擎层是核心,围绕**检索 / 增强 / 生成**三大能力组织。
+
+### 1.1 分层架构图
 
 ```mermaid
-graph TB
-    classDef client fill:#e1f5fe,stroke:#03a9f4,stroke-width:2px
-    classDef process fill:#ffffff,stroke:#ff9800,stroke-width:2px
-    classDef storage fill:#ffffff,stroke:#4caf50,stroke-width:2px
-    classDef llm fill:#ffffff,stroke:#9c27b0,stroke-width:2px
-    classDef new fill:#fce4ec,stroke:#e91e63,stroke-width:2px,stroke-dasharray:5 3
-    classDef cache fill:#fff3e0,stroke:#ff9800,stroke-width:2px
+flowchart TB
+    classDef l1 fill:#e1f5fe,stroke:#0288d1,stroke-width:2px
+    classDef l2 fill:#fff3e0,stroke:#ef6c00,stroke-width:2px
+    classDef l3 fill:#fce4ec,stroke:#c62828,stroke-width:2px
+    classDef l4 fill:#ede7f6,stroke:#6a1b9a,stroke-width:2px
+    classDef l5 fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
+    classDef l6 fill:#eceff1,stroke:#455a64,stroke-width:2px
 
-    FE["🖥️ 前端 :5173<br/>Chat · 🩺Diagnose · Documents · Admin"]:::client
+    L1["🖥️ 接入层<br/>Vue3 前端 :5173 · nginx 反代 · JWT 鉴权<br/>Chat / Documents / Dashboard / KgGraph / Diagnose / Admin / RetrievalDebug"]:::l1
 
-    subgraph WRITE["① 写入流 · 离线知识构建"]
+    L2["⚙️ 应用层 · FastAPI<br/>routers(qa/document/retrieval/kg/domain/system)<br/>RBAC require_perm · slowapi 限流 · 插件 hook"]:::l2
+
+    subgraph L3G["🧠 RAG 引擎层(核心·三大能力)"]
         direction LR
-        Upload["上传 PDF/Word/Excel"]:::process
-        Parse["结构感知分块<br/>表格·父子"]:::new
-        EqTag["设备打标"]:::new
-        EmbR{"双 Embedding 路由"}:::process
-        ExtKG["后台抽三元组<br/>schema约束(13关系)+去重过滤"]:::new
+        L3R["🔍 检索 Retrieval<br/>路由·双路召回·RRF·rerank·MMR·GraphRAG"]:::l3
+        L3A["✚ 增强 Augmentation<br/>三级缓存·CRAG纠错·证据缺口·prompt"]:::l3
+        L3G2["✍️ 生成 Generation<br/>SSE流式·多轮·LLM-judge·双RAG热备"]:::l3
     end
 
-    subgraph READ["② 读取流 · ★路由 · ★三级缓存 · CRAG 自纠错"]
+    L4["🤖 模型层 · Provider(三家可切换)<br/>LLM: DeepSeek/Qwen/Doubao · Embedding: 云1024 + 本地bge512<br/>Rerank: gte-rerank-v2 · VLM: Qwen-VL · Agent 引擎"]:::l4
+
+    subgraph L5G["💾 存储层 · 各司其职"]
         direction LR
-        Guard["🛡️ 护栏"]:::new
-        Cache3L["★ 三级缓存<br/>L1 Redis(1ms)<br/>L2 MySQL(qa_cache)<br/>L3 LLM全链路"]:::cache
-        Route{"★ 智能路由<br/>sparse/dense<br/>/hybrid"}:::new
-        Stand["standalone<br/>HyDE/多查询"]:::new
-        Ret["双路+BM25→RRF"]:::process
-        Parent["parent 召回"]:::new
-        CRAG{"CRAG v1/v2<br/>纠错"}:::new
-        Gen["生成·脱敏<br/>⚠高风险"]:::process
+        L5M[("MySQL 元数据+缓存")]:::l5
+        L5V[("Milvus 双向量")]:::l5
+        L5N[("Neo4j 图谱")]:::l5
+        L5R[("Redis 热点缓存")]:::l5
+        L5O[("MinIO 原文")]:::l5
     end
 
-    subgraph DOMAIN["③ 领域 /domain"]
-        Diag["🩺固定诊断 · 📚案例 · 📝两票生成"]:::new
-        Agent["🤖 Agentic 诊断<br/>function-calling 自主调工具≤6轮"]:::new
-        Audit["🔍 两票审核<br/>规则+LLM 双层"]:::new
-    end
+    L6["🐳 基础设施层<br/>Docker Compose 11 服务 · Prometheus 采集 · Grafana 22面板<br/>Alembic 迁移 · CI/CD · 定时任务(备份/归档/自进化)"]:::l6
 
-    subgraph STORE["存储层 · 各存其职"]
-        MySQL[("MySQL<br/>chunks·三元组·设备·对话<br/>★qa_cache L2冷备")]:::storage
-        Milvus[("Milvus 双路向量")]:::storage
-        Neo4j[("Neo4j 图谱")]:::storage
-        Redis[("Redis ★10MB LRU<br/>热点缓存+query向量")]:::storage
-        MinIO[("MinIO 原文")]:::storage
-    end
-
-    subgraph CLOUD["云模型 · openai SDK"]
-        LLM["LLM DS/Qwen/Doubao"]:::llm
-        EMB["Embedding"]:::llm
-        RR["Rerank"]:::llm
-    end
-
-    FE -->|"提问/上传/诊断"| Upload
-    FE --> Guard
-    FE -.-> Diag & Agent & Audit
-    Upload --> MinIO
-    Upload --> Parse --> MySQL & EqTag & EmbR & ExtKG
-    EmbR -->|"大"| EMB --> Milvus
-    EmbR -.->|"小"| Milvus
-    ExtKG --> Neo4j
-    Guard --> Cache3L
-    Cache3L -.->|"L1/L2命中(1ms)"| FE
-    Cache3L -->|"L3 miss"| Route
-    Route --> Ret
-    Route -.->|"sparse:仅BM25"| Ret
-    Route -.->|"dense:仅向量"| Ret
-    Stand --> Ret
-    Ret --> RR --> Parent --> CRAG
-    Ret -.-> Milvus
-    CRAG -->|"correct"| Gen --> LLM
-    CRAG -.->|"incorrect→refused"| FE
-    Gen -.->|"SSE+置信度+⚠highRisk · 真faithfulness异步"| FE
-    Gen -.->|"★Write-Through双写"| MySQL
-    Gen -.->|"★写L1缓存"| Redis
-    Diag -.-> Ret & Neo4j
-    Agent -.-> Ret & Neo4j
-    Agent --> LLM
-
-    style WRITE fill:#fff3e0,stroke:#ff9800
-    style READ fill:#fffde7,stroke:#f9a825
-    style DOMAIN fill:#fce4ec,stroke:#e91e63
-    style STORE fill:#e8f5e9,stroke:#4caf50
-    style CLOUD fill:#ede7f6,stroke:#7e57c2
-```
-## 系统架构 竖版
-```mermaid
-flowchart TD
-    %% 竖版全景：①写入→存储→②读取→③领域 四流贯通；★核心卖点 粉色虚线=v2新增
-    classDef client fill:#e1f5fe,stroke:#03a9f4,stroke-width:2px;
-    classDef process fill:#ffffff,stroke:#ff9800,stroke-width:2px;
-    classDef storage fill:#ffffff,stroke:#4caf50,stroke-width:2px;
-    classDef llm fill:#ffffff,stroke:#9c27b0,stroke-width:2px;
-    classDef new fill:#fce4ec,stroke:#e91e63,stroke-width:2px,stroke-dasharray:5 3;
-
-    User(["用户 / 前端 Vue3<br/>Chat · 🩺Diagnose · Documents · Admin · 🔬RetrievalDebug"]):::client
-
-    subgraph WriteFlow["① 文档写入流 · 离线知识构建(五库联动)"]
-        direction TB
-        Upload["上传 PDF/Word/Excel/图片/扫描件<br/>批量≤5 单≤100M · ★同名归档版本管理+回滚 · 租户隔离"]:::process
-        Parse["结构化解析<br/>表格→markdown · Excel台账 · 扫描件OCR(rapidocr) · ★VLM图片语义"]:::new
-        Chunk["结构感知分块<br/>表格整体 · 父子两层(chunk_type/parent_idx/section)"]:::new
-        EqTag["设备自动打标 equipment_tags<br/>全文匹配标准术语→设备维度"]:::new
-        EmbRoute{"★ 双 Embedding 路由<br/>字数&gt;阈值→云 / ≤阈值→bge"}:::process
-        ExtKG["后台异步建图谱<br/>schema约束(13关系)+实体归一+关系收敛+去重+噪声过滤+增量追加"]:::new
-    end
-
-    subgraph StorageLayer["各司其职的存储层"]
-        direction TB
-        MinIO[("MinIO 原文")]:::storage
-        MySQL[("MySQL chunks(父子/类型/章节)·三元组·设备标签·对话·反馈<br/>★document_versions · ★qa_cache L2冷备")]:::storage
-        MilvusC[("Milvus 云向量 1024维")]:::storage
-        MilvusB[("Milvus bge向量 512维")]:::storage
-        Neo4j[("Neo4j 图谱(Entity-[:REL])")]:::storage
-        Redis[("Redis ★10MB LRU<br/>热点缓存 · query向量 · 运行时配置")]:::storage
-    end
-
-    subgraph ReadFlow["② 问答读取流 · 在线RAG(★路由·★三级缓存·CRAG自纠错·真可信)"]
-        direction TB
-        Guard["🛡️ 入站 prompt injection 告警<br/>+ ★Self-RAG 非运维问题跳过检索直接拒答"]:::new
-        Cache3L["★ 三级缓存(仅单轮·regen跳过)<br/>L1 Redis 1ms → L2 MySQL 1-50ms → L3 LLM全链路"]:::new
-        Route["★ 智能路由 · 6维特征决策树&lt;1ms<br/>标准/超短→sparse · 数值→sparse_first · 故障口语/同义→dense · 默认·低置信→hybrid"]:::new
-        QueryEnh["查询增强<br/>query改写 · 多查询分解 · HyDE假设文档"]:::new
-        Retrieval["混合检索(按路由调度)<br/>sparse:仅BM25 · dense:仅双路向量 · hybrid/sparse_first:双路+BM25"]:::process
-        FuseRRF["RRF融合(k=60) / 单路排序"]:::process
-        RR["Rerank gte-rerank-v2<br/>失败降级回退RRF · 高置信sparse可跳过"]:::process
-        Meta["★ 元数据过滤<br/>租户隔离 + docType + equipment"]:::new
-        MMR["MMR多样性 λ=0.6 选TopK"]:::process
-        Parent["small-to-big 父块召回大上下文"]:::new
-        CRAG{"★ CRAG 分级纠错<br/>v1 top1分 / v2 per-doc LLM逐条"}:::new
-        Rewrite["incorrect→query改写重检索(force)"]:::process
-        Refuse["仍低分→refused 保守拒答(零幻觉)"]:::process
-        Graph["GraphRAG 查Neo4j三元组<br/>jieba关键词→结构化上下文"]:::new
-        GenPrompt["融合 父块+图谱+置信度 构建Prompt<br/>低置信追加『标注不确定』"]:::process
-        StreamGen["LLM SSE 流式生成 · 真温度(rt_temperature)"]:::process
-        Safe["脱敏(PII) + ⚠高风险标记(highRisk badge)"]:::new
-        Faith["异步:真faithfulness /qa/faithfulness<br/>LLM-judge · dislike自动打分"]:::new
-    end
-
-    subgraph DomainFlow["③ 领域增强 /domain(复用检索+图谱)"]
-        direction TB
-        Diagnose["🩺 故障诊断:多查询→检索→因果链→原因排序"]:::new
-        AgentDiag["🤖 Agentic深度诊断:function-calling自主调工具≤6轮"]:::new
-        Similar["📚 相似历史案例检索"]:::new
-        Ticket["📝 两票辅助生成"]:::new
-        TicketAudit["🔍 两票审核:规则引擎+LLM双层"]:::new
-    end
-
-    subgraph CloudModels["模型服务 Provider(openai SDK·三家可切换)"]
-        direction TB
-        LLM_Chat["LLM DeepSeek / Qwen / Doubao"]:::llm
-        LLM_Embed["云Embedding 百炼/火山 1024维"]:::llm
-        LLM_Rerank["Rerank gte-rerank-v2"]:::llm
-        LLM_VLM["VLM Qwen-VL 图片语义"]:::llm
-    end
-
-    %% —— 写入链路 ——
-    User --"上传文档"--> Upload
-    Upload --> MinIO
-    Upload --> MySQL
-    Upload --> Parse
-    Parse --> Chunk
-    Chunk --> MySQL
-    Chunk --> EqTag
-    EqTag --> MySQL
-    Chunk --> EmbRoute
-    EmbRoute --"大文档"--> LLM_Embed
-    LLM_Embed --> MilvusC
-    EmbRoute --"小文档"--> MilvusB
-    EmbRoute -.->|后台异步建图谱| ExtKG
-    ExtKG --> Neo4j
-    ExtKG --> MySQL
-    Parse -.->|扫描件图片| LLM_VLM
-
-    %% —— 读取链路 ——
-    User --"提问 · JWT"--> Guard
-    Guard --"非运维→拒答(self_rag_skip)"--> User
-    Guard --> Cache3L
-    Guard -.->|多轮·跳过缓存·先standalone消解| Route
-    Cache3L --"L1 Redis命中(1ms)"--> User
-    Cache3L --"L2 MySQL命中(1-50ms)"--> User
-    Cache3L --"L3 miss"--> Route
-    Route --> QueryEnh
-    QueryEnh --> Retrieval
-    Retrieval -.->|双路向量| MilvusC
-    Retrieval -.->|双路向量| MilvusB
-    Retrieval --> FuseRRF
-    FuseRRF --> RR --> Meta --> MMR --> Parent --> CRAG
-    CRAG --"correct/ambiguous"--> Graph
-    CRAG --"incorrect"--> Rewrite
-    Rewrite -.->|force重检索| QueryEnh
-    Rewrite --"仍低分"--> Refuse
-    Refuse --"拒答(零幻觉)"--> User
-    Graph -.->|jieba查三元组| Neo4j
-    Graph --> GenPrompt
-    GenPrompt --> StreamGen
-    StreamGen -.->|流式调用| LLM_Chat
-    StreamGen --> Safe
-    Safe --"SSE: ⚠highRisk+引用+置信度+done"--> User
-    Safe -.-> Faith
-    Faith -.-> User
-    Safe --"★单轮 Write-Through L2先→L1后(TTL=72h)"--> MySQL
-    Safe --"★写L1缓存"--> Redis
-
-    %% —— 领域增强 ——
-    User -.->|"诊断/两票/案例/审核"| Diagnose
-    Diagnose -.-> Retrieval
-    Diagnose -.-> Neo4j
-    Diagnose --> Similar
-    Diagnose --> Ticket
-    User -.->|"深度诊断"| AgentDiag
-    AgentDiag -.-> Retrieval
-    AgentDiag -.-> Neo4j
-    AgentDiag --> LLM_Chat
-    User -.->|"两票审核"| TicketAudit
-    TicketAudit --> LLM_Chat
-
-    %% —— 阶段色块 ——
-    style WriteFlow fill:#fff3e0,stroke:#ff9800
-    style StorageLayer fill:#e8f5e9,stroke:#4caf50
-    style ReadFlow fill:#fffde7,stroke:#f9a825
-    style DomainFlow fill:#fce4ec,stroke:#e91e63
-    style CloudModels fill:#ede7f6,stroke:#7e57c2
-
+    L1 --> L2 --> L3G
+    L3R --> L3A --> L3G2
+    L3G --> L4
+    L3G --> L5G
+    L4 -.->|云API| L5G
+    L5G --> L6
 ```
 
+### 1.2 容器与服务拓扑
 
-### GraphRAG 数据链路（Neo4j 与原系统打通，不再孤岛）
+`docker-compose.deploy.yml` 编排 11 个服务,所有 named volume 改为 `./data/` bind mount(数据随包携带)。容器间以 service name 通信。
 
 ```mermaid
 flowchart LR
-    classDef io fill:#e1f5fe,stroke:#03a9f4,stroke-width:2px
-    classDef process fill:#ffffff,stroke:#ff9800,stroke-width:2px
-    classDef storage fill:#ffffff,stroke:#4caf50,stroke-width:2px
-    classDef llm fill:#ffffff,stroke:#9c27b0,stroke-width:2px
-    classDef new fill:#fce4ec,stroke:#e91e63,stroke-width:2px,stroke-dasharray:5 3
+    classDef fe fill:#e1f5fe,stroke:#0288d1
+    classDef app fill:#fff3e0,stroke:#ef6c00
+    classDef dep fill:#e8f5e9,stroke:#2e7d32
+    classDef obs fill:#ede7f6,stroke:#6a1b9a
 
-    subgraph W["① 写入 · 结构感知分块 + 自动建图谱(五库联动)"]
-        direction TB
-        U["上传文件<br/>PDF/Word/Excel/图片/扫描件"]:::io
-        Ver{"同名?<br/>→归档版本+回滚<br/>→租户隔离"}:::new
-        P["表格/Excel/OCR解析<br/>+ VLM图片语义(可选)"]:::process
-        SK["结构感知分块<br/>表格整体·父子两层"]:::new
-        EQ["设备自动打标 equipment_tags"]:::new
-        CLR1["清旧分块"]:::process
-        V{"Embedding路由<br/>字数&gt;阈值→云 / ≤阈值→bge"}:::process
-        CLR2["清旧向量(双collection)"]:::process
-        VMIL[("Milvus grid_chunks(云1024)<br/>grid_chunks_bge(bge512)")]:::storage
-        K["后台异步:schema约束抽取(13关系白名单)<br/>→容错解析→实体归一/关系收敛/去重/噪声过滤<br/>→增量追加(不清旧)"]:::new
-        KG[("MySQL三元组(统计/审计)<br/>+ Neo4j图(MERGE幂等)")]:::storage
-        U --> Ver --> P
-        P --> SK --> EQ --> CLR1
-        SK --> V --> CLR2 --> VMIL
-        EQ -.->|后台fire-and-forget| K
-        K --> KG
+    USER([👤 用户]):::fe
+
+    subgraph EDGE["接入"]
+        FE["frontend :5173<br/>nginx"]:::fe
+        BE["backend :8001<br/>FastAPI/gunicorn"]:::app
     end
 
-    subgraph R["② 读取 · 多策略检索 + CRAG自纠错 + GraphRAG + 真可信"]
-        direction TB
-        Q["提问"]:::io
-        GUARD["🛡️ injection告警<br/>+ Self-RAG非运维拒答"]:::new
-        CC{"★三级缓存 L1/L2/L3<br/>(仅单轮)"}:::new
-        ST["standalone消解<br/>+ query改写·多查询·HyDE"]:::new
-        RT{"★6维路由<br/>sparse/dense/<br/>hybrid/sparse_first"}:::new
-        RT2["检索<br/>双路向量+BM25"]:::process
-        RRF["RRF融合 → rerank<br/>→ 元数据过滤 → MMR"]:::process
-        PE["small-to-big父块召回"]:::new
-        CG{"★CRAG分级<br/>v1 top1 / v2 per-doc"}:::new
-        RW["incorrect→改写重检索"]:::process
-        RF["仍低分→refused拒答"]:::process
-        GC["★GraphRAG<br/>jieba关键词查Neo4j<br/>→结构化上下文"]:::new
-        PF["prompt 父块+图谱+置信度"]:::process
-        L["LLM生成<br/>+脱敏/⚠高风险"]:::llm
-        Done["done: 引用+图谱N+置信度<br/>+highRisk+route"]:::io
-        FJ["异步:真faithfulness<br/>LLM-judge + 相关追问"]:::new
-        WT["★单轮Write-Through<br/>L2先→L1后(TTL=72h)"]:::new
-        Q --> GUARD --> CC
-        CC -->|命中| Done
-        CC -->|未命中| ST --> RT --> RT2 --> RRF --> PE --> CG
-        CG -->|correct/ambiguous| GC
-        CG -->|incorrect| RW
-        RW -.->|force| RT2
-        RW -->|仍低分| RF
-        GC --> PF --> L --> Done
-        Done -.-> WT
-        Done -.-> FJ
+    subgraph CORE["核心依赖"]
+        MYSQL[("mysql :3307<br/>8.0")]:::dep
+        REDIS[("redis :6379<br/>7-alpine")]:::dep
+        MILVUS[("milvus :19530<br/>v2.4.10")]:::dep
+        NEO4J[("neo4j :7474/:7687<br/>5")]:::dep
+        MINIO[("minio :9000/:9001<br/>原文")]:::dep
     end
 
-    subgraph D["③ 删除 · 五库联动清理 + 缓存失效"]
-        direction TB
-        DEL["删文档"]:::io
-        CL["MinIO原文 + Milvus双collection<br/>MySQL(chunks+三元组+document+versions) + Neo4j边"]:::storage
-        CINV["★关联QA缓存失效"]:::new
-        DEL --> CL --> CINV
+    subgraph MILVUSDEP["Milvus 依赖"]
+        ETCD[("etcd<br/>v3.5.5")]:::dep
+        MMINIO[("milvus-minio<br/>专用对象存储")]:::dep
     end
 
-    %% 闭环：写入产物 → 读取消费（数据真正流转，不再孤岛）
-    VMIL -.->|检索| RT2
-    KG -.->|图谱结构化上下文| GC
+    subgraph OBS["可观测"]
+        PROM["prometheus :9090"]:::obs
+        GRAFANA["grafana :3000<br/>admin/admin"]:::obs
+    end
 
-    style W fill:#fff3e0,stroke:#ff9800
-    style R fill:#fffde7,stroke:#f9a825
-    style D fill:#eceff1,stroke:#607d8b
-
+    USER -- HTTPS --> FE
+    FE -- "/api 反代" --> BE
+    BE --> MYSQL & REDIS & MILVUS & NEO4J & MINIO
+    MILVUS --> ETCD & MMINIO
+    BE -. /metrics .-> PROM
+    PROM --> GRAFANA
 ```
 
-### 单次问答数据流时序（含 CRAG 自纠错）
+> **端口约定**:MySQL **3307**(避让本机)、后端 **8001**、Milvus 19530、MinIO 9000/9001、Redis 6379、Neo4j 7474/7687、Grafana 3000、Prometheus 9090。
+
+---
+
+## 二、业务架构
+
+### 2.1 角色与权限(RBAC 4 角色 + 文档级 ACL)
+
+权限模型为字符串权限 `资源:动作`(17 个权限常量,`permissions.py:12-34`),4 角色映射 + DB 覆盖表 + 文档级 ACL 三层叠加。**后端为真相之源,前端仅提前隐藏**(`perm.js:4-5` 注释明确)。
+
+| 角色 | 定位 | 权限范围 |
+|---|---|---|
+| **admin** | 系统管理员 | 全权通配 `*`(含用户管理/配置/备份/审核) |
+| **editor** | 知识编辑 | 文档增删改 + 向量化 + 图谱抽取 |
+| **operator** | 一线运维 | 问答 + 诊断 + 两票 + 反馈(只读文档) |
+| **auditor** | 审计员 | 日志 + 统计 + 健康只读 |
+
+```mermaid
+flowchart LR
+    classDef layer fill:#fff3e0,stroke:#ef6c00,stroke-width:2px
+    classDef perm fill:#e1f5fe,stroke:#0288d1
+    classDef acl fill:#fce4ec,stroke:#c62828
+
+    REQ([🔐 请求 Bearer JWT]):::perm
+
+    subgraph L1["① 路由级 RBAC"]
+        direction TB
+        RP["require_perm('doc:delete')<br/>dependencies.py:32"]:::layer
+        RP --> H1{"has_perm?<br/>permissions.py:75"}:::perm
+        H1 -- 否 --> D403((403)):::acl
+    end
+
+    subgraph L2["② 三层权限叠加"]
+        direction TB
+        C["code 默认映射<br/>ROLE_PERMISSIONS :49"]:::layer
+        DB["DB role_permission 覆盖<br/>models/permission.py :16"]:::layer
+        H1 -- 是 --> C --> DB
+    end
+
+    subgraph L3["③ 文档级 ACL"]
+        direction TB
+        A["_assert_acl :46<br/>document_service.py"]:::layer
+        A --> CK{"dept 匹配?<br/>allowed_roles 命中?<br/>admin 放行"}:::perm
+        CK -- 否 --> D403
+        CK -- 是 --> OK([✅ 放行]):::perm
+    end
+
+    DB --> A
+```
+
+**关键设计**:admin 在 ACL 层也显式放行(`_assert_acl:52-57`);前端 `utils/perm.js:37 hasPerm` 镜像同一权限矩阵做按钮级提前隐藏,但**不构成安全边界**。
+
+### 2.2 业务域与角色矩阵
+
+```mermaid
+flowchart TB
+    classDef admin fill:#ffebee,stroke:#c62828
+    classDef editor fill:#fff8e1,stroke:#f9a825
+    classDef operator fill:#e3f2fd,stroke:#1976d2
+    classDef audit fill:#f3e5f5,stroke:#7b1fa2
+
+    subgraph BIZ["业务域"]
+        direction TB
+        QA["🤖 智能问答<br/>/qa/answer(stream)<br/>检索+CRAG+GraphRAG+流式"]:::operator
+        DOC["📚 知识管理<br/>上传/解析/向量化/版本/回滚<br/>五库联动删除"]:::editor
+        KG["🧠 知识图谱<br/>三元组抽取/多跳影响链/枢纽"]:::editor
+        DOM["🩺 领域诊断<br/>故障诊断Agent/相似案例/两票/审核"]:::operator
+        SYS["⚙️ 系统管理<br/>用户/配置/备份/告警/日志/插件"]:::admin
+        OBS["📊 运维观测<br/>Grafana/降级/Provider探测/故障预测"]:::audit
+    end
+
+    ADMIN([admin]):::admin
+    EDI([editor]):::editor
+    OPE([operator]):::operator
+    AUD([auditor]):::audit
+
+    ADMIN ===> QA & DOC & KG & DOM & SYS & OBS
+    EDI ==> DOC & KG & QA
+    OPE ==> QA & DOM
+    AUD ==> OBS
+```
+
+### 2.3 前端能力(7 页面)
+
+| 页面 | 路由 | 核心能力 |
+|---|---|---|
+| **Login** | `/login` | 登录注册 + JWT |
+| **Chat** | `/` | Markdown高亮 · 流式打字机 · 引用溯源 · 对话管理 · 智能推荐追问 · 🔗图谱N标签 · 置信度标签(高🟢/中🟡/拒🔴) · 暗/亮主题 |
+| **Documents** | `/documents` | 拖拽上传+进度 · 批量勾选 · 在线预览 · 版本回滚 |
+| **Dashboard** | `/dashboard` | echarts 统计 + 故障趋势看板 |
+| **KgGraph** | `/kg` | 关系图谱(力导向) · 多跳影响链 · 枢纽出度 |
+| **Diagnose** | `/diagnose` | 诊断 Agent · 相似案例 · 两票生成/审核 |
+| **Admin** | `/admin` | 操作日志 · 配置 · 反馈看板 · 告警 · 插件 · 备份 · 健康探测 |
+| **RetrievalDebug** | `/retrieval-debug` | 检索全链路 trace + 分数归因(admin) |
+
+---
+
+## 三、RAG 核心·检索 Retrieval
+
+> **检索的底层逻辑**:把用户自然语言问题,从海量异构知识(规程/案例/图谱)中精准捞出最相关的证据,喂给生成阶段。本系统检索是一套**可路由、可纠错、可解释**的精排漏斗。
+
+### 3.0 检索总览
+
+端到端检索流位于 `qa_service.answer()` 与 `retrieval_service.mixed_search()`:
+
+```mermaid
+flowchart TD
+    classDef guard fill:#ffebee,stroke:#c62828
+    classDef route fill:#fff8e1,stroke:#f9a825
+    classDef recall fill:#e3f2fd,stroke:#1976d2
+    classDef refine fill:#e8f5e9,stroke:#2e7d32
+    classDef graph fill:#f3e5f5,stroke:#7b1fa2
+
+    A["term 归一 + 安全 guard<br/>qa_service.py:209-210"]:::guard
+    B{"多轮?"}:::route
+    B -- 是 --> S["standalone 指代消解<br/>standalone_query.py:12"]:::route
+    B -- 否 --> R
+    S --> R
+    R["智能路由 6维决策<br/>routing_service.route_query"]:::route
+    R --> M["mixed_search 编排<br/>retrieval_service.py:182"]:::recall
+    M --> RW["query 改写/多查询/HyDE<br/>query_rewrite / multi_query / hyde"]:::recall
+    RW --> D["双路并行召回<br/>BM25 + 云dense + bge dense"]:::recall
+    D --> F["RRF 融合 k=60<br/>rrf.py"]:::refine
+    F --> RR["Rerank gte-rerank-v2<br/>rerank_service.py:41"]:::refine
+    RR --> MF["元数据后置过滤<br/>docType/equipment/ACL<br/>retrieval_service.py:302"]:::refine
+    MF --> MM["MMR λ=0.5 去冗余<br/>mmr.py:18"]:::refine
+    MM --> PB["small-to-big 父块召回<br/>(可选)"]:::refine
+    PB --> G["GraphRAG 图谱上下文<br/>kg_service.graph_context<br/>qa_service.py:351"]:::graph
+    G --> OUT([→ 交给增强/生成]):::refine
+```
+
+> ⚠️ **GraphRAG 位置**:在 `mixed_search` 文档检索**之后**、CRAG 纠错**之后**,由 `qa_service.answer:351` 单独调用,与文档分块**并列**进 prompt,不是检索内部步骤。
+
+### 3.1 智能路由(6 维特征决策树)
+
+> 用 6 维查询特征(<1ms)自动选检索路径,**60%+ 查询跳过冗余分支,p95 检索延迟降 30-50%**。低于 `min_confidence=0.6` 自动升级 hybrid 保召回。
+
+```mermaid
+flowchart TD
+    classDef feat fill:#e3f2fd,stroke:#1976d2
+    classDef dec fill:#fff8e1,stroke:#f9a825,stroke-width:2px
+    classDef out fill:#e8f5e9,stroke:#2e7d32
+
+    Q([用户 query]):::feat
+    Q --> CL["query_classifier.classify<br/>6维特征:<br/>长度/数字/术语命中/同义词/口语度/标准引用"]:::feat
+    CL --> DT{"决策树<br/>routing/config.py"}:::dec
+
+    DT -- "标准号/超短词<br/>(如 GB/T 14285)" --> SP["sparse<br/>仅 BM25"]:::out
+    DT -- "纯数值/型号" --> SPF["sparse_first<br/>BM25优先+向量补"]:::out
+    DT -- "故障口语/同义词<br/>(如 跳闸/发烫)" --> DN["dense<br/>仅向量召回"]:::out
+    DT -- "默认/复杂问题" --> HY["hybrid<br/>全链路(双路+BM25)"]:::out
+
+    SP --> CF{"置信度 ≥ 0.85?"}:::dec
+    CF -- 是 --> SR["跳过 rerank 省成本<br/>should_skip_rerank"]:::out
+    CF -- 否 --> KEEP(["保留 rerank"]):::out
+
+    DT -. "置信度 &lt; 0.6" .-> HY
+```
+
+**开关**:`ROUTING_ENABLE=True`(关闭则全部走 hybrid 全链路)。路由结果携带 `routeReason` 透传到前端 done 段。
+
+### 3.2 查询增强(改写 / 多查询 / HyDE / 指代消解)
+
+> 在召回前优化 query 表达,解决「问得模糊/口语/有代词」导致召回不准的问题。各能力带独立开关,**默认按收益取舍**。
+
+```mermaid
+flowchart LR
+    classDef multi fill:#fff3e0,stroke:#ef6c00
+    classDef llm fill:#ede7f6,stroke:#6a1b9a
+    classDef cache fill:#fff8e1,stroke:#f9a825
+
+    Q([原始 query]):::multi
+
+    subgraph ST["多轮指代消解(仅多轮)"]
+        STQ["rewrite_standalone<br/>standalone_query.py:12<br/>'它的处置呢'→'主变跳闸的处置步骤'"]:::multi
+    end
+
+    subgraph RW["LLM 改写闭环 v2"]
+        direction TB
+        CLS["Classifier 判定是否需改写"]:::llm
+        RC["Redis 改写缓存 hit?"]:::cache
+        LL["few-shot LLM 改写<br/>temp=0, max_tokens=120"]:::llm
+        EV["Evaluator 评估<br/>REWRITE_EVAL_MARGIN=0.05<br/>更优才用否则回退原query"]:::llm
+        CLS --> RC --> LL --> EV
+    end
+
+    subgraph MQ["多查询分解(hybrid/dense)"]
+        MQD["decompose n=3 子问题<br/>multi_query.py:15<br/>并行检索后跨查询 RRF"]:::llm
+    end
+
+    subgraph HD["HyDE 假设文档"]
+        HYD["generate_hypothetical<br/>hyde.py:12<br/>LLM 生 80-150字假设答案<br/>用其向量做 dense(BM25仍用原q)"]:::llm
+    end
+
+    Q --> STQ
+    STQ --> RW
+    RW --> MQ
+    MQ --> HD
+    HD --> OUT([→ 进入双路召回]):::multi
+```
+
+**开关默认值**:`STANDALONE_REWRITE_ENABLE=True` · `QUERY_REWRITE_ENABLE=False` · `HYDE_ENABLE=False` · `MULTI_QUERY_ENABLE=False` · `REWRITE_EVAL_ENABLE=True`。CRAG 纠错时 `rewrite_query(force=True)`(`query_rewrite.py:12`)强制改写绕过开关。
+
+### 3.3 双路召回(BM25 稀疏 + 双 Embedding 稠密 + HNSW)
+
+> **双 Embedding 是「云 + 本地 bge」双 collection 并查**(不是二选一路由):写入时按文档大小路由到不同 collection,检索时 `asyncio.gather` 同时查两个 collection 融合,既绕开云 API 限流,又覆盖不同向量空间。
+
+```mermaid
+flowchart TD
+    classDef q fill:#e3f2fd,stroke:#1976d2
+    classDef dense fill:#ede7f6,stroke:#6a1b9a
+    classDef sparse fill:#fff8e1,stroke:#f9a825
+    classDef store fill:#e8f5e9,stroke:#2e7d32
+
+    Q([search_q]):::q
+
+    subgraph DENSE["稠密双路(asyncio.gather 并行)·_dense_and_sparse :114"]
+        direction TB
+        EQ["embed_query(带 Redis 缓存 ex=3600)<br/>embedding_service.py:23"]:::dense
+        EQ --> CL["云路 EMB_PROVIDER=qwen<br/>text-embedding-v3 1024d<br/>qwen_embedding.py:23"]:::dense
+        EQ --> BG["本地 bge 路<br/>bge-small-zh-v1.5 512d CPU<br/>bge_embedding.py:27"]:::dense
+        CL --> MC1[("Milvus grid_chunks<br/>HNSW search<br/>milvus_client.py:63")]:::store
+        BG --> MC2[("Milvus grid_chunks_bge<br/>HNSW search")]:::store
+    end
+
+    subgraph SP["稀疏 BM25·bm25_service.py"]
+        SY["expand_synonyms 同义词扩展"]:::sparse
+        BM["BM25Okapi + jieba<br/>内存全量+pickle冷启<br/>search :115 cand=max(topk*4,20)"]:::sparse
+        SY --> BM
+    end
+
+    Q --> EQ
+    Q --> SY
+    MC1 --> POOL
+    MC2 --> POOL
+    BM --> POOL([候选 pool]):::store
+```
+
+**HNSW 参数**(`milvus_client.py:39-41`):`M=16` · `efConstruction=200` · `metric=COSINE` · `ef=64`(运行时 `/system/config/milvus` 可热改,`config_service.rt_ef()`)。检索时 `ef = max(rt_ef, cand)` 保证 ef ≥ 召回窗口。
+
+### 3.4 RRF 融合 + Rerank 精排漏斗
+
+> RRF 把多路召回等权融合;Rerank 用**阿里百炼 `gte-rerank-v2`**(云 HTTP 原生 API,**非本地 bge-reranker**)做交叉注意力精排,失败降级回退 RRF。
+
+```mermaid
+flowchart LR
+    classDef in fill:#e3f2fd,stroke:#1976d2
+    classDef fuse fill:#fff8e1,stroke:#f9a825
+    classDef rr fill:#ede7f6,stroke:#6a1b9a
+    classDef out fill:#e8f5e9,stroke:#2e7d32
+    classDef warn fill:#ffebee,stroke:#c62828
+
+    DC["云 dense hits"]:::in
+    DB["bge dense hits"]:::in
+    BM["BM25 hits"]:::in
+
+    DC --> RRF["RRF 融合<br/>rrf.py<br/>k=60 dense/sparse等权1.0/1.0"]:::fuse
+    DB --> RRF
+    BM --> RRF
+    RRF --> POOL["fused pool<br/>[: topk*2]"]:::fuse
+
+    POOL --> CHK{"skip_rerank?<br/>(高置信sparse≥0.85<br/>或单路)"}:::rr
+    CHK -- 是 --> SKIP(["保留 pool 排序"]):::out
+    CHK -- 否 --> RER["Reranker.rerank<br/>rerank_service.py:41<br/>gte-rerank-v2 · top_n=min(topk*2,len)"]:::rr
+    RER --> OK["精排结果<br/>(原始索引,分数)"]:::out
+    RER -. "失败/欠费" .-> DEG["降级: 回退 RRF 排序<br/>degraded('rerank')<br/>DEGRADED 指标可见"]:::warn
+    DEG --> OK
+```
+
+**连接池复用**:`rerank_service.py` 模块级共享 `httpx.AsyncClient`(timeout=30, max_connections=20),lifespan shutdown 调 `close_client()` 释放——rerank 是链路最慢一环,避免每次 TLS 握手。
+
+### 3.5 元数据后置过滤 + MMR + small-to-big
+
+> **docType 是检索后置过滤**(查 MySQL `Document` 表),不是 Milvus 标量过滤——先 RRF+rerank 出 pool,再按元数据过滤,docType 无条件补全到每条(来源卡片用)。
+
+```mermaid
+flowchart TD
+    classDef in fill:#e3f2fd,stroke:#1976d2
+    classDef filter fill:#fff8e1,stroke:#f9a825
+    classDef mmr fill:#ede7f6,stroke:#6a1b9a
+    classDef parent fill:#fce4ec,stroke:#c62828
+    classDef out fill:#e8f5e9,stroke:#2e7d32
+
+    P([rerank pool]):::in
+    P --> DOC["查 Document 表<br/>retrieval_service.py:302<br/>select id,doc_type,equipment_tags,<br/>tenant_id,dept,allowed_roles"]:::filter
+    DOC --> ACL{"_acl_ok :159<br/>tenant / docType / equipment<br/>dept+allowed_roles(RBAC ACL)"}:::filter
+    ACL -- 拒 --> DROP((丢弃)):::filter
+    ACL -- 过 --> CMP["docType 无条件补全 :324<br/>(来源卡片展示)"]:::filter
+
+    CMP --> MQ{"len(pool) &gt; topk?"}:::mmr
+    MQ -- 是 --> MM["MMR 多样性<br/>mmr.py:18<br/>λ=0.5(相关性 vs 多样性)<br/>jieba Jaccard 相似度<br/>score=λ*rel-(1-λ)*max_sim"]:::mmr
+    MQ -- 否 --> SB
+    MM --> SB{"SMALL_TO_BIG_ENABLE?"}:::parent
+    SB -- 是 --> PC["_expand_parents<br/>子块聚合同组父块全文<br/>给 LLM 完整上下文"]:::parent
+    SB -- 否 --> GOV
+    PC --> GOV["知识治理硬门禁<br/>knowledge_governance<br/>blocked_document_ids<br/>(撤回/过期 fail-closed)"]:::filter
+    GOV --> OUT([contexts → 生成]):::out
+```
+
+> **纠偏**:`MMR_LAMBDA` 实际值 **0.5**(`config.py:103`),`debug_search` 里的 `0.6` 仅是 fallback 不生效。
+
+### 3.6 GraphRAG(Neo4j 多跳知识图谱)
+
+> GraphRAG 把**结构化图谱上下文**(设备-故障-处置因果链)与文档分块**并列**喂给 LLM,补足纯文本检索做不到的因果传播推理。
+
+```mermaid
+flowchart LR
+    classDef q fill:#e3f2fd,stroke:#1976d2
+    classDef kg fill:#f3e5f5,stroke:#7b1fa2
+    classDef store fill:#e8f5e9,stroke:#2e7d32
+    classDef llm fill:#ede7f6,stroke:#6a1b9a
+
+    Q([nq 原问题]):::q
+    Q --> GC["kg_service.graph_context<br/>qa_service.py:351"]:::kg
+    GC --> JB["jieba 抽关键词"]:::kg
+    JB --> CYP["neo4j_client.query_triples_by_keywords<br/>UNWIND words<br/>MATCH (n:Entity)-[r:REL]-(m:Entity)<br/>WHERE n.name CONTAINS w"]:::store
+
+    CYP --> OK{"Neo4j 可用?"}:::store
+    OK -- 是 --> TXT["文本化为<br/>['s --rel--> o', ...]<br/>topk=8"]:::kg
+    OK -- 否/降级 --> FB["回退 MySQL KgTriple 表<br/>kg_service.py:296"]:::store
+    FB --> TXT
+
+    TXT --> PROMPT["与文档 contexts 并列<br/>进 prompt【知识图谱】段<br/>build_messages_with_history"]:::llm
+
+    Q -. 多跳影响链 .-> PATH["get_paths<br/>MATCH path=(n)-[:REL*1..5]->(m)<br/>depth=3 限1-5"]:::store
+    Q -. 枢纽实体 .-> HUB["get_hubs<br/>出度排行找核心设备"]:::store
+```
+
+**图谱写入**:`extract_triples`(`kg_service.py:162`)LLm 抽三元组(6 块/批),schema 约束 13 关系白名单 + 实体归一(`#1主变/1号主变→主变压器`)+ MERGE 幂等双写 MySQL + Neo4j。节点 `:Entity{name,type}`(Equipment/Fault/Action),统一有向关系 `:REL{type,doc_id}`。
+
+---
+
+## 四、RAG 核心·增强 Augmentation
+
+> **增强的底层逻辑**:在「检索到结果」和「交给 LLM 生成」之间,插入**缓存复用 + 自纠错 + 证据缺口闭环 + prompt 工程**,把"一次性管道"升级为"可信、高效、自进化"的闭环。
+
+### 4.1 三级缓存(L1 Redis → L2 MySQL → L1.5 Semantic)
+
+> 三级缓存命中率 ~75%(原 ~20%),加权延迟 ~10s→~3s。**查询顺序:L1 Redis → L2 MySQL → L1.5 Semantic**(MySQL 精确匹配先于语义模糊匹配);**仅单轮读/写缓存,多轮不缓存**(防跨对话脏命中)。
+
+```mermaid
+flowchart TD
+    classDef q fill:#e3f2fd,stroke:#1976d2
+    classDef l1 fill:#fff3e0,stroke:#ef6c00,stroke-width:2px
+    classDef l2 fill:#fff8e1,stroke:#f9a825,stroke-width:2px
+    classDef l15 fill:#fce4ec,stroke:#c62828,stroke-width:2px
+    classDef gate fill:#e8f5e9,stroke:#2e7d32
+    classDef write fill:#ede7f6,stroke:#6a1b9a
+
+    Q([单轮 query]):::q
+    Q --> KV["_cache_key<br/>qa:{tenant}:{model}:{normalized}"]:::q
+    KV --> GATE{"_cache_knowledge_valid<br/>qa_service.py:41<br/>复核 doc租户归属 +<br/>治理 blocked_ids(fail-closed)"}:::gate
+
+    GATE --> L1["① L1 Redis<br/>cache_get_json<br/>redis_client.py:19<br/>TTL=259200(3天) maxmemory=300mb"]:::l1
+    L1 -- 命中 1ms --> HIT([秒回 cacheLayer=redis]):::l1
+    L1 -- miss --> L2["② L2 MySQL qa_cache<br/>cache_get_mysql<br/>cache_persist.py:25<br/>MD5 hash + expires_at>now<br/>分层TTL: 手册7d/案例3d/实时5min"]:::l2
+    L2 -- 命中 1-50ms --> HIT2([秒回 cacheLayer=mysql<br/>异步 backfill Redis]):::l2
+    L2 -- miss --> L15["③ L1.5 Semantic Cache<br/>semantic_cache_get<br/>semantic_cache.py:61<br/>embed + fp16余弦<br/>≥0.92 high / ≥0.85 medium"]:::l15
+    L15 -- 命中 --> HIT3([返回 cacheLayer=semantic]):::l15
+    L15 -- miss --> MISS([→ 进入检索/生成]):::l15
+
+    MISS -. 生成后写回 .-> W{"confidence==high<br/>&& !blacklisted?"}:::write
+    W -- 是 --> W2["Write-Through 双写<br/>qa_service.py:412<br/>① MySQL 先写(持久优先)<br/>② Redis 后写 TTL=3天<br/>③ Semantic 索引异步"]:::write
+    W -- medium/refused --> NO([不进缓存<br/>→ 证据缺口收集]):::l15
+```
+
+**关键设计**:
+- **L1.5 Semantic** 默认关(`SEMANTIC_CACHE_ENABLE=False`),索引上限 5000 条 LRU 淘汰,fp16 压缩 + `asyncio.Lock` 串行化读改写。
+- **L2 分层 TTL**(`ttl_for_query` `qa_cache.py:53`):实时类 5min / 规程手册 7d / 案例默认 3d,`CACHE_TIERED_TTL_ENABLE=True`。
+- **清理**:MySQL Event 每日 3:00 主力 + 应用层每 `CACHE_PERSIST_CLEANUP_HOURS=6` 兜底(过期/3天未命中/软删>7天)。
+
+### 4.2 Corrective RAG 自纠错分级闭环(核心)
+
+> 2026 RAG 趋势的核心:**检索后分级 + 纠错闭环**,把"事后 LLM-judge"升级为"实时前置护栏",无关问题保守拒答零幻觉。**信号源复用 rerank 分,不额外调评估 LLM**(省钱低延迟)。
+
+```mermaid
+flowchart TD
+    classDef in fill:#e3f2fd,stroke:#1976d2
+    classDef grade fill:#fff8e1,stroke:#f9a825,stroke-width:2px
+    classDef correct fill:#e8f5e9,stroke:#2e7d32
+    classDef amb fill:#fff3e0,stroke:#ef6c00
+    classDef refuse fill:#ffebee,stroke:#c62828,stroke-width:2px
+
+    CTX([rerank 后 contexts<br/>top1_score]):::in
+    CTX --> V{"CRAG 版本?"}:::grade
+    V -- "CRAG_PERDOC_ENABLE" --> V2["v2 LLM 逐条评估<br/>crag_v2.grade_with_llm<br/>relevant/partial/irrelevant<br/>timeout=5s"]:::grade
+    V -- "v1(默认)" --> G["grade(top1, n, rerank_ok)<br/>crag.py:21<br/>复用 rerank 分不调 LLM"]:::grade
+    V2 -. 失败/空 .-> G
+
+    G --> C0{"rerank_ok?"}:::grade
+    C0 -- 否 --> AMB((ambiguous 保守)):::amb
+    C0 -- 是 --> C1{"top1 ≥ 0.6?"}:::grade
+    C1 -- 是 --> COR((correct)):::correct
+    C1 -- 否 --> C2{"top1 &lt; 0.3?"}:::grade
+    C2 -- 是 --> INC((incorrect)):::refuse
+    C2 -- 中间0.3-0.6 --> AMB
+
+    COR --> CH["confidence=high<br/>正常作答"]:::correct
+    AMB --> AW{"邻域扩展?"}:::amb
+    AW -- 是 --> EX["_expand_neighbors ±1 chunk<br/>max_add=4<br/>同文档相邻补全"]:::amb
+    AW -- 否 --> AMH["confidence=medium<br/>prompt 追加'标注不确定'"]:::amb
+
+    INC --> RW["rewrite_query force=True<br/>绕过开关强制改写"]:::refuse
+    RW --> RE["mixed_search 重检索"]:::refuse
+    RE --> RG["再分级"]:::grade
+    RG -- 仍 incorrect --> RF["confidence=refused<br/>保守拒答(零幻觉)<br/>→ evidence_gap collect"]:::refuse
+    RG -- 改善 --> COR
+```
+
+**阈值**(`config.py:120-127`):`CRAG_HIGH=0.6` · `CRAG_LOW=0.3` · `CRAG_PERDOC_ENABLE=False` · `CRAG_TIMEOUT=5.0s` · `CRAG_NEIGHBOR_EXPAND_ENABLE=False`。答案透传 `confidence`(high/medium/refused)+ `cragAction`(normal/rewritten/refused),前端显示置信度标签。
+
+### 4.3 证据缺口(Evidence Gap)补全闭环
+
+> CRAG 判定 `medium/refused` 的问题不是丢掉,而是**自动收集 → AI 深度补全 → 人工确认 → 回流知识库**,形成"知识自增长"闭环。
+
+```mermaid
+flowchart LR
+    classDef trig fill:#ffebee,stroke:#c62828
+    classDef state fill:#fff8e1,stroke:#f9a825,stroke-width:2px
+    classDef ai fill:#ede7f6,stroke:#6a1b9a
+    classDef sync fill:#e8f5e9,stroke:#2e7d32
+
+    TRIG["触发: confidence∈{medium,refused}<br/>EVIDENCE_GAP_AUTO_COLLECT<br/>qa_service.py:454<br/>asyncio.create_task(collect)"]:::trig
+
+    TRIG --> P((pending)):::state
+    P -- "deep_draft_stream<br/>evidence_gap_service.py:121<br/>agent_runtime + qa persona<br/>多轮工具交叉验证<br/>SSE: meta→tool_step→token→done" --> AI((ai_drafted)):::ai
+    AI -- "edit_answer(人工修正)<br/>:212" --> C((confirmed)):::state
+    C -- "confirm_and_sync :228" --> SYNC["① MinIO 上传 faq/{doc_id}.md<br/>② 建 Document(doc_type=证据补全FAQ)+Chunk<br/>③ vectorize_document 写 Milvus<br/>④ cache 双写(confidence=high)"]:::sync
+    SYNC --> S((synced)):::sync
+
+    CRON["定时 deep_cron_loop<br/>main.py:175<br/>周期 EVIDENCE_GAP_DEEP_INTERVAL=180s<br/>批量 EVIDENCE_GAP_DEEP_BATCH=5<br/>operator=auto-deep-sync ✅自动"]:::trig
+    CRON -. "batch_deep_and_sync<br/>串行防LLM限流" .-> AI
+```
+
+**状态机**:`pending → ai_drafted → confirmed → synced`(另有 `auto-deep-sync` 标识全自动补全)。`topk` 放宽 `5 × EVIDENCE_GAP_DRAFT_TOPK_MULT(2) = 10` 扩大召回。路由 `/evidence-gap/{id}/deep-draft`(SSE)、`/evidence-gap/{id}/edit`(`system.py:668/685`)。
+
+### 4.4 Prompt 模板管理(Code 默认 + Redis 热覆盖)
+
+> 系统 prompt 双层:**Code 默认 7 条规则** + **Redis `config:prompt` 运行时覆盖**,改完即生效无需重启;内存热读零 Redis 往返。
+
+```mermaid
+flowchart LR
+    classDef code fill:#e3f2fd,stroke:#1976d2
+    classDef redis fill:#ffebee,stroke:#c62828
+    classDef mem fill:#fff8e1,stroke:#f9a825
+    classDef inject fill:#fce4ec,stroke:#c62828
+
+    ADMIN([admin 改 prompt]):::redis
+    ADMIN --> UP["update_prompt_config<br/>config_service.py:88<br/>cache_set_json_persistent<br/>(无TTL永久存) + 刷新 _RUNTIME"]:::redis
+
+    START([lifespan 启动]):::code
+    START --> LD["load_runtime :16<br/>从 Redis 载 config:prompt<br/>→ 填 _RUNTIME 内存"]:::mem
+
+    RT["rt_system_prompt :97<br/>sync getter 热路径<br/>零 Redis 往返"]:::mem
+    LD --> RT
+    UP --> RT
+
+    RT --> GSP{"get_system_prompt<br/>prompt_templates.py:15"}:::code
+    GSP -- "rt 非空" --> USE_RT([用运行时覆盖]):::redis
+    GSP -- "rt 空" --> USE_CODE([回落 SYSTEM_PROMPT<br/>7条规则 :3]):::code
+
+    USE_RT --> BUILD["build_messages_with_history :38<br/>system + history + 参考资料 + 图谱 + 问题"]:::code
+    USE_CODE --> BUILD
+
+    BUILD --> INJ{"confidence?"}:::inject
+    INJ -- medium --> INJ1["追加规则8: '标注不确定'"]:::inject
+    INJ -- refused --> INJ2["追加: '优先回答无法确认'"]:::inject
+    INJ1 --> LLM([→ LLM 生成]):::code
+    INJ2 --> LLM
+```
+
+同模式热读:`rt_temperature()`(生成温度)、`rt_ef()`(HNSW ef)、`rt_max_tokens()` —— 均可运行时 `/system/config/milvus|model` 即改即生效。
+
+---
+
+## 五、RAG 核心·生成 Generation
+
+> **生成的底层逻辑**:把检索+增强得到的证据,用 LLM 流式产出**可信、安全、可溯源**的答案,并配套质量评估、限流防护、插件扩展、热备容灾。
+
+### 5.1 SSE 流式生成(事件协议)
+
+> 逐 token 打字机输出,首字延迟低。事件协议 4 类 chunk:`meta`(引用来源)→ `token`×N → `tool_step`(Agent)→ `done`(置信度/延迟/缓存层)。
 
 ```mermaid
 sequenceDiagram
     autonumber
-    %% 智能问答 /qa/answer(stream)固定RAG管线；🤖深度诊断是独立function-calling agent流，见架构图③
     participant FE as 前端
-    participant BE as 后端 stream_answer
-    participant Route as ★智能路由
-    participant Milvus as Milvus(云+bge双路)
-    participant Neo4j as Neo4j图谱
-    participant Redis as ★Redis L1(10MB LRU)
-    participant MySQL as ★MySQL L2(qa_cache)
-    participant LLM as LLM(DS/Qwen/Doubao)
+    participant RT as /qa/answer/stream
+    participant SA as stream_answer
+    participant Cache as 三级缓存
+    participant LLM as LLM provider
 
-    FE->>BE: 提问 + JWT
+    FE->>RT: POST + JWT(限流 30/min)
+    RT->>SA: StreamingResponse(SSE)
 
-    rect rgb(255, 243, 224)
-        Note right of BE: 🟠 护栏 + ★三级缓存查询(仅单轮·regen跳过)
-        BE->>BE: term归一化 + 🛡️ injection告警
-        opt SELF_RAG_ENABLE
-            BE->>LLM: 判定是否运维问题
-            LLM-->>BE: 非运维 → 拒答(self_rag_skip)，跳过检索
+    alt 单轮缓存命中
+        SA->>Cache: 查 L1/L2/L1.5
+        Cache-->>SA: 命中
+        SA-->>FE: meta(整答案 sources)
+        SA-->>FE: token(整段)
+        SA-->>FE: done(cached=true)
+    else miss
+        SA->>SA: guard + 路由 + mixed_search + CRAG + GraphRAG + build_messages
+        SA-->>FE: meta(sources + conversationId)
+        SA->>LLM: stream(messages, temp=rt_temperature)
+        loop 逐 token(原生 delta 不切块)
+            LLM-->>SA: chunk.delta.content
+            SA-->>FE: token(打字机片段)
         end
-        BE->>Redis: L1 查热点
+        SA->>SA: 拼完整答案 + auto_cite 角标补全
+        SA->>SA: save_message(user+assistant) + Write-Through 双写缓存
+        SA-->>FE: data: [DONE]
     end
 
-    alt L1 命中(1ms)
-        Redis-->>BE: 缓存答案
-        BE->>MySQL: 建会话 + 存消息(user/assistant)
-        BE-->>FE: meta/token/done 秒回(cacheLayer=redis)
-    else L1 miss
-        BE->>MySQL: L2 查 qa_cache(MD5)
-        alt L2 命中(1-50ms)
-            MySQL-->>BE: 缓存答案
-            BE->>MySQL: 建会话 + 存消息
-            BE-->>FE: 秒回(cacheLayer=mysql)
-        else L2 miss
+    Note over FE: done 后异步拉 /qa/faithfulness 真值覆盖幻觉率展示
+```
 
-        rect rgb(255, 248, 220)
-            Note right of BE: 🟡 ★路由 + 查询增强 + 检索
-            opt 多轮
-                BE->>LLM: standalone 指代消解(仅影响检索)
-            end
-            BE->>Route: 6维特征决策树(<1ms)
-            Route-->>BE: sparse|dense|hybrid|sparse_first(低置信→hybrid)
-            opt hybrid/dense
-                BE->>LLM: query改写 + 多查询分解 + HyDE
-            end
-            alt sparse: 仅BM25(高置信可跳rerank)
-            else dense: 仅双路向量
-            else hybrid/sparse_first: 全链路
-                par 双路并行检索
-                    BE->>Milvus: 云向量 TopK
-                and
-                    BE->>Milvus: bge向量 TopK
-                end
-                BE->>Milvus: BM25
-                BE->>BE: RRF融合(k=60)
-            end
-            opt RERANK_ENABLE 且 未跳过
-                BE->>LLM: rerank重排(失败降级回退RRF)
-            end
-            BE->>MySQL: 元数据过滤(租户/docType/设备) → MMR → small-to-big父块
-        end
+**事件来源**:`meta`(`qa_service.py:787`)、`token`(`:803`)、`tool_step`(`:542`,仅 agent)、`done`(末尾)。token 来自 `get_llm_provider(model_type).stream()`(`:801`),三家 provider 透传 OpenAI SDK `stream=True`。WebSocket 增强版 `/qa/answer/ws`(`qa.py:304`,双向 `?token=JWT` 鉴权)。
 
-        rect rgb(255, 228, 225)
-            Note right of BE: 🔴 ★CRAG自纠错
-            BE->>BE: 分级(CRAG_PERDOC→LLM逐条 / 否则v1 top1分)
-            alt incorrect(低相关)
-                BE->>LLM: 改写query force重检索
-                BE->>BE: 再分级 → 仍低 = refused(零幻觉)
-            end
-        end
+### 5.2 多轮对话与指代消解(多轮不缓存)
 
-        BE->>Neo4j: GraphRAG: jieba关键词查因果三元组
+> 多轮带上下文追问,但**检索用消解后的独立 query,喂 LLM 用原问题**;多轮不写缓存(仅高置信时读 Redis 热点),防跨对话脏命中。
 
-        rect rgb(230, 245, 230)
-            Note right of BE: 🟢 SSE流式生成(meta/token/done)
-            BE-->>FE: meta(引用来源 + conversationId)
-            BE->>LLM: prompt(父块+图谱+置信度) 流式
-            loop 逐token
-                LLM-->>BE: token
-                BE-->>FE: token(打字机)
-            end
-        end
+```mermaid
+flowchart TD
+    classDef in fill:#e3f2fd,stroke:#1976d2
+    classDef multi fill:#fff8e1,stroke:#f9a825
+    classDef cache fill:#fff3e0,stroke:#ef6c00
+    classDef llm fill:#ede7f6,stroke:#6a1b9a
 
-        rect rgb(243, 230, 255)
-            Note right of BE: 🟣 持久化 + ★Write-Through双写 + done
-            BE->>MySQL: 存对话消息(user + assistant)
-            BE->>MySQL: L2先写(qa_cache ON DUPLICATE KEY)
-            BE->>Redis: L1后写(单轮·TTL=72h)
-            BE-->>FE: done(confidence·cragAction·cragGrade·highRisk·graphCount·route·routeReason·cacheLayer·modelType)
-        end
+    Q([追问 query + conversationId]):::in
+    Q --> IS{"is_single = not conv_id?<br/>qa_service.py:211"}:::multi
+    IS -- 单轮 --> CACHE([走完整三级缓存读+写]):::cache
+    IS -- 多轮 --> HIST["get_messages 最近6条(3轮)<br/>_HISTORY_LIMIT=6"]:::multi
 
-        Note over FE,BE: 答案渲染后异步: FE拉真faithfulness(/qa/faithfulness·LLM-judge) + 相关追问(/qa/related)；dislike自动打judge分
-        end
+    HIST --> STD["_search_query_for_retrieve<br/>qa_service.py:182"]:::multi
+    STD --> SR["rewrite_standalone<br/>消解代词'它'→具体设备<br/>仅用于检索,不改原问题"]:::multi
+    SR --> CMP{"search_q == nq?"}:::cache
+    CMP -- 是(原query完整) --> READ["只读 Redis 热点<br/>不写缓存"]:::cache
+    CMP -- 否(已改写) --> NO([不读不写缓存]):::cache
+
+    READ --> RET([→ 检索用 search_q]):::multi
+    NO --> RET
+    RET --> PROMPT["build_messages_with_history<br/>用 原问题nq + history 喂 LLM<br/>(不是 search_q)"]:::llm
+```
+
+**会话服务**(`conversation_service.py`):`create_conversation:8` / `get_messages:31` / `save_message:44` / 软删 + 归属校验(仅本人) / 批量删上限 `_MAX_BATCH=200`。
+
+### 5.3 LLM-judge 四维质量评估
+
+> 答案质量**采样异步评估,不阻塞响应**。四维:Faithfulness(忠实度)+ Context Relevance(相关)+ Answerability(可答)+ Completeness(完整),综合分加权。
+
+```mermaid
+flowchart LR
+    classDef trig fill:#e3f2fd,stroke:#1976d2
+    classDef judge fill:#ede7f6,stroke:#6a1b9a,stroke-width:2px
+    classDef score fill:#fff8e1,stroke:#f9a825
+    classDef store fill:#e8f5e9,stroke:#2e7d32
+
+    DONE([stream done<br/>qa_service.py:449,829]):::trig
+    DONE --> SMP{"should_sample?<br/>_SAMPLE_RATE=1.0<br/>(生产建议0.1)"}:::trig
+    SMP -- 命中 --> ASYNC["asyncio.ensure_future<br/>eval_quality(异步不阻塞)"]:::trig
+
+    ASYNC --> J1["judge_hallucination :10<br/>声明拆解→逐条核验<br/>faithfulness = 1-未支撑/总<br/>(不信模型自报)"]:::judge
+    ASYNC --> J2["judge_context_relevance :61<br/>per-chunk relevant/partial/irrelevant<br/>relevance_score 0-1"]:::judge
+    ASYNC --> J3["judge_answerability :117<br/>answerable + confidence<br/>+ missing_info"]:::judge
+    ASYNC --> J4["_judge_completeness :103<br/>1=完全/0.7主要/0.4部分/0无关"]:::judge
+
+    J1 --> SC
+    J2 --> SC
+    J4 --> SC
+    SC["综合分 overall<br/>online_eval_service.py:73<br/>= relevance×0.3<br/>+ faithfulness×0.4<br/>+ completeness×0.3"]:::score
+    SC --> LOG["落 operation_logs<br/>operate_type=online_eval"]:::store
+    LOG --> TREND["get_quality_trends<br/>质量趋势面板"]:::store
+
+    DONE -. 前端异步 .-> API["POST /qa/faithfulness<br/>qa.py:220<br/>覆盖粗糙启发式展示"]:::judge
+```
+
+Judge 原语温度恒为 0(`judge.py:39,91,143`),解析失败返回 None 不假报。
+
+### 5.4 限流策略(slowapi · 按 IP 梯度阈值)
+
+> 按请求成本设梯度阈值:**重计算/Agent(4-6)> 写库/重建(3-10)> 普通问答(30)> 反馈(60)**,防成本攻击。按客户端 IP,不读 .env(避中文 GBK 解码错)。
+
+```mermaid
+flowchart LR
+    classDef heavy fill:#ffebee,stroke:#c62828
+    classDef write fill:#fff3e0,stroke:#ef6c00
+    classDef normal fill:#e3f2fd,stroke:#1976d2
+    classDef light fill:#e8f5e9,stroke:#2e7d32
+
+    REQ([请求]):::normal
+    REQ --> LIM["slowapi Limiter<br/>key=get_remote_address<br/>core/limiter.py:8"]:::normal
+    LIM --> CHK{"@limiter.limit"}:::normal
+    CHK -- "检索调参 /system/retrieval/tune" --> H1["1/min 最严<br/>(参数扫描极重)"]:::heavy
+    CHK -- "BM25重建 /bm25/rebuild" --> H2["3/min"]:::heavy
+    CHK -- "图谱抽取 /kg/extract" --> H3["5/min"]:::heavy
+    CHK -- "多Agent辩论 /diagnose-debate" --> H4["4/min"]:::heavy
+    CHK -- "诊断Agent /diagnose-agent" --> H5["6/min"]:::heavy
+    CHK -- "文档 上传/解析/向量化" --> W1["10/min"]:::write
+    CHK -- "问答 /qa/answer(stream)" --> N1["30/min"]:::normal
+    CHK -- "反馈 /qa/feedback" --> L1["60/min 最高<br/>(轻量)"]:::light
+```
+
+> 注:`main.py:390` 的 `metrics_middleware` 对每请求打 Prometheus 延迟直方图 + 5xx 计数 + 注入 `X-Cache-Hit` 头,无独立慢日志阈值过滤。
+
+### 5.5 插件框架(3 hook 串行链式)
+
+> 三个扩展点 hook:`query_preprocess`(入站)→ `retrieval_filter`(检索中,预留)→ `answer_postprocess`(出站)。插件**串行链式执行,异常降级不中断主链路**。
+
+```mermaid
+flowchart LR
+    classDef hook fill:#fff8e1,stroke:#f9a825,stroke-width:2px
+    classDef plugin fill:#ede7f6,stroke:#6a1b9a
+    classDef main fill:#e3f2fd,stroke:#1976d2
+
+    IN([body.query]):::main
+    IN --> H1["hook: query_preprocess<br/>qa.py:45"]:::hook
+    H1 --> P1["length_guard<br/>plugin_registry.py:84<br/>len>500 截断"]:::plugin
+    P1 --> CORE(["qa_service.answer / 双RAG<br/>检索+增强+生成"]):::main
+    CORE --> H2["hook: retrieval_filter<br/>(预留扩展点)"]:::hook
+    H2 --> H3["hook: answer_postprocess<br/>qa.py:62"]:::hook
+    H3 --> P3["safety_banner :74<br/>含'停电/接地/倒闸/带电/放电'等<br/>→ 追加⚠安全提示<br/>(已有则不重复)"]:::plugin
+    P3 --> OUT([返回答案]):::main
+
+    H1 -. "插件异常" .-> DEG["degraded('plugin_*')<br/>不中断主链路"]:::plugin
+    H3 -. "插件异常" .-> DEG
+```
+
+**管理**:`GET /system/plugins` 列表、`POST /system/plugins/{name}/toggle` 启停(`system.py:1019`)。⚠️ 流式 `/qa/answer/stream` **未接入插件**(仅非流式接入)。
+
+### 5.6 双 RAG 热备(主路异常切副路)
+
+> opt-in 容灾:主路(Milvus+rerank+CRAG 全链路)任意异常 → 自动切副路(BM25+LLM,**只依赖 MySQL**,完全不碰 Milvus/embedding/rerank),返回标 `failover=True`。
+
+```mermaid
+flowchart TD
+    classDef in fill:#e3f2fd,stroke:#1976d2
+    classDef main fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
+    classDef sec fill:#fff3e0,stroke:#ef6c00,stroke-width:2px
+    classDef warn fill:#ffebee,stroke:#c62828
+
+    REQ([POST /qa/answer]):::in
+    REQ --> SW{"DUAL_RAG_ENABLE?<br/>(opt-in 默认关<br/>不在 config,getattr)"}:::in
+    SW -- 否 --> DIRECT["直接 qa_service.answer"]:::main
+    SW -- 是 --> AR["answer_redundant<br/>rag_router.py:35"]:::main
+
+    AR --> TRY{"TRY 主路<br/>qa_service.answer"}:::main
+    TRY -- 成功 --> OK([返回主路结果]):::main
+
+    TRY -- "任意异常<br/>(Milvus挂/embed失败)" --> EXC["EXCEPT<br/>degraded('rag_failover_to_secondary')"]:::warn
+    EXC --> SEC["_secondary_bm25_llm<br/>rag_router.py:47<br/>① bm25 ensure_built+search topk=8<br/>② build_messages + llm.chat<br/>(只依赖 MySQL)"]:::sec
+    SEC --> SECO([返回 failover=True<br/>framework=secondary_bm25_llm]):::sec
+
+    HEALTH["GET /system/rag/health<br/>system.py:979<br/>探 milvus num_entities<br/>n≥0 = available"]:::in
+    HEALTH -. "运维查看" .-> TRY
+```
+
+**关键点**:副路是纯异常兜底(无超时/健康分双重判定);**流式 `/answer/stream` 不走双 RAG**;`DUAL_RAG_ENABLE` 不在 `config.py`,全走 `getattr(settings, "DUAL_RAG_ENABLE", False)` 默认关。
+
+---
+
+## 六、横切能力
+
+> 围绕 RAG 主链路的工程地基:安全、自进化、Agent、可观测、备份、归档、预测、用户治理。所有定时任务统一以 `lifespan` 启动 + cron loop 范式。
+
+### 6.1 RBAC + 文档级 ACL(三层叠加)
+
+详见 [2.1](#21-角色与权限rbac-4-角色--文档级-acl)。核心:code 默认映射(`permissions.py:49`)+ DB 覆盖表(`models/permission.py:16`)+ 文档级 `_assert_acl`(`document_service.py:46`)三层叠加,后端为真相之源。
+
+### 6.2 知识自进化闭环 S16
+
+> 从用户 👎 反馈反推知识盲区:**dislike 聚类 → Milvus 盲区识别 → LLM 规程草稿 → 人工审核 → 回流知识库(降权+配额)**,复用审核留痕范式零新底座。
+
+```mermaid
+flowchart LR
+    classDef src fill:#ffebee,stroke:#c62828
+    classDef cluster fill:#fff8e1,stroke:#f9a825
+    classDef blind fill:#fff3e0,stroke:#ef6c00
+    classDef ai fill:#ede7f6,stroke:#6a1b9a
+    classDef review fill:#e3f2fd,stroke:#1976d2
+    classDef sync fill:#e8f5e9,stroke:#2e7d32
+
+    SRC["数据源: dislike 反馈<br/>+ EvidenceGap medium/refused"]:::src
+    SRC --> CL["cluster<br/>knowledge_evolution_service.py:46<br/>零依赖贪心近邻聚类<br/>threshold=0.82, min_size=3<br/>选最接近centroid的query当代表"]:::cluster
+    CL --> EM["embed 代表 query"]:::cluster
+    EM --> BL["Milvus 盲区识别<br/>top1 &lt; BLIND_TOP1_THRESHOLD=0.55<br/>→ 判为知识盲区"]:::blind
+    BL -- 是盲区 --> GEN["_generate_draft :131<br/>LLM + 最近规程上下文<br/>生成 FAQ 草稿"]:::ai
+    GEN --> D((draft)):::review
+
+    D -- review_draft approve --> A((approved)):::review
+    A --> RF["reflow_to_kb :300<br/>① 检查每周配额 ≤20<br/>② 写 Milvus doc_type=ai_evolution<br/>③ quality_score=0.6 降权"]:::sync
+    RF --> I((indexed)):::sync
+    D -- reject --> REJ((rejected)):::review
+    I -- withdraw_draft --> WD["按 Milvus pk 删单条向量<br/>(AI草稿共享doc_id<br/>不能用delete_by_doc)"]:::sync
+    WD --> WD2((withdrawn)):::review
+
+    CRON["evolution_cron_loop<br/>main.py:168<br/>KNOWLEDGE_EVOLUTION_CRON_HOURS=24"]:::src
+    CRON -. "enqueue_evolution_scan<br/>idempotency_key 5min" .-> CL
+```
+
+**防回环污染三道闸**:① `AI_QUALITY_SCORE=0.6` < 人工 1.0(检索降权);② `_weekly_indexed_count` 每周配额 ≤20(满额抛错);③ `withdraw_draft` 按 Milvus pk 删单条。状态机 `draft→approved→indexed|rejected`,`indexed→withdrawn` 可逆。路由 7 端点(`routers/knowledge_evolution.py`)。
+
+### 6.3 通用 Agent 引擎(Persona 复用)
+
+> 方案 C 拆解的 ReAct 通用引擎:LLM 自主多轮调工具(`max_iter` 兜底),**Persona 是"场景配置"而非新引擎**——任何新场景声明一个 `Persona` 即可,无需改 `run_agent`。diagnose 仅是 `persona=diagnose` 的入口。
+
+```mermaid
+flowchart TD
+    classDef persona fill:#fff8e1,stroke:#f9a825
+    classDef engine fill:#ede7f6,stroke:#6a1b9a,stroke-width:2px
+    classDef tool fill:#e3f2fd,stroke:#1976d2
+    classDef out fill:#e8f5e9,stroke:#2e7d32
+
+    subgraph PERSONAS["Persona(agent_personas.py)"]
+        P1["DIAGNOSE_PERSONA<br/>max_iter=6<br/>诊断工具子集"]:::persona
+        P2["QA_PERSONA<br/>问答工具子集"]:::persona
+        P3["ALERT_PERSONA<br/>告警处置工具子集"]:::persona
     end
 
+    P1 & P2 & P3 --> RA["run_agent<br/>agent_runtime.py:179<br/>ReAct 循环: LLM决策→调工具→观察→再决策"]:::engine
+
+    RA --> TR["ToolRegistry.run :62<br/>① per-tool 异常隔离(不中断)<br/>② 权限校验<br/>③ 审计留痕"]:::tool
+    TR --> TOOLS["DEFAULT_REGISTRY<br/>agent_tools.py<br/>检索/图谱/案例/两票工具"]:::tool
+
+    RA -->|"超 max_iter / 异常"| FB["_fallback :277<br/>调 persona.fallback<br/>degraded(...) 全记指标"]:::out
+    TR --> RES["AgentResult<br/>(结构化输出)"]:::out
+
+    DA["diagnose_agent_service.py:11<br/>适配层<br/>run_agent(DIAGNOSE_PERSONA)"]:::persona
+    DA -. 映射既有schema .-> RA
+```
+
+**关键设计**:① 失败不抛,`ToolRegistry.run` 捕获返回 `(result, error=True)`;② 全部记 `degraded` 指标降级可见;③ ctx=None 时跳过权限/审计/记忆,保证老链路零回归。
+
+### 6.4 可观测与降级(Prometheus + Grafana + DEGRADED)
+
+> **降级可观测是 owner 底线**:把 `except: pass` 改为显式 `metrics.DEGRADED{tag}.inc()` + loguru warning,`obs.degraded`(`obs.py:18`)被 193 处调用,盲降级不再被吞。
+
+```mermaid
+flowchart LR
+    classDef src fill:#ffebee,stroke:#c62828
+    classDef metric fill:#fff8e1,stroke:#f9a825
+    classDef panel fill:#e3f2fd,stroke:#1976d2
+    classDef health fill:#e8f5e9,stroke:#2e7d32
+
+    subgraph SRC["埋点源 ~30 指标(metrics.py)"]
+        DEG["DEGRADED{tag} :63<br/>(rerank/neo4j/cache挂)"]:::src
+        CH["COMPONENT_HEALTH{component} :69<br/>1=up/0=down"]:::src
+        CRAG["CRAG_GRADE/ACTION/CONFIDENCE :65"]:::src
+        CACHE["CACHE_HIT/FAIL :89-92"]:::src
+        AGENT["AGENT_TOOL_CALLS :83"]:::src
+        RT["ROUTING_DECISION :98"]:::src
+    end
+
+    SRC --> OBS["obs.degraded(tag, exc) :18<br/>193处统一入口<br/>except→计数+warning"]:::metric
+    SRC --> MTRACE["metrics_loop 30s<br/>main.py:123"]:::metric
+    OBS -.-> CH
+    CH --> PROBE["_refresh_component_health_loop 30s<br/>main.py:294<br/>后台探活 DB/MinIO/Milvus/Redis<br/>→ 同步 Gauge"]:::health
+    PROBE --> ENDPOINT["/metrics(Prometheus 抓取)<br/>/health(配置态快照) :308"]:::health
+    ENDPOINT2["/health/providers :198<br/>admin 主动 ping LLM+embed<br/>(消耗少量token 抓欠费/配额)"]:::health
+
+    ENDPOINT --> PROM["Prometheus :9090"]:::panel
+    PROM --> GRAFANA["Grafana :3000<br/>22面板 + cache-monitor + agent-monitor"]:::panel
+```
+
+**配置态 vs 运行态分离**:`/health` 只看 key 是否配置(廉价),`/health/providers` 主动 ping(抓配置发现不了的运行态故障)。Grafana 面板空载=系统健康。
+
+### 6.5 数据备份恢复(纯 Python 无外部依赖)
+
+> 不依赖 `mysqldump` 二进制,直接 `SHOW TABLES → SHOW CREATE TABLE → SELECT *` 手工转义生成 SQL,容器内即可跑。
+
+```mermaid
+flowchart LR
+    classDef trig fill:#fff8e1,stroke:#f9a825
+    classDef dump fill:#e3f2fd,stroke:#1976d2
+    classDef safe fill:#ffebee,stroke:#c62828
+    classDef out fill:#e8f5e9,stroke:#2e7d32
+
+    T1([手动 /backup<br/>system.py:829 admin]):::trig
+    T2([backup_all_loop<br/>main.py:150 每3h]):::trig
+
+    T1 & T2 --> BA["backup_all :262<br/>三合一 + manifest"]:::dump
+    BA --> BM["backup_mysql :56<br/>SHOW CREATE TABLE<br/>+ INSERT _sql_val转义<br/>(NULL/bytes/int/str)"]:::dump
+    BA --> BR["backup_redis :108"]:::dump
+    BA --> BMI["backup_milvus :190"]:::dump
+    BM & BR & BMI --> FILE["data/backups/{ts}.sql/.json<br/>_safe_filename :41<br/>拒 ../  防穿越"]:::safe
+
+    FILE -- restore_all :284 --> RS["按顺序 Milvus→MySQL→Redis<br/>(drop重建最重先做)"]:::out
+```
+
+`_safe_filename:41` 拒绝 `..`/`/`/`\` 及非 `.sql`/`.json` 后缀,防备份目录穿越;`backup_all_loop` 首次延迟 60s。
+
+### 6.6 日志自动归档
+
+> 超 `LOG_ARCHIVE_DAYS`(默认 90 天)的 `operation_logs` **先导出 jsonl 留底,再批量删除**释放空间,不可逆前留底。
+
+```mermaid
+flowchart LR
+    classDef loop fill:#fff8e1,stroke:#f9a825
+    classDef export fill:#e3f2fd,stroke:#1976d2
+    classDef del fill:#ffebee,stroke:#c62828
+
+    LOOP["archive_loop 每24h<br/>main.py:143<br/>LOG_ARCHIVE_DAYS=90"]:::loop
+    LOOP --> AO["archive_old_logs :70"]:::export
+    AO --> Q1["① 查 operate_time &lt; cutoff"]:::export
+    Q1 --> Q2["② 写 data/log_archive/logs_{ts}.jsonl<br/>(id/user/type/content/time)"]:::export
+    Q2 --> Q3["③ 按主键 IN 批量 DELETE<br/>(删除前文件已落盘)"]:::del
+    Q3 --> PERS["落 backend 持久卷 /app/data<br/>容器重建不丢"]:::export
+
+    AO -. 失败 .-> DEG["degraded('log_archive')<br/>不中断"]:::del
+    STATS["archive_stats :46<br/>pendingArchive 超期待归档数<br/>手动触发 /logs/archive"]:::loop
+```
+
+### 6.7 故障预测(零模型可解释)
+
+> 纯统计 + 规则,不依赖 ML 模型,零额外成本可解释:聚合告警频次 + 趋势 + 严重度权重算风险分。
+
+```mermaid
+flowchart LR
+    classDef src fill:#fff8e1,stroke:#f9a825
+    classDef calc fill:#e3f2fd,stroke:#1976d2
+    classDef out fill:#e8f5e9,stroke:#2e7d32
+
+    SRC["operation_logs<br/>operate_type=告警"]:::src
+    SRC --> PAR["_parse_alert :27<br/>_ALERT_RE 正则<br/>抽 [critical] 标题：..."]:::src
+    PAR --> AGG["按标题聚合频次<br/>近7天 vs 上7天判趋势"]:::calc
+    AGG --> SC["predict :56<br/>score = count × severity_weight<br/>+ (上升?2:0)"]:::calc
+    SC --> JOIN["join tickets 总数<br/>+ feedbacks dislike 数<br/>(风险语境上下文)"]:::calc
+    JOIN --> LV["_risk_level :41<br/>高/中/低"]:::out
+    LV --> OUT["按风险降序 Top20<br/>+ _suggestion 处置建议<br/>GET /fault-prediction"]:::out
+```
+
+### 6.8 用户管理(双重防锁死)
+
+> 改角色/禁用/删除/重置密码 + 用户自助改密改部门。**双重防锁死**:不能操作自己 + 不能禁用/删除最后一个 admin。
+
+```mermaid
+flowchart TD
+    classDef admin fill:#fff8e1,stroke:#f9a825
+    classDef guard fill:#ffebee,stroke:#c62828,stroke-width:2px
+    classDef self fill:#e3f2fd,stroke:#1976d2
+    classDef ok fill:#e8f5e9,stroke:#2e7d32
+
+    OP([admin 操作]):::admin
+    OP --> G1{"user_id == actor_id?<br/>(不能操作自己)"}:::guard
+    G1 -- 是 --> BLK((403 拒绝)):::guard
+    G1 -- 否 --> G2{"是 admin 且<br/>active数 ≤1?<br/>_count_active_admins :87"}:::guard
+    G2 -- 是 --> BLK2((拒绝<br/>不能动最后admin)):::guard
+    G2 -- 否 --> OK([允许]):::ok
+
+    OP2([用户自助]):::self
+    OP2 --> CP["change_password :157<br/>verify_password 校验旧密码"]:::self
+    OP2 --> UP["update_profile :146<br/>只能改 dept(影响ACL)<br/>角色/租户由admin管"]:::self
+
+    ADMINR["update_user_role :71<br/>role in VALID_ROLES<br/>4角色外拒绝"]:::admin
+```
+
+`reset_password`(admin 发起)不校验旧密码但限 min 6 位;`set_user_status`/`delete_user` 均双重防锁死(`auth_service.py:94,110`)。
+
+### 6.9 定时任务总表
+
+| 任务 | 周期 | 注册 | 作用 |
+|---|---|---|---|
+| `config_service.load_runtime` | 启动一次 | main.py:109 | 载入 Redis 运行时配置 |
+| `component_health` 探活轮询 | 30s | main.py:113/294 | 同步 COMPONENT_HEALTH Gauge |
+| `cache_cleanup` | 每 6h | main.py:120 | 清过期/长期未命中/软删缓存 |
+| `metrics_loop` | 30s | main.py:123 | 衍生指标刷新 |
+| `archive_loop`(日志归档) | 每 24h | main.py:143 | 导出+删 90 天前日志 |
+| `backup_all_loop` | 每 3h | main.py:150 | 全量三合一备份 |
+| `evolution_cron_loop` | 24h | main.py:168 | 知识自进化扫描入队 |
+| `deep_cron_loop`(证据缺口) | 180s | main.py:175 | 批量深度补全+回流 |
+
+---
+
+## 七、数据存储职责
+
+```mermaid
+flowchart LR
+    classDef mysql fill:#fff8e1,stroke:#f9a825
+    classDef milvus fill:#ede7f6,stroke:#6a1b9a
+    classDef neo4j fill:#fce4ec,stroke:#c62828
+    classDef redis fill:#ffebee,stroke:#e91e63
+    classDef minio fill:#e3f2fd,stroke:#1976d2
+
+    MYSQL[("MySQL 8 :3307<br/>结构化元数据<br/>user/document/chunks(父子)<br/>conversation/feedback/kg_triple<br/>★qa_cache L2冷备<br/>operation_logs/evidence_gap<br/>knowledge_evolution_draft")]:::mysql
+
+    MILVUS[("Milvus 2.4 :19530<br/>双 collection 向量<br/>grid_chunks(云1024d)<br/>grid_chunks_bge(bge512d)<br/>HNSW M=16/efC=200/COSINE")]:::milvus
+
+    NEO4J[("Neo4j 5 :7687<br/>知识图谱<br/>:Entity{name,type}<br/>-[:REL{type,doc_id}]-><br/>设备-故障-处置多跳")]:::neo4j
+
+    REDIS[("Redis 7 :6379<br/>★三级缓存 L1<br/>热点问答(TTL3天 maxmem300mb)<br/>+ L1.5 Semantic 索引<br/>+ query向量缓存<br/>+ 运行时配置(config:prompt<br/>无TTL永久)")]:::redis
+
+    MINIO[("MinIO :9000<br/>原文对象存储<br/>上传源文档<br/>+ faq/ AI补全FAQ")]:::minio
+
+    BE([FastAPI backend])
+    BE --> MYSQL & MILVUS & NEO4J & REDIS & MINIO
 ```
 
 ---
 
-## 🛡️ Corrective RAG 自纠错（核心卖点）
-
-2026 RAG 趋势（Self-RAG / CRAG / Adaptive RAG）的核心是**自纠错降幻觉**。传统 RAG「检索→生成」一次性管道，检索到垃圾还硬生成；本系统在中间插入分级 + 纠错闭环：
-
-```
-检索(rerank已给相关性分) → 分级:
-  correct    top1 ≥ 0.6  → 证据充分，高置信正常作答
-  ambiguous  中间         → 证据有限，prompt 追加"标注不确定"
-  incorrect  top1 < 0.3   → 触发 query 改写重检索(force 绕过开关)
-                          → 仍低分 → refused 保守拒答，LLM 不硬编造
-```
-
-- **信号源复用 rerank 分数**，不额外调评估 LLM（省钱 + 低延迟），与离线 `judge.py` 互补为实时前置护栏
-- **rerank 未启用** → 降级 ambiguous（不误触发纠错）
-- 答案透传 `confidence`（high/medium/refused）+ `cragAction`（normal/rewritten/refused），前端显示置信度标签（🟢高/🟡有限/🔴不足）
-- Grafana「CRAG 检索分级」面板可观测分级分布
-
-**实测**：覆盖 query → correct/高置信正常作答；无关 query（如"量子纠缠原理"）→ refused，改写重检索后保守拒答零幻觉。
-
----
-
-## 🛠️ 技术栈
+## 八、技术栈
 
 | 层 | 选型 |
 |---|---|
 | 前端 | Vue 3 + Vite + Pinia + Vue Router + Axios + echarts |
-| 后端 | Python 3.11+ · FastAPI · Uvicorn · SQLAlchemy 2.0(async) |
-| LLM（云，可切换） | DeepSeek `deepseek-chat` / 百炼 `qwen-plus` / 火山豆包(endpoint_id) |
-| Embedding（云） | 百炼 `text-embedding-v3`（1024维）/ 火山豆包 |
-| Embedding（本地） | `bge-small-zh-v1.5`（512维，可换 large）· sentence-transformers |
-| Rerank | 百炼 `gte-rerank-v2` |
-| 文档解析 | pdfplumber / python-docx / PyMuPDF + rapidocr-onnxruntime（PaddleOCR 模型） |
-| 向量库 | Milvus 2.4（HNSW + COSINE，双 collection） |
-| 对象存储 | MinIO（源文档） |
-| 元数据 | MySQL 8（用户/文档/chunks/日志/对话/三元组） |
-| 缓存 | Redis 7（热点问答 + 配置持久化 + query 向量缓存） |
-| **知识图谱** | **Neo4j 5（设备-故障-处置多跳推理，:Entity-[:REL]）** |
-| 检索 | HNSW 稠密 + rank-bm25 + RRF + rerank + MMR + ★ CRAG 自纠错 |
-| 监控 | Prometheus + Grafana（**22 面板**） |
-| 编排 | Docker Compose（10 服务） |
+| 后端 | Python 3.11+ · FastAPI · Uvicorn/Gunicorn · SQLAlchemy 2.0(async) |
+| LLM(云,可切换) | DeepSeek `deepseek-chat` / 百炼 `qwen-plus` / 火山豆包(endpoint_id) |
+| Embedding(云) | 百炼 `text-embedding-v3`(1024维)/ 火山豆包 |
+| Embedding(本地) | `bge-small-zh-v1.5`(512维)· sentence-transformers |
+| Rerank | **百炼 `gte-rerank-v2`**(DashScope 原生 HTTP) |
+| 文档解析 | pdfplumber / python-docx / PyMuPDF + rapidocr-onnxruntime(PP-OCR 模型) + openpyxl(Excel) |
+| 向量库 | Milvus 2.4(HNSW + COSINE,双 collection) |
+| 对象存储 | MinIO(源文档 + AI 补全 FAQ) |
+| 元数据 | MySQL 8(用户/文档/chunks/对话/三元组/缓存/日志) |
+| 缓存 | Redis 7(热点问答 + 语义缓存 + 配置 + query 向量) |
+| **知识图谱** | **Neo4j 5(设备-故障-处置多跳推理)** |
+| 检索 | HNSW 稠密 + rank-bm25 + RRF(k=60) + gte-rerank-v2 + MMR(λ=0.5) + CRAG 自纠错 |
+| Agent | 通用 ReAct 引擎(Persona:diagnose/qa/alert) |
+| 监控 | Prometheus + Grafana(22+ 面板 + DEGRADED 降级) |
+| 编排 | Docker Compose(11 服务) |
 
 ---
 
-## 📁 目录结构
+## 九、目录结构
 
 ```
 .
 ├── backend/                      # FastAPI 后端
 │   ├── app/
-│   │   ├── main.py               # 入口（lifespan/CORS/health+providers/异常/metrics）
-│   │   ├── config.py             # .env 配置（53 字段）
+│   │   ├── main.py               # 入口(lifespan/cron 注册/CORS/health/metrics)
+│   │   ├── config.py             # .env 配置(53 字段)
 │   │   ├── core/
-│   │   │   ├── response/security # 统一响应 / JWT+bcrypt
-│   │   │   ├── logging           # loguru 结构化日志
-│   │   │   ├── limiter           # slowapi 限流
-│   │   │   ├── metrics           # Prometheus 指标（含 DEGRADED/CRAG/COMPONENT_HEALTH）
-│   │   │   └── obs               # ★ 降级可观测 helper（degraded 日志+计数）
-│   │   ├── db/                   # 异步会话/建表
-│   │   ├── models/               # user/document/chunk/conversation/operation_log/kg_triple/feedback
-│   │   ├── schemas/              # Pydantic 请求/响应
-│   │   ├── routers/              # system/document/retrieval/qa/kg
+│   │   │   ├── permissions.py    # ★ RBAC 17权限 + 4角色映射
+│   │   │   ├── obs.py            # ★ degraded 降级统一入口(193处)
+│   │   │   ├── metrics.py        # Prometheus ~30指标(含 DEGRADED/CRAG/COMPONENT_HEALTH)
+│   │   │   ├── limiter.py        # slowapi 限流
+│   │   │   └── security/response # JWT+bcrypt / 统一响应
+│   │   ├── dependencies.py       # require_perm 路由级鉴权工厂
+│   │   ├── routers/              # qa/document/retrieval/kg/domain/system/knowledge_evolution
 │   │   ├── services/
-│   │   │   ├── document_service  # 上传/解析/向量化(路由)/删除/★自动建图谱
-│   │   │   ├── retrieval_service # 双查+RRF+rerank+MMR
-│   │   │   ├── qa_service        # 缓存/多轮/CRAG分级纠错/prompt+图谱/LLM/智能推荐
-│   │   │   ├── kg_service        # 三元组抽取/多跳推理/GraphRAG上下文
-│   │   │   ├── bm25/rerank/embedding/conversation/term/config/log/query_rewrite/feedback
-│   │   ├── providers/            # 模型抽象(三家LLM + 云/bge Embedding + 健康探测)
-│   │   ├── clients/              # minio/milvus(双collection)/redis/neo4j
+│   │   │   ├── qa_service        # ★问答主链路(缓存/多轮/CRAG/prompt+图谱/生成)
+│   │   │   ├── retrieval_service # 双路召回+RRF+rerank+MMR+元数据过滤
+│   │   │   ├── routing_service   # ★智能路由 6维决策
+│   │   │   ├── kg_service        # 三元组抽取/多跳/GraphRAG上下文
+│   │   │   ├── cache_persist     # L2 MySQL 缓存
+│   │   │   ├── evidence_gap_service      # ★证据缺口闭环
+│   │   │   ├── knowledge_evolution_service # ★知识自进化闭环
+│   │   │   ├── agent_runtime     # ★通用 Agent 引擎(Tool/Persona/run_agent)
+│   │   │   ├── backup_service / log_archive_service / fault_prediction_service
+│   │   │   ├── bm25 / rerank / embedding / standalone_query / multi_query / hyde / query_rewrite
+│   │   │   ├── plugin_registry / rag_router(双RAG) / online_eval_service / config_service
 │   │   ├── rag/
-│   │   │   ├── prompt_templates  # 系统 prompt（含低置信作答指令）
-│   │   │   ├── crag              # ★ Corrective RAG 分级器(grade/confidence_of)
-│   │   │   ├── rrf/mmr/citation/judge
-│   │   └── data/{grid_terms.json,golden_qa.json}  # 术语词表 + ★检索回归基准
+│   │   │   ├── crag / crag_v2    # ★ Corrective RAG 分级器
+│   │   │   ├── semantic_cache    # ★ L1.5 语义缓存
+│   │   │   ├── prompt_templates / rrf / mmr / citation / judge
+│   │   ├── providers/            # 三家 LLM + 云/bge Embedding + 健康探测
+│   │   ├── clients/              # minio/milvus(双collection)/redis/neo4j
+│   │   ├── models/               # user/document/chunk/conversation/qa_cache/evidence_gap/knowledge_evolution/...
+│   │   └── data/{grid_terms.json,golden_qa.json}
+│   ├── migrations/               # Alembic
 │   ├── Dockerfile
 │   └── requirements.txt
-├── frontend/                     # Vue 3 前端
-│   ├── src/{views,api,stores,router}
-│   ├── Dockerfile + nginx.conf
-│   └── package.json
-├── scripts/                      # 评测/压测/建库/造数
-│   ├── seed_demo.py              # 建 demo 知识库
-│   ├── seed_extra.py             # ★ 补缺失主题文档(电容器/避雷器/电缆)
-│   ├── eval_retrieval.py         # ★ 检索召回(recall/MRR/分类/报告/门禁)
-│   ├── eval_qa.py                # LLM-as-judge 幻觉率
-│   ├── validate_golden.py        # ★ golden 集 CI 格式校验
-│   ├── benchmark.py              # 并发压测
-│   └── gen_traffic.py            # ★ 造流量喂饱 Grafana 面板
-├── tests/                        # pytest（69 用例）
-├── grafana/provisioning/         # Grafana 数据源 + 22 面板 dashboard（自动 provisioning）
-├── .github/workflows/test.yml    # ★ CI（golden 校验 + 单元测试）
-├── docker-compose.yml            # 全栈编排（10 服务）
-├── .env.example                  # 配置模板（53 字段全对齐）
+├── frontend/                     # Vue 3 前端(7 view + utils/perm.js)
+├── scripts/                      # 评测/压测/建库/打包(pack_release.sh)
+├── tests/                        # pytest(69 用例)
+├── grafana/provisioning/         # 22 面板 dashboard + alerting
+├── docker-compose.yml            # 开发版编排
+├── docker-compose.deploy.yml     # ★部署版(bind mount 数据卷)
+├── install.sh                    # ★接收方一键引导
 └── README.md
 ```
 
 ---
 
-## 🚀 快速开始（本地开发）
+## 十、快速开始
 
 ### 前置
-- Docker Desktop（跑基础设施）
-- Python 3.11+、Node 20+
-- 三家云服务的 API Key（DeepSeek / 阿里百炼 / 火山方舟）
+- Docker Desktop + Docker Compose v2
+- 三家云 API Key(DeepSeek / 阿里百炼 / 火山方舟)
 
-### 1. 启动基础设施
-
+### 一键启动(推荐)
 ```bash
-cp .env.example .env          # 填入三家 API Key
-docker compose up -d mysql minio redis milvus neo4j   # 先起依赖（首次会拉镜像）
-docker compose ps             # 确认 healthy
+cp .env.example .env          # 填三家 API Key
+docker compose up -d          # 全栈(首次拉镜像+构建)
 ```
 
-> 端口约定：MySQL 映射 **3307**（避开本机 MySQL）、后端 **8001**（避开占用 8000 的进程）、Milvus 19530、MinIO 9000/9001、Redis 6379、Neo4j 7474/7687、Grafana 3000、Prometheus 9090。
-
-### 2. 启动后端
-
+### 本地开发
 ```bash
-python -m venv venv
-source venv/Scripts/activate                      # Windows Git Bash
+# 基础设施
+docker compose up -d mysql minio redis milvus neo4j
+
+# 后端
+python -m venv venv && source venv/Scripts/activate   # Windows Git Bash
 pip install -r backend/requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
 uvicorn app.main:app --reload --host 127.0.0.1 --port 8001 --app-dir backend
-```
 
-### 3. 启动前端
-
-```bash
+# 前端
 npm --prefix frontend install --registry https://registry.npmmirror.com
 npm --prefix frontend run dev
 ```
 
-### 4. 访问
-- 前端：http://localhost:5173 （admin / admin123）
-- 接口文档：http://localhost:8001/docs
-- 健康检查：http://localhost:8001/health
-- Grafana：http://localhost:3000 （admin/admin）
-- MinIO 控制台：http://localhost:9001 （minioadmin/minioadmin）
-- Neo4j Browser：http://localhost:7474 （neo4j/neo4j123456）
+### 访问
+- 前端:http://localhost:5173(admin / admin123)
+- 接口文档:http://localhost:8001/docs
+- 健康检查:http://localhost:8001/health
+- Grafana:http://localhost:3000(admin/admin)
 
 ---
 
-## ⚙️ 配置说明（.env）
+## 十一、配置说明
 
-复制 `.env.example` 为 `.env` 并填入（53 字段与 `config.py` 一一对应，均有默认值，仅 API Key 必填）：
+复制 `.env.example` 为 `.env`(53 字段与 `config.py` 一一对应,均有默认值,仅 API Key 必填):
 
-| 配置 | 说明 |
-|---|---|
-| `DEEPSEEK_API_KEY` / `DASHSCOPE_API_KEY` / `ARK_API_KEY` | 三家云 API Key（必填，留空则该 provider 不可用） |
-| `DOUBAO_LLM_ENDPOINT_ID` | 火山豆包推理接入点 id（`ep-xxxx`，非模型名） |
-| `LLM_PROVIDER` / `EMB_PROVIDER` | 默认 LLM / 云 Embedding（`deepseek`/`qwen`/`doubao`） |
-| `EMBEDDING_DIM` | 云向量维度，固定 1024 |
-| `BGE_MODEL` / `BGE_DIM` / `DOC_SIZE_THRESHOLD` | 本地 bge 模型/维度 + 文档大小路由阈值（默认 5000） |
-| `MILVUS_COLLECTION` / `MILVUS_COLLECTION_BGE` | 双 collection（云 1024 / bge 512） |
-| `RERANK_ENABLE` / `RERANK_MODEL` | 重排开关 / 百炼 gte-rerank-v2 |
-| `MMR_ENABLE` / `MMR_LAMBDA` / `QUERY_REWRITE_ENABLE` | MMR 多样性 / query 改写开关 |
-| `NEO4J_URI` / `NEO4J_USER` / `NEO4J_PASSWORD` / `KG_RAG_ENABLE` | 知识图谱连接 + GraphRAG 开关 |
-| `★ CRAG_ENABLE` / `CRAG_HIGH` / `CRAG_LOW` | Corrective RAG 开关 + 分级阈值（0.6/0.3） |
-| `JWT_SECRET` / `ADMIN_PASSWORD` | 鉴权密钥 / 默认管理员密码 |
-| `REDIS_URL` / `QA_CACHE_TTL` | Redis 地址 / 问答缓存秒数（默认 259200，72h） |
-| `★ CACHE_PERSIST_ENABLE` | MySQL L2 二级缓存开关 | true |
-| `★ CACHE_TIERED_TTL_ENABLE` | 分层 TTL（手册7d/案例3d/实时5min） | true |
-| `★ ROUTING_ENABLE` | 智能路由开关（关闭=全部走 hybrid 全链路） | true |
+| 配置 | 说明 | 默认 |
+|---|---|---|
+| `DEEPSEEK_API_KEY` / `DASHSCOPE_API_KEY` / `ARK_API_KEY` | 三家云 API Key(必填) | — |
+| `LLM_PROVIDER` / `EMB_PROVIDER` | 默认 LLM / 云 Embedding | deepseek / qwen |
+| `BGE_MODEL` / `BGE_DIM` / `DOC_SIZE_THRESHOLD` | 本地 bge + 文档大小路由阈值 | bge-small-zh / 512 / 5000 |
+| `MILVUS_COLLECTION` / `MILVUS_COLLECTION_BGE` | 双 collection | grid_chunks / grid_chunks_bge |
+| `RERANK_ENABLE` / `RERANK_MODEL` | 重排开关 / gte-rerank-v2 | true |
+| `MMR_ENABLE` / `MMR_LAMBDA` | MMR 多样性 / **λ=0.5** | true / 0.5 |
+| `ROUTING_ENABLE` | 智能路由(关=全 hybrid) | true |
+| `CRAG_ENABLE` / `CRAG_HIGH` / `CRAG_LOW` | CRAG 自纠错 + 阈值 | true / 0.6 / 0.3 |
+| `KG_RAG_ENABLE` | GraphRAG 开关 | true |
+| `CACHE_PERSIST_ENABLE` / `SEMANTIC_CACHE_ENABLE` | L2 MySQL / L1.5 语义缓存 | true / false |
+| `QA_CACHE_TTL` / `CACHE_TIERED_TTL_ENABLE` | L1 TTL 72h / 分层 TTL | 259200 / true |
+| `DUAL_RAG_ENABLE` | 双 RAG 热备(opt-in) | false |
+| `JWT_SECRET` / `ADMIN_PASSWORD` | 鉴权密钥 / 管理员密码 | — |
+| `LOG_ARCHIVE_DAYS` / `KNOWLEDGE_EVOLUTION_CRON_HOURS` | 日志归档 / 自进化周期 | 90 / 24 |
 
-> ⚠️ 真实 API Key 只放 `.env`（已被 .gitignore 忽略），切勿提交。`.env.example` 保持空值模板。
+> ⚠️ 真实 API Key 只放 `.env`(已被 .gitignore 忽略),切勿提交。
 
 ---
 
-## 🔌 API 接口
+## 十二、API 接口
 
-统一响应：`{"code": 200, "message": "...", "data": {...}}`；除登录/注册/健康检查外，需 `Authorization: Bearer <token>`。
+统一响应:`{"code": 200, "message": "...", "data": {...}}`;除登录/健康外需 `Authorization: Bearer <token>`。
 
 ### 系统
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| POST | `/api/system/login` | 登录，返回 token |
-| POST | `/api/system/register` | 注册用户（仅 admin） |
-| GET | `/api/system/logs` | 操作日志（admin 全部 / operator 仅自己，时间过滤） |
-| POST/GET | `/api/system/config/milvus` | Milvus 索引参数配置（仅 admin，Redis 持久化） |
-| POST/GET | `/api/system/config/model` | 模型参数配置（仅 admin） |
-| GET | `/api/system/health/providers` | ★ Provider 主动探测（抓欠费/key失效，仅 admin） |
+| POST | `/api/system/login` | 登录 |
+| POST | `/api/system/register` | 注册(admin) |
+| GET | `/api/system/logs` | 操作日志(含 /logs/archive) |
+| POST/GET | `/api/system/config/{milvus,model}` | 运行时配置(热生效) |
+| GET | `/api/system/health/providers` | Provider 主动探测(admin) |
+| GET | `/api/system/rag/health` | 双 RAG 主路探活 |
+| POST/GET | `/api/system/{backup,restore,backups}` | 数据备份恢复(admin) |
+| GET | `/api/system/fault-prediction` | 故障预测 |
+| GET/POST | `/api/system/plugins` | 插件管理 |
 
 ### 文档
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| POST | `/api/document/upload` | 上传（form-data，PDF/Word/TXT/图片，批量≤5/单≤100M） |
-| GET | `/api/document/list` | 文档列表（分页 + 关键字） |
-| GET | `/api/document/stats` | 知识库统计（文档/分块/向量 + 状态/类型分布） |
-| POST | `/api/document/parse` | 解析分块（数字文档 + OCR + 术语归一化） |
-| POST | `/api/document/vector/generate` | 向量化（按文档大小路由云/bge，返回 embeddingRoute） |
-| DELETE | `/api/document/delete` | 删除（联动 MinIO + Milvus 双 collection + MySQL + Neo4j） |
+| POST | `/api/document/upload` | 上传(PDF/Word/Excel/图片,批量≤5/单≤100M) |
+| POST | `/api/document/parse` | 结构感知分块 + OCR + VLM |
+| POST | `/api/document/vector/generate` | 向量化(按大小路由云/bge) |
+| DELETE | `/api/document/delete` | 五库联动删除 |
+| GET/POST | `/api/document/{id}/versions` `/rollback` | 版本管理+回滚 |
 
 ### 检索与问答
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| POST | `/api/retrieval/mixed` | 混合检索（双 collection + BM25 + RRF + rerank） |
-| POST | `/api/qa/answer` | 智能问答（缓存 + 多轮 + CRAG 自纠错 + 引用/安全提示/confidence） |
-| POST | `/api/qa/answer/stream` | 流式问答（SSE 逐 token） |
-| GET | `/api/qa/conversations` | 对话列表 |
-| PUT/DELETE | `/api/qa/conversations/{id}` | 重命名 / 删除对话 |
-| GET | `/api/qa/history` | 对话历史消息 |
-| POST | `/api/qa/term/normalize` | 术语归一化 |
-| POST | `/api/qa/related` | 智能推荐 3 个相关追问（独立接口，不拖慢流式） |
-| POST | `/api/qa/feedback` | 问答反馈（👍/👎 沉淀坏 case） |
+| POST | `/api/retrieval/mixed` | 混合检索(双路+BM25+RRF+rerank) |
+| POST | `/api/retrieval/debug` | 检索全链路 trace + 分数归因(admin) |
+| POST | `/api/retrieval/bm25/rebuild` | BM25 重建兜底 |
+| POST | `/api/qa/answer` | 智能问答(缓存+CRAG+GraphRAG+置信度) |
+| POST | `/api/qa/answer/stream` | 流式问答(SSE) |
+| WS | `/api/qa/answer/ws` | WebSocket 流式 |
+| POST | `/api/qa/faithfulness` | 真 faithfulness(LLM-judge) |
+| POST | `/api/qa/related` | 智能推荐 3 追问 |
+| POST | `/api/qa/feedback` | 👍/👎 反馈 |
+| POST | `/api/qa/export` `/export-xlsx` | 导出 Word/Excel |
 
-### 知识图谱（Neo4j 多跳推理）
+### 知识图谱
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| POST | `/api/kg/extract` | LLM 抽取文档三元组（双写 MySQL+Neo4j） |
-| GET | `/api/kg/graph?entity=` | 关系图谱（Cypher 邻居，Neo4j 不可用回退 MySQL） |
-| GET | `/api/kg/path?entity=&depth=` | **多跳影响链**（设备→故障→处置因果传播） |
-| GET | `/api/kg/influence` | 枢纽实体（出度排行，找核心设备） |
-| GET | `/api/kg/stats` | 图谱统计（三元组/实体/关系数 + 文档分布） |
+| POST | `/api/kg/extract` | LLM 抽三元组(双写 MySQL+Neo4j) |
+| GET | `/api/kg/graph` `/path` `/influence` `/stats` | 关系图谱/多跳影响链/枢纽/统计 |
 
-### 系统/健康
+### 领域
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| GET | `/health` | 健康检查（探活 MySQL/MinIO/Milvus/Redis + ★ provider 配置快照） |
-| GET | `/metrics` | Prometheus 指标 |
+| POST | `/api/domain/diagnose` `/diagnose-agent` `/diagnose-debate` | 故障诊断(Agent/多Agent辩论) |
+| POST | `/api/domain/similar-case` | 相似历史案例 |
+| POST | `/api/domain/ticket` `/ticket/audit` | 两票生成/审核 |
+
+### 知识自进化
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| POST/GET | `/api/knowledge-evolution/scan` `/scan/{id}` | 扫描任务 |
+| GET/POST | `/api/knowledge-evolution/drafts` `/drafts/{id}/review` `/drafts/{id}/withdraw` | 草稿审核/撤回 |
+| GET | `/api/knowledge-evolution/stats` | 统计 |
+
+### 证据缺口
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| POST | `/api/qa/evidence-gap/report` | 上报缺口 |
+| GET/POST | `/api/evidence-gap/{id}/deep-draft`(SSE) `/edit` | 深度补全/编辑 |
 
 ---
 
-## 🧠 双 Embedding 路由
-
-不同 Embedding 模型向量空间不兼容，必须分 collection：
-
-```
-向量化：文档字数 > DOC_SIZE_THRESHOLD(5000) → 云(1024维) → grid_chunks
-       文档字数 ≤ 阈值                       → 本地 bge(512维) → grid_chunks_bge
-
-检索：query 双路 embedding → 两 collection 各查 → RRF 融合 → rerank
-```
-
-- 本地 bge 解决云 API 并发限流瓶颈（小文档无限流）
-- bge 模型首次下载需访问 HuggingFace：设 `HF_ENDPOINT=https://hf-mirror.com` 或代理或预下到 HF 缓存
-- 换 bge-large：`BGE_MODEL=BAAI/bge-large-zh-v1.5` + `BGE_DIM=1024`
-
----
-
-## 📊 可观测性（Prometheus + Grafana 22 面板）
-
-`docker compose up -d` 包含 Prometheus（:9090）+ Grafana（:3000），dashboard 自动 provisioning（uid=`grid-qa`）。
-
-**22 面板分组**：
-- **流量**：HTTP 请求速率 / 延迟 P95 / 系统错误率
-- **问答**：问答总数(按模型) / 缓存命中 / 缓存命中率(%) / 答案幻觉率 / 用户反馈(👍/👎)
-- **模型**：LLM 调用次数+延迟 / Embedding 调用+延迟 / Rerank 调用+延迟 / 检索延迟
-- **知识**：知识库规模(文档/分块/向量) / 向量化路由(云/bge)
-- **★ 自纠错**：CRAG 检索分级（correct/ambiguous/incorrect）
-- **★ 健康**：基础组件健康（MySQL/Milvus/Redis/MinIO，1=up/0=down）/ 静默降级（按原因 tag）
-
-> 降级面板（`grid_degraded_total`）由 `app/core/obs.degraded()` 统一上报：业务/IO 失败被兜底时计数 + loguru warning，Neo4j 挂 / rerank 挂(百炼欠费) / 缓存挂一目了然。面板空载 = 系统健康。
-
-造数喂面板：`python scripts/gen_traffic.py`（并发问答 + 缓存命中 + 反馈 + 检索，覆盖各面板）。
-
----
-
-## ✅ 质量保障
-
-### 单元测试（69 用例）
-```bash
-venv/Scripts/python -m pytest tests/ -v   # chunk/term/rrf/obs/kg/document/crag
-```
-
-### 检索质量回归门禁（golden 集）
-`backend/data/golden_qa.json` 30 条电网运维典型问题（变电/配电/输电三大场景），作为检索召回回归基准：
-```bash
-python scripts/seed_demo.py && python scripts/seed_extra.py   # 建库(含缺失主题)
-python scripts/eval_retrieval.py --topk 5 --threshold 0.92    # recall/MRR/分类/报告 + 门禁
-```
-- 输出 recall@K / MRR / 无结果率 / 分类召回 / 失败 case 明细 + markdown 报告（`reports/`）
-- recall < 阈值退出码 1，可作 CI/定时门禁
-
-### CI（`.github/workflows/test.yml`）
-main 分支 push/PR 触发：装依赖（排除 torch）→ golden 集格式校验 → 单元测试。真实召回评测需服务，本地/定时跑。
-
----
-
-## 📈 评测结果
+## 十三、质量保障与评测
 
 | 指标 | 结果 | 目标 |
 |---|---|---|
 | 检索召回率 recall@5 | **100%** (12/12) | ≥92% |
-| MRR | **0.944**（11/12 命中 Top1） | — |
+| MRR | **0.944** | — |
 | 单请求检索延迟 | **0.95s** | ≤1.5s |
-| 50 并发检索成功率 | **100%** (50/50) | 不崩 |
-| LLM-as-judge 幻觉率 | **0%** (6 问) | ≤5% |
-| 热点缓存命中 | **6.5s → 0.002s** | — |
-| ★ 三级缓存命中率 | **~75%**（原 ~20%） | — |
-| ★ 加权平均延迟 | **~3s**（原 ~10s） | — |
-| ★ 智能路由覆盖 | **60%+ 查询走精简路径** | — |
+| 50 并发检索成功率 | **100%** | 不崩 |
+| LLM-as-judge 幻觉率 | **0%** | ≤5% |
+| ★ 三级缓存命中率 | **~75%**(原 ~20%) | — |
+| ★ 加权平均延迟 | **~3s**(原 ~10s) | — |
+| ★ 智能路由覆盖 | **60%+ 走精简路径** | — |
 
-> 数据驱动闭环：补库前 recall 75%（电容器/避雷器/电缆未覆盖）→ 诊断根因为知识库广度（非算法，MRR 0.694 高）→ 补 3 份文档 → recall 100%。
-
----
-
-## 🐳 一键部署（Docker Compose）
-
-```bash
-cp .env.example .env
-docker compose up -d --build      # 10 服务：mysql/minio/redis/etcd/milvus-minio/milvus/neo4j/nacos/backend/frontend
-```
-
-容器间用 service name 通信：backend 连 `mysql:3306` / `minio:9000` / `milvus:19530` / `redis:6379` / `neo4j:7687`（由 compose `environment` 覆盖 `.env` 中的 localhost，API Key 仍由 `.env` 注入）。
+- **单元测试 69 用例**:`pytest tests/ -v`
+- **golden 回归集**(`backend/data/golden_qa.json` 30 条):`eval_retrieval.py` recall/MRR + CI 门禁(recall<92% 退出码 1)
+- **生成质量门禁**:`eval_generation.py` faithfulness(`FAITHFULNESS_GATE=0.85`)
+- **CI**:main push/PR 触发 golden 校验 + 单测
 
 ---
 
-## 📦 完整部署包（含全部数据，远端开箱即用）
+## 十四、部署
 
-> 导出 MySQL/Redis/Milvus/MinIO/Neo4j/Prometheus/Grafana 全部数据，
-> 与源码一起打包为单个 `tar.gz`，远端 `docker compose up -d --build` 即可运行。
-
-### 打包（本地）
-
+### Docker Compose(开发)
 ```bash
-# 1. 导出全部 Docker 卷数据到 ./data/
-python export_data.py      # 已在 make_package.py 中自动执行
-
-# 2. 打包源码 + 数据 → grid-qa-deploy-YYYYMMDD-HHMMSS.tar.gz (~45 MB)
-python make_package.py
+cp .env.example .env && docker compose up -d --build   # 11 服务
 ```
 
-### 部署（远端 Linux + Docker）
-
+### 完整发行包(远端开箱即用)
 ```bash
-# 1. 传到远端
-scp grid-qa-deploy-*.tar.gz user@remote:/opt/
-
-# 2. 解包
-cd /opt && tar xzf grid-qa-deploy-*.tar.gz
-
-# 3. ⚠️ 填写 API Key（必做！）
-cp .env.deploy .env
-vim .env   # 把 <CHANGE_ME> 替换为真实的 API Key
-
-# 4. 一键启动（含全部预填充数据）
-docker compose -f docker-compose.deploy.yml up -d --build
-
-# 5. 验证
-curl http://localhost:8001/health          # 健康检查
-curl http://localhost:8001/api/qa/answer   # 问答接口
+bash scripts/pack_release.sh          # 本地打包(含数据+bge缓存)
+# 接收方:
+tar -xzf grid-qa-release-*.tar.gz && cd grid-qa-release-*
+cp .env.template .env && vim .env     # 填 API Key
+./install.sh up                       # 一键(含 grid_qa.sql 自动导入)
 ```
 
-### 部署包内容
+`install.sh` 子命令:`up | stop | restart | status | logs [svc] | reset-data`(自动生成 JWT_SECRET/ADMIN_PASSWORD、校验 API Key、等待 MySQL 健康、同步 admin 密码)。
 
-```
-grid-qa-deploy-*.tar.gz  (~45 MB, 解压 ~970 MB)
-├── data/                          # 全部服务数据
-│   ├── mysql/        (215 MB)     # 用户/文档/对话/反馈/缓存表
-│   ├── neo4j/        (517 MB)     # 知识图谱 2118 节点
-│   ├── etcd/         (123 MB)     # Milvus 元数据
-│   ├── grafana/       (50 MB)     # 监控面板 + 用户
-│   ├── nacos/         (28 MB)     # 配置中心（可选）
-│   ├── prometheus/    (23 MB)     # 指标历史
-│   ├── redis/        (7.6 MB)     # 热点问答缓存 + query 向量
-│   ├── minio/        (4.1 MB)     # 上传的原始文档
-│   └── milvus-minio/ (0.3 MB)     # 60 条向量
-├── backend/                       # 后端源码
-├── frontend/                      # 前端源码
-├── grafana/provisioning/          # 监控面板配置（含缓存监控面板）
-├── kb_seed/                       # 种子知识库
-├── docker-compose.deploy.yml      # ★ 部署编排（bind mount 数据卷）
-├── docker-compose.yml             # 开发版编排（参考）
-├── prometheus.yml                 # Prometheus 采集配置
-├── .env.deploy                    # ★ 环境变量模板（API Key 已剥离，<CHANGE_ME>）
-└── .env.example                   # 本地开发参考
-```
-
-### 敏感信息确认
-
-| 内容 | 状态 |
-|------|------|
-| DeepSeek / 百炼 / 火山 API Key | ❌ 已剥离 → `<CHANGE_ME>` |
-| JWT Secret / Admin 密码 | ❌ 已剥离 → `<CHANGE_ME>` |
-| MySQL / MinIO 内部密码 | ✅ 保留（容器内网，不对外暴露） |
-| 全部业务数据（文档/向量/图谱/对话） | ✅ 完整保留 |
-
-> ⚠️ `.env.deploy` 不含真实 API Key。部署前必须 `cp .env.deploy .env` 并填入真实值，否则大模型调用会失败。
-
----
-
-## 🏭 生产部署（多 worker）
-
-开发用 `uvicorn --reload`（单进程）；Linux/Docker 生产用 gunicorn 多 worker 提并发：
-
+### 生产(多 worker)
 ```bash
-pip install gunicorn
 gunicorn app.main:app -k uvicorn.workers.UvicornWorker -w 4 -b 0.0.0.0:8001 --app-dir backend
 ```
 
-> Windows 不支持 gunicorn 的 fork，Windows 上仍用 `uvicorn` 单进程；多 worker 部署在 Linux/Docker 环境。
+---
+
+## 十五、FAQ
+
+**Q: Rerank 用的是什么?**
+A: 阿里百炼 DashScope `gte-rerank-v2`(原生 HTTP API),非本地 bge-reranker。失败降级回退 RRF,`DEGRADED{tag=rerank}` 可观测。
+
+**Q: 双 Embedding 是二选一吗?**
+A: 不是。写入时按文档字数(>5000 走云 1024d / ≤5000 走 bge 512d)路由到不同 collection;**检索时 `asyncio.gather` 并查两个 collection** 融合,既绕云限流又覆盖不同向量空间。
+
+**Q: docType 过滤在哪做?**
+A: 检索**后置过滤**——先 RRF+rerank 出 pool,再查 MySQL Document 表按 tenant/docType/equipment/ACL 过滤(非 Milvus 标量过滤),docType 无条件补全到每条用于来源卡片。
+
+**Q: GraphRAG 在检索哪一步?**
+A: 在 `mixed_search` 文档检索**之后**、CRAG 纠错**之后**,由 `qa_service.answer:351` 单独调用 `kg_service.graph_context`,结果与文档分块**并列**进 prompt。Neo4j 不可用时回退 MySQL KgTriple 表。
+
+**Q: 多轮问答为什么有时不命中缓存?**
+A: 多轮**不写缓存**(仅高置信时读 Redis 热点),防跨对话脏命中;且检索用 standalone 消解后的 query,消解后 `search_q != nq` 时不读。
+
+**Q: pymilvus 为什么用 2.4?**
+A: 2.3 的 grpcio 在 Python 3.13 Windows 无预编译 wheel。另需 `setuptools<81`(pymilvus 用 pkg_resources,≥81 已移除)。
+
+**Q: PaddleOCR 为什么用 rapidocr-onnxruntime?**
+A: paddlepaddle 3.3.1 在 Windows 有 onednn PIR bug。rapidocr 用 PP-OCR 官方模型 + onnxruntime 后端,效果等同、规避 bug。
+
+**Q: bge 模型下载失败?**
+A: 设 `HF_ENDPOINT=https://hf-mirror.com` 或 `HTTPS_PROXY`,或预下到 HF 缓存(发行包已含 `data/hf-cache` 零下载)。
 
 ---
 
-## 💻 开发指南
+## 十六、开发进度
 
-### 切换 LLM
-改 `.env` 的 `LLM_PROVIDER`（`deepseek`/`qwen`/`doubao`），或请求时传 `modelType` 按需切换。
+**基础链路 S1–S11**:地基→认证→文档上传→解析+OCR→Embedding+Milvus→混合检索→RAG问答→配置+日志→前端联调→评测+性能→镜像化 ✅
 
-### 添加术语归一化
-编辑 `backend/app/data/grid_terms.json`：`"别名": "标准术语"`（重启生效）。
+**优化 O1–O10**:Redis缓存→rerank→分块语义→HNSW→流式SSE→多轮→LLM-judge→可观测→pytest→生产化 ✅
 
-### 看日志
-`data/logs/app.log`（loguru，50MB 轮转 / 10 天保留）；降级 warning 统一 `[降级:tag]` 前缀。
+**双 Embedding P1–P3**:本地bge→双collection→检索双查融合 ✅
 
-### 数据库迁移
-Alembic（`backend/migrations`）：`alembic upgrade head`。env.py 从 settings 读 DB 连接。
+**性能质量 Q1–Q10**:双embed并行→query向量缓存→限流→MMR→query改写→docType过滤→Alembic→CI→CD/Prometheus→反馈 ✅
 
----
+**健壮性地基 P0–P2**:盲降级显式化(DEGRADED+22面板)→.env 53字段对齐→Provider健康探测→测试+限流→golden回归门禁 ✅
 
-## ❓ FAQ
+**2026 RAG 前沿**:Corrective RAG 自纠错 · 三级缓存 · 智能路由 · Self-RAG · HyDE · 多查询分解 · CRAG v2 per-doc · 知识自进化闭环(S16) · 完整发行包 ✅
 
-**Q: PaddleOCR 为什么用 rapidocr-onnxruntime？**
-A: paddlepaddle 3.3.1 在 Windows 有 onednn PIR 引擎 bug（关 oneDNN/PIR/monkey-patch 均无效）。rapidocr 用的是 PaddleOCR 官方 PP-OCR 模型 + onnxruntime 后端，识别效果等同、规避引擎 bug。生产 Linux 可切回原生 paddleocr。
+**方案 C Agent 引擎**:通用 ReAct 引擎(Tool/ToolRegistry/Persona/run_agent)· diagnose/qa/alert 三 persona 复用 ✅
 
-**Q: pymilvus 为什么用 2.4？**
-A: 2.3 的 grpcio 在 Python 3.13 Windows 无预编译 wheel。2.4 兼容且支持 py3.13。另需 `setuptools<81`（pymilvus 用 pkg_resources，setuptools≥81 已移除）。
-
-**Q: 向量化后检索不到？**
-A: 确认文档已 `parse`（chunks 表有数据）再 `vector/generate`；HNSW 切换需重建 collection（drop 后重新向量化）。
-
-**Q: bge 模型下载失败？**
-A: 设 `HF_ENDPOINT=https://hf-mirror.com` 或 `HTTPS_PROXY`，或预下模型到 HF 缓存目录。
-
-**Q: 阿里百炼账户欠费怎么办？**
-A: 欠费致 qwen LLM + text-embedding-v3 + gte-rerank 失败 → 检索降级（rerank 失败回退 RRF）。`/system/health/providers` 主动探测可抓欠费；Grafana「静默降级」面板看 rerank/embed 降级计数。恢复需充值百炼（不能简单切 `EMB_PROVIDER=bge` 救急——双 collection 维度不同）。
-
----
-
-## 📋 功能复盘（全量功能清单）
-
-**55+ 次增量提交**｜6 存储（MySQL/MinIO/Milvus×2/Redis/Neo4j）｜后端 5 router·15 service·7 表｜前端 7 页面｜Grafana 22 面板｜三家云模型 + 本地 bge｜69 单元测试
-
-### 🤖 核心 RAG 问答链路
-| 功能 | 技术细节 |
-|---|---|
-| 智能问答 `/qa/answer` | term 归一化→检索→★CRAG 分级纠错→prompt→LLM→引用+安全提示+confidence |
-| 热点缓存 | Redis 缓存单轮答案，6.5s → 0.002s |
-| 流式问答 SSE | stream_answer 三段事件(meta/token/done) + 前端 fetch+ReadableStream |
-| 多轮对话 | conversations/messages 表，近 3 轮上下文 |
-| 幻觉评估 | LLM-as-judge 启发式，评测集 0% |
-| **★ Corrective RAG** | rerank 分级 + incorrect 改写重检索 + refused 拒答，实时护栏 |
-| **★ GraphRAG** | graph_context 查 Neo4j 三元组拼 prompt【知识图谱】段，答案带 🔗图谱N |
-
-### 🔍 检索引擎
-| 功能 | 技术细节 |
-|---|---|
-| 混合检索 | Milvus 稠密 Top20 + BM25 稀疏 Top20 + RRF 融合(k=60) |
-| HNSW 索引 | COSINE + M16/efConstruction200 |
-| Rerank 重排 | 百炼 gte-rerank-v2，失败兜底 RRF（降级可观测） |
-| MMR 多样性 | λ=0.6 相关性 vs 多样性 |
-| Query 改写 / docType 过滤 | LLM 改写(可选，CRAG 纠错 force 调用) + 文档类型元数据过滤 |
-
-### 🧩 知识图谱 + GraphRAG（Neo4j）
-| 功能 | 技术细节 |
-|---|---|
-| 三元组抽取 `/kg/extract` | LLM 分块抽(6块/批)，JSON 容错解析，双写 MySQL+Neo4j |
-| 关系图谱 `/kg/graph` | Cypher 查邻居（Neo4j 不可用回退 MySQL） |
-| **★ 多跳影响链 `/kg/path`** | `MATCH path=(n)-[:REL*1..N]->(m)`，故障因果传播（MySQL 做不到） |
-| 枢纽实体 `/kg/influence` | 出度排行找核心设备 |
-| GraphRAG 数据链路 | 读(问答融合)+写(向量化自动建)+删(联动清) 三链路打通 |
-
-### 💻 前端能力（6 页面）
-| 页面 | 功能 |
-|---|---|
-| **Chat** | Markdown+代码高亮 / 流式打字机 / 引用溯源点击定位+复制 / 对话管理(增删改查搜索) / 智能推荐追问 / 🔗图谱N标签 / ★置信度标签(高绿/中黄/拒红) / 暗色 / 移动端响应式 |
-| **Documents** | 拖拽上传 + 进度条 + 类型状态筛选 + 批量勾选 + 骨架屏 |
-| **Dashboard** | echarts 统计仪表盘（饼图+柱图+卡片） |
-| **KgGraph** | 关系图谱(echarts力导向) / 多跳影响链(chain→rels箭头) / 枢纽出度 三 tab |
-| **Admin** | 操作日志 + Milvus/模型配置 |
-| **Login** | 登录注册 + JWT |
-
-### 📊 可观测与运维
-Grafana **22 面板** · Prometheus 指标 · ★降级可观测(DEGRADED) · ★CRAG 分级 · ★基础组件健康 · ★Provider 探测 · 健康检查 · loguru 结构化日志 · CI/CD(ci-cd+main 分支) · Alembic 迁移 · slowapi 限流(9 接口) · pytest(69) · gunicorn 多 worker · ★检索回归门禁(golden+CI)
-
----
-
-## 🗺️ 开发进度
-
-**基础链路 S1–S11**：地基→认证→文档上传→解析+OCR→Embedding+Milvus→混合检索→RAG问答→配置+日志→前端联调→评测+性能→镜像化 ✅
-
-**优化 O1–O10**：Redis缓存→rerank→分块语义→HNSW→流式SSE→多轮对话→LLM-judge→可观测→pytest→生产化 ✅
-
-**双 Embedding P1–P3**：本地bge→双collection路由→检索双查融合 ✅
-
-**性能质量 Q1–Q10**：双embed并行→query向量缓存→限流→MMR→query改写→docType过滤→Alembic→CI→CD/Prometheus→问答反馈 ✅
-
-**前端 F1–F8**：Markdown高亮→流式打字机→引用溯源→对话管理→文档增强→统计仪表盘→暗色模式→体验优化 ✅
-
-**Grafana 监控**：流式埋点修复 + 新指标，dashboard 9→**20** 面板 ✅
-
-**跨端高级功能**：
-- ✅ 知识图谱（MySQL → Neo4j 多跳推理）
-- ✅ 智能推荐（答完推 3 个相关追问）
-- ✅ GraphRAG 数据链路（Neo4j 融入问答，读+写+删三链路）
-- ⬜ 语音问答（砍掉：百炼 TTS 不兼容 OpenAI 协议、收益有限）
-
-**★ 健壮性地基 P0–P2**：
-- ✅ P0-1 盲降级显式化（obs + DEGRADED 指标 + Grafana 面板，26 处）
-- ✅ P0-2 .env.example 全量对齐（53 字段）
-- ✅ P0-3 Provider 健康检查（主动探测 + /health 快照）
-- ✅ P1 测试 9→29 + 限流 5→9 接口
-- ✅ P2 golden 回归集 + CI 门禁（recall 75%→100% 闭环）
-
-**★ 2026 趋势**：
-- ✅ Corrective RAG 自纠错（分级 + 改写重检索 + refused 拒答，零幻觉）
-- ✅ 基础组件健康监控（COMPONENT_HEALTH 指标 + Grafana 面板）
-- ✅ ★ 三级缓存 Redis(LRU)→MySQL→LLM（命中率 20%→75%，延迟 9.6s→3s）
-- ✅ ★ 智能路由 Phase A（sparse/dense/hybrid 自适应，p95 检索延迟降 30-50%）
-- ✅ ★ 完整部署包（数据+源码一键打包 tar.gz，远端 docker compose up -d 即用）
-
----
-
-## 🚀 v2 增强模块（2026 RAG 前沿 + 电网领域深化）
-
-> 在原有模块之上新增，**不改动既有链路**；以下功能均带配置开关，默认行为兼容 v1。
-
-### 🔴 数据质量地基
-- **结构感知分块 + Parent-Child（small-to-big）**：表格整体成块不被切两半；正文先切父块(大窗口)再切子块，检索用子块(精度)、召回同组父块全文给 LLM(完整上下文)，解决长规程跨块。`Chunk` 表加 `chunk_type/parent_idx/section`，开关 `SMALL_TO_BIG_ENABLE`。
-- **表格/Excel 结构化解析**：PDF/Word 表格转 markdown 保留结构；新增 `.xlsx` 台账/定值单解析（openpyxl）。`parse_service.parse_file_structured`。
-
-### 🔴 可信度真相化 + 反馈闭环
-- **真 faithfulness（替代粗糙启发式）**：流式 done 后前端异步拉 `/qa/faithfulness`，LLM-judge 判定答案支撑率覆盖"幻觉率"展示；dislike 自动异步打 judge 分。开关 `ONLINE_FAITHFULNESS_ENABLE`。
-- **反馈管理台 + 一键回流 golden**：Admin 页坏 case 看板（judge 分/理由/纠错），「标为 golden」自动写入 `golden_qa.json`，CI 门禁永久覆盖该 case。golden 集 12→**30** 条。
-- **生成质量门禁**：`scripts/eval_generation.py` 端到端 faithfulness 评测（`FAITHFULNESS_GATE=0.85`，低于退出码 1）。
-
-### 🟢 检索增强五件套（2026 RAG 趋势）
-- **CRAG v2 per-doc grading**：LLM 逐条评估证据相关性，识破"top1 高分但其余全无关"的伪相关。`CRAG_PERDOC_ENABLE`。
-- **多轮指代消解**：追问"它的处置步骤呢"→改写为带上下文独立查询再检索。`STANDALONE_REWRITE_ENABLE`。
-- **多查询分解**：复杂问题拆子问题并行检索，跨查询 RRF 融合。`MULTI_QUERY_ENABLE`。
-- **HyDE**：LLM 先生成假设答案，用其向量做 dense 检索，提升短/口语问题召回。`HYDE_ENABLE`。
-
-### 🟡 电网领域深化（核心价值）
-- **🩺 故障诊断 Agent（`POST /domain/diagnose`）**：症状→多查询分解→并行检索 + 图谱因果→可能原因排序(高/中/低)+处置+风险。前端 `/diagnose` 页 `Diagnose.vue`。
-- **📚 相似历史案例检索（`POST /domain/similar-case`）**：限定故障案例库，"历史上类似故障怎么处理的"。
-- **📝 两票辅助生成（`POST /domain/ticket`）**：操作任务→检索规程→结构化操作票(步骤/安全措施/风险点)，含安全前置提示。
-- **🛡️ 安全合规（电网强监管）**：入站 prompt injection 告警(`SAFETY_FILTER_ENABLE`) + 答案敏感信息脱敏(`PII_MASK_ENABLE`) + 高风险操作 badge(答案含停电/接地/倒闸等词，前端标红提示)。
-- **🏷️ 设备台账关联**：文档解析自动打设备标签，检索可按 `equipment` 过滤精确到具体设备；文档列表展示关联设备。
-
-#### 🩺 故障诊断 Agent 数据流（POST /domain/diagnose）
-
-```mermaid
-flowchart LR
-    S[故障症状] --> DM[LLM 多查询分解<br/>排查方向]
-    DM --> RT[每方向并行检索<br/>双路向量 + BM25]
-    RT --> DED[去重合并 TopN]
-    DED --> KG[Neo4j 因果链上下文]
-    DED --> SYN[LLM 综合诊断]
-    KG --> SYN
-    SYN --> OUT["可能原因排序 高/中/低<br/>+ 处置 + 依据 + ⚠风险"]
-    OUT -.同基建.-> SC[相似历史案例<br/>/domain/similar-case]
-    OUT -.同基建.-> TK[两票辅助生成<br/>/domain/ticket]
-```
-
-### 🆕 v2.1 体验与多模态补强
-- **Self-RAG 检索必要性**：LLM 路由判断 query 是否属运维范畴，非运维问题跳过检索直接拒答（省成本 + 防污染）。`SELF_RAG_ENABLE`。
-- **📄 答案导出 Word**：`POST /qa/export` 把问答转为 `.docx` 运维报告（问题/答复/引用/可信度/安全提示），现场打印归档；Chat 加导出按钮。
-- **📄 文档在线预览**：`GET /document/preview/{docId}` 返回原文流（PDF/图片/文本），Documents 点文件名弹窗预览。
-- **🖼️ 多模态 RAG**：VLM(Qwen-VL) 理解图片（图纸/设备外观/故障现象/曲线图）生成语义描述，与 OCR 文字合并入知识库——补充 OCR 丢失的空间语义。`VLM_ENABLE`。
-- **🌙 暗色主题**：浮动按钮一键切换亮/暗（`useDark` + localStorage 持久化 + 全局 CSS 变量覆盖）。
-- **Grafana 20 → 22 面板**：新增「安全事件(prompt injection 命中)」「领域增强调用(诊断/两票/相似案例)」。
-
-### 🆕 v2.2 企业级能力
-- **🏢 多租户/多知识库隔离**：User/Document 加 `tenant_id`，上传/列表/检索/问答/CRAG 纠错全链路按当前用户租户过滤；`register` 接口指定租户。
-- **📚 知识库版本管理 + 回滚**：同名文档换版自动归档（`document_versions` 表），`GET /document/{id}/versions` 列版本，`POST /document/rollback?docId=&version=` 回滚（恢复 MinIO + 清向量，重新解析）。
-- **📈 故障趋势看板**：`GET /qa/feedback-stats` 聚合反馈（dislike 率/坏 case 设备聚类/高频问题/平均幻觉率），Dashboard 加图表反哺优化。
-- **🔧 Nacos 配置中心**：`CONFIG_SOURCE=nacos` 时启动拉取覆盖 `.env`（httpx 调 open API 免 SDK，降级安全）；`docker compose up -d nacos` 起服务；`/system/config/nacos` 拉取测试。
-- **🔌 WebSocket 流式**：`/qa/answer/ws`（双向，`?token=JWT` 鉴权），Chat 加 WS 切换；SSE 保留，WS 为服务端主动推送留能力。
-
-### 🎨 v2.3 前端重写（Dify/Linear 风 + 科技蓝）
-- **统一 AppLayout**：固定左侧导航（图标+文字，可折叠）+ 顶栏（标题/用户/主题）+ 主内容区，替代各页独立 topbar，全局风格统一。
-- **设计系统**：科技蓝（Indigo + Slate）+ 圆角/柔和阴影/明暗双主题 + 通用组件（`.card/.btn/.badge/.tbl/.stat/.tabs/.modal`）。
-- **7 个 view 全量重写，功能 100% 保留**：Login（渐变登录卡）/ Chat（对话历史栏 + 聊天）/ Documents（上传 + 列表 + 预览）/ Dashboard（统计 + 故障趋势）/ KgGraph（三 tab）/ Diagnose（诊断 + 案例 + 两票）/ Admin（反馈 + 日志 + 配置）。
-
-### 🆕 v2.4 检索调试 + 告警闭环 + 运维增强（admin 运维神器）
-- **🔬 检索调试页（`/retrieval-debug`，admin）**：`POST /retrieval/debug` 透出检索全链路 trace（query改写 / HyDE / 多查询 / 双路 dense+BM25 / RRF / rerank / 元数据过滤 / MMR 每步中间结果）+ 每条命中的**分数归因**（dense/bm25/rrf/rerank/final）；前端 `RetrievalDebug.vue`（运行配置快照 + 7 步链路 + 命中表 + score-bar）。"为什么没命中某文档"一目了然，排障调参神器。
-- **🚨 告警闭环（Grafana → 系统管理页）**：`POST /system/alerts/webhook`（Grafana alerting contact point 回调，共享 token 校验免 JWT）→ 落操作日志 + `ALERT_RECEIVED{severity}` 指标；`GET /system/alerts` 列表；Admin 加「告警」tab。Grafana provisioning 含 alerting（rules/contactpoints/notificationpolicies）。组件下线/降级激增/幻觉率/安全命中触发后，管理员在系统管理页直接看到，不依赖钉钉/企微。
-- **🧪 provider 连通性探测**：Admin 配置 tab 加 LLM/Embedding 主动 ping（抓欠费/配额/key 失效/网络），消耗少量 token。
-- **🔄 BM25 全量重建**：`POST /retrieval/bm25/rebuild`（admin 兜底，进程重启/异常后重建内存索引）；Admin 按钮。
-- **⚙️ 运行时配置即时生效**：Milvus HNSW `ef`（查询参数）/ 模型 `temperature` 运行时可调（`/system/config/milvus|model`），无需重启；检索调试页展示运行时值。
-
-### 🧠 图谱质量保障
-- **实体消歧 + Schema 约束**：`#1主变 / 1号主变 / 主变` → 统一 `主变压器`；关系收敛到白名单(发生/表现为/处置方法/原因/影响/...)，无法归类归"相关"保留连通性。`services/kg_normalize.py`。
-
-### 📊 新增可观测指标
-- `grid_safety_block_total{kind}`（安全事件）、`grid_domain_calls_total{feature}`（故障诊断/两票/相似案例调用），可接入 Grafana。
-
-### 🧪 测试覆盖
-- 单元测试 29 → **69**（新增：结构分块/表格解析/CRAG v2 分级/安全合规/图谱消歧/golden 覆盖度/SELF_RAG/多模态）。
+**企业级**:RBAC+文档级ACL · 多租户 · 版本管理+回滚 · 双RAG热备 · 纯Python备份恢复 · 日志归档 · 故障预测 · 告警闭环 · WebSocket · 多模态VLM ✅
 
 ---
 

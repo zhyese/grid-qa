@@ -157,6 +157,9 @@ print('[ok] admin password synced')
 do_up() {
   preflight
   ensure_env
+  # 确保数据目录齐备:prometheus/nacos 不打包数据,首次由容器自建;
+  # 此处保证宿主目录存在,避免 Docker bind mount 以 root 建成后容器进程写不进
+  mkdir -p data/mysql data/redis data/prometheus data/nacos
   step "3/5 构建并启动(首次 build 拉 pip/npm 依赖,约 5-15 分钟)"
   $COMPOSE up -d --build
   wait_mysql

@@ -139,7 +139,10 @@ cp .env.template "$REL/"
 [ -f 使用手册.md ] && cp 使用手册.md "$REL/"
 [ -f README.md ] && cp README.md "$REL/"
 # 空目录占位,确保接收方 data/ 结构完整
-mkdir -p "$REL/data/mysql" "$REL/data/redis"
+# prometheus/nacos 虽不打包含运行态数据(compose 仍声明了 bind mount),
+# 但必须留空目录占位,否则接收方 bind mount 时 Docker 以 root 自动建目录,
+# nacos(uid 1000)/prometheus(nobody) 进程写不进 → 容器启动失败/restarting
+mkdir -p "$REL/data/mysql" "$REL/data/redis" "$REL/data/prometheus" "$REL/data/nacos"
 
 # 写一个接收方读我
 cat > "$REL/快速开始.md" <<EOF
