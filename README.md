@@ -1315,4 +1315,12 @@ A: 设 `HF_ENDPOINT=https://hf-mirror.com` 或 `HTTPS_PROXY`,或预下到 HF 缓
 
 ## 📄 许可
 
-本项目用于电网运维智能问答学习与内部部署。云模型 API 使用遵循各自服务条款。
+本项目采用 **CC BY-NC 4.0**(署名-非商业性使用 4.0 国际,详见 [LICENSE](LICENSE)):
+
+- ✅ **允许**使用、修改、分发(学习 / 研究 / 内部部署),须**署名原作者 zhyese** 并保留许可链接
+- 🚫 **禁止商业使用**——禁止销售、付费服务、商业产品内置、付费培训、商业 SaaS 等任何营利场景
+- 衍生作品须以相同或兼容的 CC BY-NC 许可发布
+- 云模型 API(DeepSeek / 阿里百炼 / 火山方舟)使用遵循各自服务条款,不在本许可范围
+- 所引用第三方库/模型(bge / rapidocr / Milvus 等)保留其各自原始许可证
+
+完整法律条款见 [creativecommons.org/licenses/by-nc/4.0](https://creativecommons.org/licenses/by-nc/4.0/legalcode)。如需商业授权,请联系作者。
