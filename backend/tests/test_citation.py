@@ -132,3 +132,34 @@ def test_verify_nli_contradict_drops(monkeypatch):
     assert res.items[0].nli_label == "contradict"
     assert res.items[0].action == "drop"
     assert 1 in res.dropped_refs
+
+
+def test_apply_citation_verification_disabled_returns_empty(monkeypatch):
+    """CITATION_VERIFIER_ENABLE=False → (ans, {})，零字段、零破坏。"""
+    import app.config as cfg
+    monkeypatch.setattr(cfg.settings, "CITATION_VERIFIER_ENABLE", False)
+    from app.services.qa_service import _apply_citation_verification
+    ans, extras = _run(_apply_citation_verification(
+        "主变油温应≤85℃[1]。", [{"chunkId": "c1", "chunk": "油温85", "docName": "A"}], "deepseek"))
+    assert ans == "主变油温应≤85℃[1]。"
+    assert extras == {}
+
+
+def test_apply_citation_verification_enabled_includes_fields(monkeypatch):
+    """CITATION_VERIFIER_ENABLE=True → extras 含 citationVerified/citationIndex/citationMap。"""
+    import app.config as cfg
+    monkeypatch.setattr(cfg.settings, "CITATION_VERIFIER_ENABLE", True)
+    monkeypatch.setattr(cfg.settings, "CITATION_NLI_ENABLE", False)
+    # mock verify：返回 keep（校验放行，不打真实 NLI/embed）
+    async def fake_verify(answer_text, cmap, index, contexts, mt, *, nli_enable=None):
+        from app.schemas.citation import VerifyItem, VerifyResult
+        return VerifyResult(items=[VerifyItem(ref_id=1, chunk_id="c1", valid=True,
+                                              nli_label="unknown", action="keep")])
+    monkeypatch.setattr("app.rag.citation_verifier.verify", fake_verify)
+    from app.services.qa_service import _apply_citation_verification
+    ans, extras = _run(_apply_citation_verification(
+        "主变油温应≤85℃[1]。", [{"chunkId": "c1", "chunk": "主变油温不超过85度", "docName": "A"}], "deepseek"))
+    assert "citationVerified" in extras
+    assert "citationIndex" in extras
+    assert extras["citationIndex"] == {1: "c1"}            # build_index 位置→chunk_id
+    assert ans == "主变油温应≤85℃[1]。"                       # 无 drop，答案不变

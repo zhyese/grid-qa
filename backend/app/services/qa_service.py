@@ -200,6 +200,88 @@ async def _search_query_for_retrieve(
         return nq
 
 
+async def _enrich_citation_metadata(db: AsyncSession, citation_map: list) -> None:
+    """跨 task 依赖补查（Task 7 reviewer 遗留 gap）：contexts 是 retrieval_service._to_item
+    产物，**不含** chunk 元数据（section_path/page_num/bbox/table_header）。
+
+    按 citation_map 的 chunk_id 批量查 Chunk 表（一次 select...in_()），把元数据 merge
+    进每个 CitationItem.metadata，使引用卡片能展示章节/页码/高亮定位。
+    失败静默降级（不阻塞主链路）。
+    """
+    if not citation_map:
+        return
+    try:
+        from app.models.chunk import Chunk
+        chunk_ids = {c.chunk_id for c in citation_map if c.chunk_id}
+        if not chunk_ids:
+            return
+        rows = (await db.execute(
+            select(Chunk.id, Chunk.section_path, Chunk.page_num, Chunk.bbox, Chunk.table_header)
+            .where(Chunk.id.in_(chunk_ids))
+        )).all()
+        meta_by_id = {
+            r[0]: {
+                "section_path": r[1] or "",
+                "page_num": r[2],
+                "bbox": r[3],
+                "table_header": r[4] or "",
+            }
+            for r in rows
+        }
+        for c in citation_map:
+            if not c.chunk_id:
+                continue
+            m = meta_by_id.get(c.chunk_id)
+            if m:
+                # merge：parse_citation_answer 已填 doc_title/original_text，这里只补定位字段
+                c.metadata.update(m)
+    except Exception as e:
+        degraded("citation_metadata_enrich", e)
+
+
+async def _apply_citation_verification(
+    ans: str, contexts: list[dict], model_type: str | None,
+    *, db: AsyncSession | None = None,
+) -> tuple[str, dict]:
+    """可核验引用后处理：结构化解析 → 元数据补查 → 三层校验 → 返回 (最终答案, 附加字段)。
+
+    CITATION_VERIFIER_ENABLE=False 时直接返回 (ans, {})，零破坏（前端无新字段、主链路零影响）。
+    开启时：build_index(contexts) → parse_citation_answer(ans,...) → (可选)Chunk 元数据补查
+    → verify(...) → 把 dropped 编号替换为警示说明；extras 含 citationVerified/citationIndex/
+    citationMap/unverifiedClaims。校验 rewrite_needed=True 透传到 extras，由 answer 决定
+    是否触发 CRAG 二次检索（最多 1 次，防死循环）。
+
+    db：可选 AsyncSession，由 answer 传入以回填 Chunk 元数据；单测不传则跳过补查。
+    """
+    if not getattr(settings, "CITATION_VERIFIER_ENABLE", False):
+        return ans, {}
+    from app.rag.citation_index import build_index
+    from app.schemas.citation import parse_citation_answer
+    from app.rag.citation_verifier import verify
+
+    index = build_index(contexts)
+    parsed = parse_citation_answer(ans, index, contexts)
+
+    # 跨 task 依赖：按 chunk_id 批量回填 section_path/page_num/bbox/table_header
+    if db is not None:
+        await _enrich_citation_metadata(db, parsed.citation_map)
+
+    verdict = await verify(parsed.answer_text, parsed.citation_map, index, contexts, model_type)
+
+    # 把 drop 的编号从答案里剔除（替换为警示说明）
+    final_ans = parsed.answer_text
+    for ref in verdict.dropped_refs:
+        final_ans = final_ans.replace(f"[{ref}]", "（该引用经核验无可靠证据支撑）")
+    extras = {
+        "citationVerified": verdict.model_dump(),
+        "citationIndex": index,
+        "citationMap": [c.model_dump() for c in parsed.citation_map
+                        if c.ref_id not in verdict.dropped_refs],
+        "unverifiedClaims": parsed.unverified_claim + verdict.unverified_additions,
+    }
+    return final_ans, extras
+
+
 async def answer(
     db: AsyncSession, query: str, model_type: str | None = None,
     topk: int = 5, conversation_id: str | None = None, username: str = "",
@@ -363,6 +445,42 @@ async def answer(
         ans, _trace = await citation.auto_cite(ans, contexts)
     else:
         _trace = citation.evidence_trace(ans)
+    # ===== Task 10: 可核验引用三层校验 + 校验-CRAG 联动 =====
+    # CITATION_VERIFIER_ENABLE 关时 _apply_citation_verification 返回 (ans, {})，零破坏
+    # （不调 verify、不增字段）。开时执行 build_index→parse→元数据补查→三层校验，drop 替换为警示。
+    final_ans, citation_extras = await _apply_citation_verification(
+        ans, contexts, model_type, db=db,
+    )
+    # 校验要求 rewrite 且开关开 → 复用 rewrite_query + mixed_search 重检索重生成再 verify（最多 1 次，防死循环）
+    if (citation_extras.get("citationVerified", {}).get("rewrite_needed")
+            and getattr(settings, "CITATION_REWRITE_ON_FAIL", True)):
+        try:
+            from app.services.query_rewrite import rewrite_query
+            new_q = await rewrite_query(nq, model_type, force=True)
+            if new_q and new_q != nq:
+                contexts2 = await retrieval_service.mixed_search(
+                    db, new_q, topk, tenant=tenant,
+                    user_dept=user_dept, user_role=user_role,
+                )
+                if contexts2:
+                    messages2 = prompt_templates.build_messages_with_history(
+                        new_q, contexts2, history, graph, confidence,
+                    )
+                    ans2 = await get_llm_provider(model_type).chat(
+                        messages2, temperature=config_service.rt_temperature(),
+                    )
+                    ans2 = safety.safe_answer(ans2)
+                    if getattr(settings, "CITATION_AUTO_ENABLE", True):
+                        ans2, _trace2 = await citation.auto_cite(ans2, contexts2)
+                    final_ans, citation_extras = await _apply_citation_verification(
+                        ans2, contexts2, model_type, db=db,
+                    )
+                    contexts = contexts2
+                    _trace = citation.evidence_trace(final_ans)
+        except Exception as e:
+            degraded("citation_rewrite联动", e)
+    ans = final_ans   # 校验/联动可能改写答案（drop→警示替换；rewrite→二次生成答案）
+    # ===== /Task 10 =====
     try:
         from app.core import metrics
         _p = model_type or settings.LLM_PROVIDER
@@ -405,6 +523,7 @@ async def answer(
         "route": routing.route if routing else "hybrid",
         "routeReason": routing.reason if routing else "",
         "conversationId": conversation_id,
+        **citation_extras,   # Task 10: 空 dict（开关关）时不新增字段，零破坏
     }
 
     # 单轮 或 多轮 且 高置信(confidence==high) 才写；黑名单/证据有限/不足不写
