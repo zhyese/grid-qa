@@ -241,7 +241,7 @@ async def _enrich_citation_metadata(db: AsyncSession, citation_map: list) -> Non
 
 async def _apply_citation_verification(
     ans: str, contexts: list[dict], model_type: str | None,
-    *, db: AsyncSession | None = None,
+    *, db: AsyncSession | None = None, cmap_override: list | None = None,
 ) -> tuple[str, dict]:
     """可核验引用后处理：结构化解析 → 元数据补查 → 三层校验 → 返回 (最终答案, 附加字段)。
 
@@ -256,28 +256,36 @@ async def _apply_citation_verification(
     if not getattr(settings, "CITATION_VERIFIER_ENABLE", False):
         return ans, {}
     from app.rag.citation_index import build_index
-    from app.schemas.citation import parse_citation_answer
     from app.rag.citation_verifier import verify
 
     index = build_index(contexts)
-    parsed = parse_citation_answer(ans, index, contexts)
+    if cmap_override is not None:
+        # STRUCTURED_OUTPUT：ans 已是 answer_text，cmap 已结构化（每 ref_id 一项，不重复），不再 parse
+        ans_text = ans
+        cmap = cmap_override
+        unverified: list = []
+    else:
+        from app.schemas.citation import parse_citation_answer
+        parsed = parse_citation_answer(ans, index, contexts)
+        ans_text = parsed.answer_text
+        cmap = parsed.citation_map
+        unverified = parsed.unverified_claim
 
     # 跨 task 依赖：按 chunk_id 批量回填 section_path/page_num/bbox/table_header
     if db is not None:
-        await _enrich_citation_metadata(db, parsed.citation_map)
+        await _enrich_citation_metadata(db, cmap)
 
-    verdict = await verify(parsed.answer_text, parsed.citation_map, index, contexts, model_type)
+    verdict = await verify(ans_text, cmap, index, contexts, model_type)
 
     # 把 drop 的编号从答案里剔除（替换为警示说明）
-    final_ans = parsed.answer_text
+    final_ans = ans_text
     for ref in verdict.dropped_refs:
         final_ans = final_ans.replace(f"[{ref}]", "（该引用经核验无可靠证据支撑）")
     extras = {
         "citationVerified": verdict.model_dump(),
         "citationIndex": index,
-        "citationMap": [c.model_dump() for c in parsed.citation_map
-                        if c.ref_id not in verdict.dropped_refs],
-        "unverifiedClaims": parsed.unverified_claim + verdict.unverified_additions,
+        "citationMap": [c.model_dump() for c in cmap if c.ref_id not in verdict.dropped_refs],
+        "unverifiedClaims": unverified + verdict.unverified_additions,
     }
     return final_ans, extras
 
@@ -436,20 +444,33 @@ async def answer(
         except Exception as e:
             degraded("kg_graph_context", e)
             graph = []
-    messages = prompt_templates.build_messages_with_history(nq, contexts, history, graph, confidence)
+    _structured = (getattr(settings, "CITATION_STRUCTURED_OUTPUT", False)
+                   and getattr(settings, "CITATION_VERIFIER_ENABLE", False))
+    messages = prompt_templates.build_messages_with_history(
+        nq, contexts, history, graph, confidence, structured=_structured,
+    )
     _llm0 = time.time()
-    ans = await get_llm_provider(model_type).chat(messages, temperature=config_service.rt_temperature())
-    ans = safety.safe_answer(ans)  # 答案脱敏（PII_MASK_ENABLE 开启时，D4）
-    # 证据溯源：无角标句子向量相似度自动补标（激活 citation 死代码进主链路）
-    if getattr(settings, "CITATION_AUTO_ENABLE", True):
-        ans, _trace = await citation.auto_cite(ans, contexts)
+    raw = await get_llm_provider(model_type).chat(messages, temperature=config_service.rt_temperature())
+    raw = safety.safe_answer(raw)  # 答案脱敏（PII_MASK_ENABLE 开启时，D4）
+    # STRUCTURED_OUTPUT：LLM 输出 JSON → parse 取 answer_text + 结构化 citation_map(每 ref 一项不重复)
+    # 跳过 auto_cite(结构化已有 cmap)；否则走 auto_cite 补标(现状)。
+    _cmap_override = None
+    if _structured:
+        from app.rag.citation_index import build_index as _bi
+        from app.schemas.citation import parse_citation_answer as _pca
+        _parsed0 = _pca(raw, _bi(contexts), contexts)
+        ans = _parsed0.answer_text or raw
+        _trace = citation.evidence_trace(ans)
+        if _parsed0.structured:           # LLM 真输出 JSON → 用结构化 cmap(每 ref_id 一项)
+            _cmap_override = _parsed0.citation_map
+    elif getattr(settings, "CITATION_AUTO_ENABLE", True):
+        ans, _trace = await citation.auto_cite(raw, contexts)
     else:
+        ans = raw
         _trace = citation.evidence_trace(ans)
     # ===== Task 10: 可核验引用三层校验 + 校验-CRAG 联动 =====
-    # CITATION_VERIFIER_ENABLE 关时 _apply_citation_verification 返回 (ans, {})，零破坏
-    # （不调 verify、不增字段）。开时执行 build_index→parse→元数据补查→三层校验，drop 替换为警示。
     final_ans, citation_extras = await _apply_citation_verification(
-        ans, contexts, model_type, db=db,
+        ans, contexts, model_type, db=db, cmap_override=_cmap_override,
     )
     # 校验要求 rewrite 且开关开 → 复用 rewrite_query + mixed_search 重检索重生成再 verify（最多 1 次，防死循环）
     if (citation_extras.get("citationVerified", {}).get("rewrite_needed")
@@ -464,16 +485,24 @@ async def answer(
                 )
                 if contexts2:
                     messages2 = prompt_templates.build_messages_with_history(
-                        new_q, contexts2, history, graph, confidence,
+                        new_q, contexts2, history, graph, confidence, structured=_structured,
                     )
                     ans2 = await get_llm_provider(model_type).chat(
                         messages2, temperature=config_service.rt_temperature(),
                     )
                     ans2 = safety.safe_answer(ans2)
-                    if getattr(settings, "CITATION_AUTO_ENABLE", True):
+                    _cmap_override2 = None
+                    if _structured:
+                        from app.rag.citation_index import build_index as _bi
+                        from app.schemas.citation import parse_citation_answer as _pca
+                        _parsed2 = _pca(ans2, _bi(contexts2), contexts2)
+                        ans2 = _parsed2.answer_text or ans2
+                        if _parsed2.structured:
+                            _cmap_override2 = _parsed2.citation_map
+                    elif getattr(settings, "CITATION_AUTO_ENABLE", True):
                         ans2, _trace2 = await citation.auto_cite(ans2, contexts2)
                     final_ans, citation_extras = await _apply_citation_verification(
-                        ans2, contexts2, model_type, db=db,
+                        ans2, contexts2, model_type, db=db, cmap_override=_cmap_override2,
                     )
                     contexts = contexts2
                     _trace = citation.evidence_trace(final_ans)

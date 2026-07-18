@@ -42,7 +42,8 @@ def build_messages(query: str, contexts: list[dict]) -> list[dict]:
 
 
 def build_messages_with_history(query: str, contexts: list[dict], history: list[dict],
-                                graph: list[str] | None = None, confidence: str = "high") -> list[dict]:
+                                graph: list[str] | None = None, confidence: str = "high",
+                                structured: bool = False) -> list[dict]:
     """多轮：system(规则) + 历史对话 + 当前(资料+图谱+问题)。
 
     history: [{role, content}]；graph: 知识图谱结构化三元组文本列表（GraphRAG 增强）。
@@ -60,6 +61,16 @@ def build_messages_with_history(query: str, contexts: list[dict], history: list[
         extra = "\n8) 注意：本次检索证据可能不充分，作答时明确标注不确定的部分，避免绝对化结论。"
     elif confidence == "refused":
         extra = "\n8) 注意：检索未找到强相关资料，优先回答\"根据现有资料无法确认该问题\"，可给通用方向但必须标注非资料依据。"
+    if structured:
+        # CITATION_STRUCTURED_OUTPUT：强制 LLM 输出严格 JSON，服务端解析得 answer_text + 结构化
+        # citation_map(每个 ref_id 一项，不重复)，避免降级路径 evidence_trace 反查产生重复 ref_id。
+        extra += (
+            "\n\n【输出格式·必须遵守】本次必须且只能输出一段严格 JSON(禁 markdown 代码块/禁任何额外文字)："
+            '{"answer_text":"答案正文(每条独立事实句末标[n],编号对应参考资料序号)",'
+            '"citation_map":[{"sentence":"被引用句原文","ref_id":1,"metadata":{}}],'
+            '"unverified_claim":["无资料支撑的句子(若有),否则空数组"]}'
+            "。citation_map 每个引用编号一项(ref_id 不重复);metadata 留空对象{}由服务端补全。"
+        )
     msgs = [{"role": "system", "content": get_system_prompt() + extra}]
     for h in history:
         msgs.append({"role": h["role"], "content": h["content"]})
