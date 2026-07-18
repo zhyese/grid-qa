@@ -540,8 +540,7 @@ async def backfill(tenant: str, dry_run: bool) -> dict:
                 if dry_run:
                     stats["updated"] += 1
                     continue
-                # 按 chunk_idx 回填（重新解析顺序应一致；不一致则按 content 模糊匹配降级）
-                idx_map = {c["chunk_idx"]: c for c in []}  # 占位：实际按 doc_id+chunk_idx 批量 update
+                # 按 chunk_idx 回填（重新解析顺序应与 split_structured 一致；zip 对齐）
                 chunks = (await db.execute(
                     select(Chunk).where(Chunk.doc_id == doc.id).order_by(Chunk.chunk_idx)
                 )).scalars().all()
@@ -1240,48 +1239,38 @@ git commit -m "feat(citation): 三层校验引擎citation_verifier(格式+向量
 在 `tests/test_citation.py` 加（mock retrieval + LLM + verify 全链路，断言字段出现/不出现）：
 
 ```python
-def test_answer_includes_citation_fields_when_enabled(monkeypatch):
-    """CITATION_VERIFIER_ENABLE=True → answer 返回 citationVerified/citationIndex。"""
+def test_apply_citation_verification_disabled_returns_empty(monkeypatch):
+    """CITATION_VERIFIER_ENABLE=False → (ans, {})，零字段、零破坏。"""
+    import app.config as cfg
+    monkeypatch.setattr(cfg.settings, "CITATION_VERIFIER_ENABLE", False)
+    from app.services.qa_service import _apply_citation_verification
+    ans, extras = _run(_apply_citation_verification(
+        "主变油温应≤85℃[1]。", [{"chunkId": "c1", "chunk": "油温85", "docName": "A"}], "deepseek"))
+    assert ans == "主变油温应≤85℃[1]。"
+    assert extras == {}
+
+
+def test_apply_citation_verification_enabled_includes_fields(monkeypatch):
+    """CITATION_VERIFIER_ENABLE=True → extras 含 citationVerified/citationIndex/citationMap。"""
     import app.config as cfg
     monkeypatch.setattr(cfg.settings, "CITATION_VERIFIER_ENABLE", True)
     monkeypatch.setattr(cfg.settings, "CITATION_NLI_ENABLE", False)
-    monkeypatch.setattr(cfg.settings, "CITATION_STRUCTURED_OUTPUT", False)
-
-    # mock 检索：返回 1 个带 chunkId 的 context
-    async def fake_mixed_search(db, q, topk=5, **kw):
-        return [{"chunk": "主变油温限值85度", "docId": "d1", "docName": "A",
-                 "chunkId": "c1", "chunkIdx": 0, "score": 0.9}]
-    monkeypatch.setattr("app.services.qa_service.retrieval_service.mixed_search", fake_mixed_search)
-    # mock CRAG：放行
-    async def fake_crag(db, nq, ctx, mt, topk, tenant):
-        return ctx, "high", "normal", "high"
-    monkeypatch.setattr("app.services.qa_service._crag_correct", fake_crag)
-    # mock LLM
-    async def fake_chat(messages, temperature=0.3, max_tokens=2048):
-        return "主变油温应≤85℃[1]。"
-    monkeypatch.setattr("app.providers.factory.get_llm_provider",
-                        lambda mt: type("P", (), {"chat": staticmethod(fake_chat)})())
-    # mock embed（校验2 放行）
-    async def fake_embed(texts):
-        return [[1.0] for _ in texts]
-    monkeypatch.setattr("app.services.embedding_service.embed_texts", fake_embed)
-    # mock 多轮/缓存/图谱/history 跳过
-    monkeypatch.setattr("app.services.qa_service._is_blacklisted", lambda nq: False)
-
-    from app.services import qa_service
-    # answer 依赖 db/conversation 等；这里只验字段存在性，用最小 db mock
-    # （完整集成见 tests/test_api.py 风格；此处聚焦 verifier 接入）
-    # 若 answer 签名调用复杂，改为直接测 _verify_and_decorate 辅助函数（见 Step 3）
-
-
-def test_answer_no_citation_fields_when_disabled(monkeypatch):
-    """CITATION_VERIFIER_ENABLE=False → 返回结构等同现状，无 citationVerified。"""
-    import app.config as cfg
-    monkeypatch.setattr(cfg.settings, "CITATION_VERIFIER_ENABLE", False)
-    # （与上同 mock，断言 res 不含 "citationVerified"）
+    # mock verify：返回 keep（校验放行，不打真实 NLI/embed）
+    async def fake_verify(answer_text, cmap, index, contexts, mt, *, nli_enable=None):
+        from app.schemas.citation import VerifyItem, VerifyResult
+        return VerifyResult(items=[VerifyItem(ref_id=1, chunk_id="c1", valid=True,
+                                              nli_label="unknown", action="keep")])
+    monkeypatch.setattr("app.rag.citation_verifier.verify", fake_verify)
+    from app.services.qa_service import _apply_citation_verification
+    ans, extras = _run(_apply_citation_verification(
+        "主变油温应≤85℃[1]。", [{"chunkId": "c1", "chunk": "主变油温不超过85度", "docName": "A"}], "deepseek"))
+    assert "citationVerified" in extras
+    assert "citationIndex" in extras
+    assert extras["citationIndex"] == {1: "c1"}            # build_index 位置→chunk_id
+    assert ans == "主变油温应≤85℃[1]。"                       # 无 drop，答案不变
 ```
 
-> 测试编排说明：`qa_service.answer` 依赖 db session + conversation_service + 多个内部路径，完整 mock 成本高。**Step 3 把校验+联动逻辑抽成独立可测辅助函数 `_apply_citation_verification(ans, contexts, ...)`**，单测直接打它，集成层在 Task 12 eval 覆盖。
+> 测试编排说明：`qa_service.answer` 依赖 db session + conversation_service + 多个内部路径，完整 mock 成本高。**Step 3 把校验+联动逻辑抽成独立可测辅助函数 `_apply_citation_verification(ans, contexts, model_type)`**，单测直接打它（上面两个测试）；端到端集成由 Task 12 `eval_citation` 覆盖。
 
 - [ ] **Step 2: 运行测试，确认失败**
 
