@@ -7,6 +7,46 @@ import re
 from typing import Optional
 
 
+async def _verify_claims(
+    claims: list[str], sources: list[str], model_type: str | None = None,
+) -> list[dict]:
+    """NLI 精准核验（校验3 核心）：逐条声明 → support/contradict/neutral 三分类。
+
+    与 judge_hallucination 同源（声明拆解 + LLM judge），但输出三分类而非二值 supported，
+    供 citation_verifier 校验3 区分「主题相关但矛盾」vs「真支撑」。
+    解析失败/异常 → 该条标 neutral（不阻塞，保守放行）。
+    """
+    from app.providers.factory import get_llm_provider
+
+    srcs = [s for s in (sources or []) if s and str(s).strip()]
+    claims = [c for c in (claims or []) if c and str(c).strip()]
+    if not claims or not srcs:
+        return [{"text": c, "label": "neutral"} for c in claims]
+
+    refs = "\n".join(f"[{i + 1}] {s}" for i, s in enumerate(srcs))
+    prompt = (
+        "你是电网运维证据核验员。逐条判断【声明】能否被【参考资料】支撑，输出三分类：\n"
+        "- support：资料可直接推出该声明（含忠实转述/归纳）\n"
+        "- contradict：资料与声明相反（否定/数值冲突/范围不符）\n"
+        "- neutral：资料仅背景介绍，无法判定\n"
+        "严格输出 JSON：{\"claims\":[{\"text\":\"声明\",\"label\":\"support|contradict|neutral\"}]}\n\n"
+        f"【参考资料】\n{refs}\n\n【声明】\n" + "\n".join(f"- {c}" for c in claims)
+    )
+    try:
+        out = await get_llm_provider(model_type).chat(
+            [{"role": "user", "content": prompt}], temperature=0, max_tokens=800
+        )
+        m = re.search(r"\{.*\}", out, re.S)
+        if not m:
+            return [{"text": c, "label": "neutral"} for c in claims]
+        d = json.loads(m.group(0))
+        label_map = {item.get("text", ""): item.get("label", "neutral") for item in d.get("claims", [])}
+        # 按入参 claims 顺序返回，缺失/解析失败的标 neutral
+        return [{"text": c, "label": label_map.get(c, "neutral")} for c in claims]
+    except Exception:
+        return [{"text": c, "label": "neutral"} for c in claims]
+
+
 async def judge_hallucination(
     answer: str, sources: list[str], model_type: Optional[str] = None
 ) -> dict:
