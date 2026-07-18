@@ -64,6 +64,12 @@ _COLUMN_MIGRATIONS = [
     ("tickets", "source_ref", "VARCHAR(128) NULL"),
     ("qa_cache", "tenant_id", "VARCHAR(64) NOT NULL DEFAULT 'default'"),
     ("evidence_gap", "is_deleted", "TINYINT(1) NOT NULL DEFAULT 0"),  # 证据补全逻辑删除
+    # 可核验引用元数据（第一层：精确定位）
+    ("chunks", "page_num", "INT NULL"),                                   # PDF 页码/幻灯片号（Word/txt 无→null）
+    ("chunks", "bbox", "VARCHAR(128) NULL"),                              # JSON 串 [x0,y0,x1,y1]，前端 PDF 高亮
+    ("chunks", "section_path", "VARCHAR(512) NOT NULL DEFAULT ''"),       # 层级章节路径 "3.1 免责 > 第2条"
+    ("chunks", "table_header", "TEXT NOT NULL DEFAULT ''"),               # 表格类 chunk 绑定的表头
+    ("chunks", "metadata_complete", "TINYINT(1) NOT NULL DEFAULT 0"),     # 元数据是否齐全（前端降级依据）
 ]
 
 _INDEX_MIGRATIONS = [
