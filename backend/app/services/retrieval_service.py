@@ -10,7 +10,7 @@ import math
 import time
 from collections import Counter
 
-from sqlalchemy import select
+from sqlalchemy import select, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.clients import milvus_client
@@ -38,6 +38,10 @@ def _to_item(h: dict) -> dict:
         "docName": h.get("doc_name", ""),
         "docType": h.get("doc_type", ""),
         "chunkIdx": h.get("chunk_idx"),
+        # 第二层 · 服务端受控编号依赖：citation_index.build_index 用 chunkId 映射 [1..N]。
+        # Milvus payload 不带 chunk_id（见 milvus_client.search output_fields），
+        # 由 mixed_search 末尾按 (doc_id, chunk_idx) 批量查 Chunk 表回填。
+        "chunkId": h.get("chunk_id", ""),
         "sources": h.get("srcs", []),
     }
 
@@ -397,6 +401,22 @@ async def mixed_search(
     except Exception:
         pass
     items = [_to_item(h) for h in pool]
+    # 第二层 · chunk_id 回填：Milvus payload 不带 chunk_id（search output_fields 仅 text/doc_id/
+    # doc_name/chunk_idx），按 (doc_id, chunk_idx) 批量查 Chunk 表补全，供 citation_index 受控编号。
+    # 仿 :324 docType 补全模式；回填是附加，不改 items 结构（只多塞 chunkId 字段）。
+    _need_cid = [i for i in items if not i.get("chunkId") and i.get("docId") and i.get("chunkIdx") is not None]
+    if _need_cid:
+        _keys = [(i["docId"], i["chunkIdx"]) for i in _need_cid]
+        _cid_rows = (await db.execute(
+            select(Chunk.id, Chunk.doc_id, Chunk.chunk_idx).where(
+                tuple_(Chunk.doc_id, Chunk.chunk_idx).in_(_keys)
+            )
+        )).all()
+        _cid_map = {(r[1], r[2]): r[0] for r in _cid_rows}
+        for i in items:
+            k = (i.get("docId"), i.get("chunkIdx"))
+            if k in _cid_map:
+                i["chunkId"] = _cid_map[k]
     # 知识自进化 AI 草稿检索降权（doc_type=ai_evolution；防回环污染；可配 exclude/downgrade/off）
     _ai_filter = getattr(settings, "AI_EVOLUTION_RETRIEVAL_FILTER", "downgrade")
     if _ai_filter == "exclude":
