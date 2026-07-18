@@ -12,6 +12,12 @@ def _run(coro):
 def test_citation_settings_defaults():
     assert settings.CITATION_AUTO_ENABLE is True
     assert settings.CITATION_SIM_THRESHOLD == 0.6
+    # 新开关默认全 opt-in（关闭=现状）
+    assert settings.CITATION_VERIFIER_ENABLE is False
+    assert settings.CITATION_NLI_ENABLE is False
+    assert settings.CITATION_NLI_TIMEOUT == 5
+    assert settings.CITATION_STRUCTURED_OUTPUT is False
+    assert settings.CITATION_REWRITE_ON_FAIL is True
 
 
 def test_auto_cite_all_already_cited(monkeypatch):

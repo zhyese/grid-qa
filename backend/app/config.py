@@ -189,6 +189,12 @@ class Settings(BaseSettings):
     # ---------- 证据溯源（P4-⑮ 句级角标）----------
     CITATION_AUTO_ENABLE: bool = True       # 无角标句子是否向量相似度自动补标
     CITATION_SIM_THRESHOLD: float = 0.6     # 自动补标 cosine 阈值（低于则不补，保留"无引用"）
+    # ===== 可核验引用引擎（五层闭环，全 opt-in，默认=现状）=====
+    CITATION_VERIFIER_ENABLE: bool = False   # 第四层校验引擎总开关（格式+向量+NLI）
+    CITATION_NLI_ENABLE: bool = False        # 校验3 NLI 精准核验（最重，独立开关）
+    CITATION_NLI_TIMEOUT: int = 5            # 校验3 NLI 超时秒（超时降级仅走校验1+2）
+    CITATION_STRUCTURED_OUTPUT: bool = False  # 第三层 LLM 结构化输出 CitationAnswer
+    CITATION_REWRITE_ON_FAIL: bool = True    # 校验失败联动 CRAG：rewrite 二次检索 / refused 拒答
 
     # ---------- 多模态 RAG（VLM 图片理解）----------
     VLM_ENABLE: bool = False       # VLM 理解图片(图纸/设备/故障现象)补充 OCR 丢失的空间语义
