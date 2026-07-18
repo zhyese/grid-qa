@@ -293,8 +293,9 @@ async def confirm_and_sync(gap_id: int, final_answer: str, operator: str,
                 "hallucinationRate": 0.0, "cached": True, "cacheLayer": "redis",
             }
             await cache_set_mysql(db, model_type, nq, nq, result, tenant_id=row.tenant)
+            from app.config import citation_cache_version
             await redis_client.cache_set_json(
-                f"qa:{row.tenant or 'default'}:{model_type or 'default'}:{nq}", result, settings.QA_CACHE_TTL,
+                f"qa:{row.tenant or 'default'}:{model_type or 'default'}:{nq}:{citation_cache_version()}", result, settings.QA_CACHE_TTL,
             )
             # 4) 状态 synced
             row.final_answer = final_answer

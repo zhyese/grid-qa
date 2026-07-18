@@ -55,7 +55,8 @@ async def get_cached_key(
     model_type: str | None, query: str, tenant_id: str | None = "default",
 ) -> str | None:
     """获取精确缓存 key（兼容现有缓存）。"""
-    return f"qa:{_cache_tenant(tenant_id)}:{model_type or 'default'}:{query}"
+    from app.config import citation_cache_version
+    return f"qa:{_cache_tenant(tenant_id)}:{model_type or 'default'}:{query}:{citation_cache_version()}"
 
 
 async def semantic_cache_get(

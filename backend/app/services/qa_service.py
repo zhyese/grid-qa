@@ -26,7 +26,8 @@ def _cache_tenant(tenant: str | None) -> str:
 
 
 def _cache_key(model_type: str | None, query: str, tenant: str | None = "default") -> str:
-    return f"qa:{_cache_tenant(tenant)}:{model_type or 'default'}:{query}"
+    from app.config import citation_cache_version
+    return f"qa:{_cache_tenant(tenant)}:{model_type or 'default'}:{query}:{citation_cache_version()}"
 
 
 async def _is_blacklisted(nq: str) -> bool:

@@ -56,7 +56,8 @@ async def cache_get_mysql(
 
     # 异步回写 Redis（不阻塞响应）
     try:
-        cache_key = f"qa:{tenant_id}:{model_type or 'default'}:{normalized_query}"
+        from app.config import citation_cache_version
+        cache_key = f"qa:{tenant_id}:{model_type or 'default'}:{normalized_query}:{citation_cache_version()}"
         data = json.loads(row.answer) if isinstance(row.answer, str) else row.answer
         asyncio.ensure_future(
             redis_client.cache_set_json(cache_key, data, settings.QA_CACHE_TTL)
@@ -93,7 +94,8 @@ async def cache_set_mysql(
     MySQL 写入失败不阻塞——降级记录后仍可走 Redis 热缓存。
     """
     tenant_id = tenant_id or "default"
-    cache_key = f"qa:{tenant_id}:{model_type or 'default'}:{normalized_query}"
+    from app.config import citation_cache_version
+    cache_key = f"qa:{tenant_id}:{model_type or 'default'}:{normalized_query}:{citation_cache_version()}"
     query_hash = QaCache.build_hash(model_type, normalized_query, tenant_id)
     answer_json = json.dumps(result, ensure_ascii=False)
     ttl = QaCache.ttl_for_query(normalized_query) if settings.CACHE_TIERED_TTL_ENABLE else settings.QA_CACHE_TTL

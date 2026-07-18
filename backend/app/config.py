@@ -239,3 +239,12 @@ def get_settings() -> Settings:
 
 
 settings = get_settings()
+
+
+def citation_cache_version() -> str:
+    """citation 开关版本串，拼进缓存 key/hash；开关变→key 变→旧缓存自动失效。
+
+    避免 rebuild + 改开关后旧 query 命中改前行为的缓存（citation_extras 进了缓存）。
+    """
+    s = settings
+    return f"cv{int(s.CITATION_VERIFIER_ENABLE)}{int(s.CITATION_STRUCTURED_OUTPUT)}{int(s.CITATION_NLI_ENABLE)}"

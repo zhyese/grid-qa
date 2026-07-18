@@ -41,7 +41,8 @@ class QaCache(Base):
     @staticmethod
     def build_hash(model_type: str | None, normalized_query: str, tenant_id: str = "default") -> str:
         """MD5 哈希：cache_key → 32 位 hex，用于 MySQL 精确匹配。"""
-        raw = f"qa:{tenant_id or 'default'}:{model_type or 'default'}:{normalized_query}"
+        from app.config import citation_cache_version
+        raw = f"qa:{tenant_id or 'default'}:{model_type or 'default'}:{normalized_query}:{citation_cache_version()}"
         return hashlib.md5(raw.encode("utf-8")).hexdigest()
 
     @staticmethod
