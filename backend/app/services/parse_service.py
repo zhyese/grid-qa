@@ -145,8 +145,23 @@ def _table_to_markdown(rows: list) -> str:
     return "\n".join(lines)
 
 
+def _first_row_as_header(rows: list) -> str:
+    """表格首行作表头（table_header 字段，防数值丢列上下文）。
+
+    可核验引用增强：检索命中数值行时，table_header 回带列名上下文，
+    让 LLM 能回答「85 度」对应的设备/限值含义，无需额外回表。
+    """
+    if not rows:
+        return ""
+    head = ["" if c is None else str(c).strip() for c in (rows[0] or [])]
+    return " | ".join(h for h in head if h)
+
+
 def extract_xlsx(content: bytes) -> list[dict]:
-    """Excel 多 sheet → 每 sheet 一张 markdown 表格段落（运维台账/定值单常见载体）。"""
+    """Excel 多 sheet → 每 sheet 一张 markdown 表格段落（运维台账/定值单常见载体）。
+
+    可核验引用增强：表格段带 table_header（首行列名），供 chunk 透传到引用展示。
+    """
     from openpyxl import load_workbook
 
     sections: list[dict] = []
@@ -155,12 +170,17 @@ def extract_xlsx(content: bytes) -> list[dict]:
         rows = list(ws.iter_rows(values_only=True))
         md = _table_to_markdown(rows)
         if md.strip():
-            sections.append({"type": "table", "content": f"## {ws.title}\n{md}"})
+            sections.append({"type": "table", "content": f"## {ws.title}\n{md}",
+                             "table_header": _first_row_as_header(rows)})
     return sections
 
 
 def extract_pdf_structured(content: bytes) -> Tuple[list[dict], bool]:
-    """PDF 结构化：每页表格转 markdown + 正文文本。表格整体成段，不再被打碎。"""
+    """PDF 结构化：每页表格转 markdown + 正文文本。表格整体成段，不再被打碎。
+
+    可核验引用增强：每个 section 带 page_num + 首字符 bbox（前端 PDF 高亮锚点）。
+    """
+    import json
     import pdfplumber
 
     sections: list[dict] = []
@@ -168,20 +188,41 @@ def extract_pdf_structured(content: bytes) -> Tuple[list[dict], bool]:
     with pdfplumber.open(io.BytesIO(content)) as pdf:
         for page in pdf.pages:
             n_pages += 1
+            page_num = page.page_number
             for tbl in page.extract_tables() or []:
                 md = _table_to_markdown(tbl)
                 if md.strip():
-                    sections.append({"type": "table", "content": md})
+                    sections.append({"type": "table", "content": md,
+                                     "page_num": page_num,
+                                     "table_header": _first_row_as_header(tbl)})
             txt = (page.extract_text() or "").strip()
             if txt:
-                sections.append({"type": "text", "content": txt})
+                # 首字符 bbox 作高亮锚点（页内首字矩形，前端 PDF 定位用）
+                bbox = None
+                try:
+                    chars = page.chars
+                    if chars:
+                        x0, top = chars[0]["x0"], chars[0]["top"]
+                        # 取首行（前 40 字符）右下角，避免单字框过窄不可见
+                        head = chars[:min(len(chars), 40)]
+                        x1 = max(c["x1"] for c in head)
+                        bottom = max(c["bottom"] for c in head)
+                        bbox = json.dumps([round(x0, 1), round(top, 1),
+                                           round(x1, 1), round(bottom, 1)])
+                except Exception:
+                    bbox = None
+                sections.append({"type": "text", "content": txt,
+                                 "page_num": page_num, "bbox": bbox})
                 total_chars += len(txt)
     is_scanned = n_pages > 0 and total_chars < n_pages * 10
     return sections, is_scanned
 
 
 def extract_docx_structured(content: bytes) -> list[dict]:
-    """Word：表格转 markdown + 段落正文（保留规程表格结构）。"""
+    """Word：表格转 markdown + 段落正文（保留规程表格结构）。
+
+    可核验引用增强：表格段带 table_header（首行列名）。
+    """
     from docx import Document
 
     doc = Document(io.BytesIO(content))
@@ -190,7 +231,8 @@ def extract_docx_structured(content: bytes) -> list[dict]:
         rows = [[cell.text.strip() for cell in row.cells] for row in tbl.rows]
         md = _table_to_markdown(rows)
         if md.strip():
-            sections.append({"type": "table", "content": md})
+            sections.append({"type": "table", "content": md,
+                             "table_header": _first_row_as_header(rows)})
     paras = [p.text.strip() for p in doc.paragraphs if p.text.strip()]
     if paras:
         sections.append({"type": "text", "content": "\n".join(paras)})
