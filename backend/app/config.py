@@ -195,6 +195,7 @@ class Settings(BaseSettings):
     CITATION_NLI_TIMEOUT: int = 5            # 校验3 NLI 超时秒（超时降级仅走校验1+2）
     CITATION_STRUCTURED_OUTPUT: bool = False  # 第三层 LLM 结构化输出 CitationAnswer
     CITATION_REWRITE_ON_FAIL: bool = True    # 校验失败联动 CRAG：rewrite 二次检索 / refused 拒答
+    CITATION_VERIFY_SIM_THRESHOLD: float = 0.4  # 校验2专用阈值(答案综合句vs原文chunk),独立于auto_cite补标CITATION_SIM_THRESHOLD=0.6(答案句LLM重组与原文cosine偏低,0.6误杀)
 
     # ---------- 多模态 RAG（VLM 图片理解）----------
     VLM_ENABLE: bool = False       # VLM 理解图片(图纸/设备/故障现象)补充 OCR 丢失的空间语义

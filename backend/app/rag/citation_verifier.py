@@ -2,7 +2,8 @@
 """第四层 · 三层校验引擎（核心防幻觉）。
 
 校验1 格式合法（零算力）：ref_id ∈ index，剔除越界/重复。
-校验2 向量粗筛：事实句 vs 候选 chunk cosine ≥ CITATION_SIM_THRESHOLD（复用 citation._cosine_mat）。
+校验2 向量粗筛：事实句 vs 候选 chunk cosine ≥ CITATION_VERIFY_SIM_THRESHOLD（复用 citation._cosine_mat；
+        独立阈值，松于 auto_cite 补标的 CITATION_SIM_THRESHOLD=0.6——答案句是 LLM 重组表述，与原文 cosine 天然偏低）。
 校验3 NLI 精准核验（CITATION_NLI_ENABLE 开时）：judge._verify_claims 三分类，contradict → drop。
 核心事实全 drop → rewrite_needed=True（联动 CRAG）。
 全异常/超时 → degraded=True，仅走校验1+2，不阻塞主链路。
@@ -34,7 +35,7 @@ async def verify(
     """三层校验。返回 VerifyResult（drop/keep/rewrite 决策 + 降级标记）。"""
     if nli_enable is None:
         nli_enable = settings.CITATION_NLI_ENABLE
-    threshold = settings.CITATION_SIM_THRESHOLD
+    threshold = settings.CITATION_VERIFY_SIM_THRESHOLD  # 校验2专用，独立于 auto_cite 的 CITATION_SIM_THRESHOLD
 
     result = VerifyResult()
     valid_items: list[CitationItem] = []
@@ -59,18 +60,20 @@ async def verify(
     try:
         from app.services import embedding_service
         sents = [it.sentence for it in valid_items]
-        chunk_texts = [(ctx_by_id.get(it.chunk_id, {}).get("chunk", "")) or it.sentence for it in valid_items]
+        # chunk_id 在 contexts 缺失时用空串(cosine≈0→自然 drop)；不回退到 it.sentence
+        # (回退会使 sentence-vs-self cosine=1 自动放行，隐藏 dangling 引用)
+        chunk_texts = [ctx_by_id.get(it.chunk_id, {}).get("chunk", "") for it in valid_items]
         s_embs = await embedding_service.embed_texts(sents)
         c_embs = await embedding_service.embed_texts(chunk_texts)
         sim = cite._cosine_mat(s_embs, c_embs)
-        passed2 = [it for i, it in enumerate(valid_items) if i < len(sim) and sim[i] and sim[i][i] >= threshold]
-        for it in valid_items:
-            i = valid_items.index(it)
-            if it not in passed2:
+        passed_idx = {i for i in range(len(valid_items))
+                      if i < len(sim) and sim[i] and sim[i][i] >= threshold}
+        for i, it in enumerate(valid_items):
+            if i not in passed_idx:
                 result.dropped_refs.append(it.ref_id)
                 result.items.append(VerifyItem(ref_id=it.ref_id, chunk_id=it.chunk_id, valid=False,
                                                nli_label="low_sim", action="drop"))
-        valid_items = passed2
+        valid_items = [valid_items[i] for i in sorted(passed_idx)]
     except Exception as e:
         try:
             from app.core.obs import degraded
