@@ -27,3 +27,27 @@ def test_chunk_id_of_returns_empty_for_out_of_range():
     assert chunk_id_of(1, idx) == "c1"
     assert chunk_id_of(3, idx) == ""
     assert chunk_id_of(0, idx) == ""
+
+
+def test_citation_answer_schema_parse():
+    """结构化 JSON 输出 → CitationAnswer。"""
+    from app.schemas.citation import CitationAnswer
+    raw = {
+        "answer_text": "主变油温应≤85℃[1]。",
+        "citation_map": [{"sentence": "主变油温应≤85℃", "ref_id": 1, "chunk_id": "c1",
+                          "metadata": {"doc_title": "A", "section_path": "3.1", "page_num": 3}}],
+        "unverified_claim": [],
+    }
+    ans = CitationAnswer(**raw)
+    assert ans.answer_text.endswith("[1]。")
+    assert ans.citation_map[0].ref_id == 1
+    assert ans.unverified_claim == []
+
+
+def test_parse_citation_answer_degrades_on_plain_text():
+    """LLM 纯文本输出（无 JSON）→ 降级：answer_text=原文，citation_map 走 evidence_trace 反查。"""
+    from app.schemas.citation import parse_citation_answer
+    ans = parse_citation_answer("主变油温应≤85℃[1]。", index={1: "c1"})
+    assert ans.answer_text == "主变油温应≤85℃[1]。"
+    # 降级路径：[1] 反查到 c1
+    assert any(c.ref_id == 1 and c.chunk_id == "c1" for c in ans.citation_map)
