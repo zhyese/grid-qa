@@ -84,3 +84,51 @@ def test_judge_hallucination_still_works_after_extract(monkeypatch):
     res = _run(judge.judge_hallucination("油温限值85", ["资料A"], "deepseek"))
     assert res["supported_ratio"] == 1.0  # 1/1 support
     assert "hallucination" in res
+
+
+def test_verify_check1_drops_out_of_range_ref(monkeypatch):
+    """校验1：ref_id 越界（不在 index）→ drop。"""
+    async def fake_embed(texts):  # 校验2 放行（同向量 → cosine=1）
+        return [[1.0] for _ in texts]
+    monkeypatch.setattr("app.services.embedding_service.embed_texts", fake_embed)
+    from app.rag.citation_verifier import verify
+    from app.schemas.citation import CitationItem
+    cmap = [CitationItem(sentence="s1", ref_id=1, chunk_id="c1"),
+            CitationItem(sentence="s2", ref_id=99, chunk_id="")]  # 99 越界
+    res = _run(verify("s1[1] s2[99]", cmap, {1: "c1"}, [{"chunkId": "c1", "chunk": "x"}], "deepseek",
+                      nli_enable=False))
+    assert 99 in res.dropped_refs
+    keep = [i for i in res.items if i.action == "keep"]
+    assert any(i.ref_id == 1 for i in keep)
+
+
+def test_verify_check2_drops_low_similarity(monkeypatch):
+    """校验2：句 vs chunk cosine < 0.6 → drop。"""
+    # 造差异化：句 "完全无关句" → [0,1]，chunk "x" → [1,0]（正交，cosine=0）
+    async def fake_embed2(texts):
+        return [[0.0, 1.0] if "无关" in t else [1.0, 0.0] for t in texts]
+    monkeypatch.setattr("app.services.embedding_service.embed_texts", fake_embed2)
+    from app.rag.citation_verifier import verify
+    from app.schemas.citation import CitationItem
+    cmap = [CitationItem(sentence="完全无关句", ref_id=1, chunk_id="c1")]
+    res = _run(verify("完全无关句[1]", cmap, {1: "c1"}, [{"chunkId": "c1", "chunk": "x"}], "deepseek",
+                      nli_enable=False))
+    assert res.items[0].action == "drop"
+
+
+def test_verify_nli_contradict_drops(monkeypatch):
+    """校验3：NLI 判 contradict → drop。"""
+    async def fake_verify(claims, sources, model_type=None):
+        return [{"text": c, "label": "contradict"} for c in claims]
+    monkeypatch.setattr("app.rag.judge._verify_claims", fake_verify)
+    async def fake_embed(texts):  # 校验2 放行
+        return [[1.0] for _ in texts]
+    monkeypatch.setattr("app.services.embedding_service.embed_texts", fake_embed)
+    from app.rag.citation_verifier import verify
+    from app.schemas.citation import CitationItem
+    cmap = [CitationItem(sentence="核辐射免责", ref_id=1, chunk_id="c1")]
+    res = _run(verify("核辐射免责[1]", cmap, {1: "c1"}, [{"chunkId": "c1", "chunk": "核辐射不在保障范围"}], "deepseek",
+                      nli_enable=True))
+    assert res.items[0].nli_label == "contradict"
+    assert res.items[0].action == "drop"
+    assert 1 in res.dropped_refs

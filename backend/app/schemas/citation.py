@@ -56,3 +56,19 @@ def parse_citation_answer(raw: str, index: dict[int, str], contexts: list[dict] 
                           "page_num": meta.get("page_num"), "original_text": meta.get("chunk", "")},
             ))
     return CitationAnswer(answer_text=raw, citation_map=cmap, structured=False)
+
+
+class VerifyItem(BaseModel):
+    ref_id: int
+    chunk_id: str = ""
+    valid: bool = True
+    nli_label: str = "unknown"   # support | contradict | neutral | unknown(未跑NLI)
+    action: str = "keep"         # keep | drop | rewrite
+
+
+class VerifyResult(BaseModel):
+    items: list[VerifyItem] = Field(default_factory=list)
+    dropped_refs: list[int] = Field(default_factory=list)        # 被剔除的编号
+    unverified_additions: list[str] = Field(default_factory=list)  # 高风险句无支撑→追加警示
+    degraded: bool = False                                       # NLI 超时/异常→仅走了校验1+2
+    rewrite_needed: bool = False                                 # 核心事实无支撑→触发 CRAG rewrite
