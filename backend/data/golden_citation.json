@@ -1,0 +1,44 @@
+[
+  {
+    "id": "single-single",
+    "category": "单句单证据",
+    "query": "主变压器油温限值是多少",
+    "answer": "主变压器油温应不超过85℃[1]。",
+    "contexts": [{"chunkId": "c1", "chunk": "主变压器运行规定：上层油温不得超过85℃。", "docName": "主变运行规程", "page_num": 12}],
+    "expect_refs": [1],
+    "expect_support_ratio": 1.0
+  },
+  {
+    "id": "single-multi",
+    "category": "单句多证据",
+    "query": "SF6断路器气体压力低如何处理",
+    "answer": "SF6压力低应补气[1]，低于闭锁值禁止操作[2]。",
+    "contexts": [
+      {"chunkId": "c1", "chunk": "SF6气压降低至报警值应进行补气处理。", "docName": "SF6维护手册", "page_num": 5},
+      {"chunkId": "c2", "chunk": "SF6压力低于闭锁值时严禁进行分合闸操作。", "docName": "安规", "page_num": 22}
+    ],
+    "expect_refs": [1, 2],
+    "expect_support_ratio": 1.0
+  },
+  {
+    "id": "distract",
+    "category": "干扰样本(主题相似语义相反)",
+    "query": "隔离开关可以带负荷操作吗",
+    "answer": "隔离开关严禁带负荷操作[1]。",
+    "contexts": [{"chunkId": "c1", "chunk": "隔离开关允许带负荷分合。", "docName": "错误干扰文档", "page_num": 1}],
+    "expect_refs": [],
+    "expect_contradict_drop": true
+  },
+  {
+    "id": "high-risk",
+    "category": "高风险样本(数字/否定/时限)",
+    "query": "主变停电检修时限要求",
+    "answer": "主变停电检修需提前3天申报[1]，未申报不得擅自操作[2]。",
+    "contexts": [
+      {"chunkId": "c1", "chunk": "主变停电检修应在操作前3个工作日申报调度。", "docName": "倒闸规程", "page_num": 8},
+      {"chunkId": "c2", "chunk": "未经调度申报严禁擅自进行停电操作。", "docName": "安规", "page_num": 15}
+    ],
+    "expect_refs": [1, 2],
+    "expect_support_ratio": 1.0
+  }
+]
