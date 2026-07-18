@@ -253,9 +253,24 @@ async def parse_documents(db: AsyncSession, doc_ids: List[str]) -> list[dict]:
         structured = chunk_service.split_structured(sections)
         await db.execute(delete(Chunk).where(Chunk.doc_id == doc_id))  # 重新解析先清旧分块
         for i, c in enumerate(structured):
+            # 入库拦截：core 字段必填校验（不阻塞主链路，仅记 degraded）
+            if not c.get("text"):
+                continue
+            if not doc_id:
+                try:
+                    degraded("chunk_intake_missing_doc_id", ValueError("empty doc_id"))
+                except Exception:
+                    pass
+                continue
+            page_num = c.get("page_num")
             db.add(Chunk(
                 doc_id=doc_id, chunk_idx=i, content=c["text"], char_count=len(c["text"]),
                 chunk_type=c["chunk_type"], parent_idx=c["parent_idx"], section=c["section"],
+                section_path=c.get("section_path", "") or c.get("section", ""),
+                page_num=page_num, bbox=c.get("bbox"),
+                table_header=c.get("table_header", ""),
+                # 元数据齐全判定：有页码（PDF）或表格表头即视为可精确定位；纯文本无页码→False（前端降级仅文档名）
+                metadata_complete=bool(page_num is not None or c.get("table_header")),
             ))
         doc.status = "parsed"
         doc.chunk_count = len(structured)

@@ -97,10 +97,13 @@ def split_structured(
 ) -> list[dict]:
     """结构感知分块：表格整体成块；正文父→子两层切，子块带 parent_idx。
 
-    输入 sections: [{type:"text"|"table", content}]
-    输出 chunks: [{text, chunk_type, section, parent_idx}]（顺序即 chunk_idx）
-      - 表格：自身即一个父组（parent_idx=自身组号），chunk_type=table
+    输入 sections: [{type:"text"|"table", content, page_num?, bbox?, table_header?}]
+    输出 chunks: [{text, chunk_type, section, parent_idx, section_path,
+                   page_num, bbox, table_header}]（顺序即 chunk_idx）
+      - 表格：自身即一个父组（parent_idx=自身组号），chunk_type=table，带 table_header
       - 正文：先切父块(大窗口)，每父块内切子块(小窗口)，同父块子块共享 parent_idx
+      - 引用元数据透传：section 级 page_num/bbox/table_header 落到每个产出 chunk；
+        section_path 用 _detect_section 启发式标题（无标题则空串，由 parse_documents 兜底用 section）
     检索用子块（入向量库/BM25），命中后按 parent_idx 聚合同组拼父块全文给 LLM。
     """
     parent_size = parent_size or settings.PARENT_SIZE
@@ -111,12 +114,17 @@ def split_structured(
     group_id = 0  # 父块组号
     for sec in sections or []:
         stype, content = sec.get("type", "text"), sec.get("content", "") or ""
+        page_num = sec.get("page_num")
+        bbox = sec.get("bbox")
+        table_header = sec.get("table_header", "")
         if stype == "table":
             md = content.strip()
             if not md:
                 continue
             chunks.append({"text": md, "chunk_type": "table",
-                           "section": "表格", "parent_idx": group_id})
+                           "section": "表格", "section_path": "表格",
+                           "parent_idx": group_id,
+                           "page_num": page_num, "bbox": bbox, "table_header": table_header})
             group_id += 1
             continue
         # 正文：先父块（大窗口，按段落/句末），再子块（小窗口）
@@ -132,5 +140,7 @@ def split_structured(
             for s in smalls:
                 if s.strip():
                     chunks.append({"text": s, "chunk_type": "child",
-                                   "section": section_title, "parent_idx": gid})
+                                   "section": section_title, "section_path": section_title,
+                                   "parent_idx": gid,
+                                   "page_num": page_num, "bbox": bbox, "table_header": ""})
     return chunks
