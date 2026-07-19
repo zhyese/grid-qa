@@ -26,7 +26,11 @@ class Chunk(Base):
     table_header: Mapped[str] = mapped_column(Text, default="")  # 表格类 chunk 绑定的表头（防数值丢上下文）
     metadata_complete: Mapped[bool] = mapped_column(Boolean, default=False)  # 元数据是否齐全（前端降级依据）
 
-    __table_args__ = (Index("ix_chunks_doc_parent", "doc_id", "parent_idx"),)
+    __table_args__ = (
+        Index("ix_chunks_doc_parent", "doc_id", "parent_idx"),
+        # B1：(doc_id, chunk_idx) 复合索引——citation_index 回填 + small-to-big 邻域召回按此序查
+        Index("ix_chunks_doc_idx", "doc_id", "chunk_idx"),
+    )
 
     def __init__(self, **kwargs):
         # 构造期默认值：declarative_base 的 mapped_column.default 仅在 flush 时应用，

@@ -83,6 +83,12 @@ _INDEX_MIGRATIONS = [
         "ix_alert_disposal_tenant_status_created",
         "INDEX `ix_alert_disposal_tenant_status_created` (`tenant_id`, `status`, `created_at`)",
     ),
+    # B1：chunks (doc_id, chunk_idx) 复合索引（citation 回填/small-to-big 邻域召回按此序查）
+    (
+        "chunks",
+        "ix_chunks_doc_idx",
+        "INDEX `ix_chunks_doc_idx` (`doc_id`, `chunk_idx`)",
+    ),
 ]
 
 
