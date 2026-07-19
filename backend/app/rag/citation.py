@@ -149,7 +149,10 @@ async def auto_cite(answer: str, contexts: list[dict],
     if bare_idx:
         try:
             chunk_texts = [c.get("chunk", "") or c.get("text", "") for c in contexts]
-            chunk_embs = await embedding_service.embed_texts(chunk_texts)
+            # A1/A4：chunk 内容入库后稳定，按 contexts[i].chunkId 走 chunk 向量缓存
+            # （EMBED_CHUNK_CACHE_ENABLE 默认关；关时 chunk_ids 被忽略，行为=现状）
+            chunk_ids = [c.get("chunkId") or c.get("chunk_id") or "" for c in contexts]
+            chunk_embs = await embedding_service.embed_texts(chunk_texts, chunk_ids=chunk_ids)
             bare_embs = await embedding_service.embed_texts([sentences[i] for i in bare_idx])
             sim = _cosine_mat(bare_embs, chunk_embs)   # (len(bare), len(chunks))
             for row, si in enumerate(bare_idx):

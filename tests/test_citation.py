@@ -34,7 +34,7 @@ def test_citation_settings_defaults():
 
 def test_auto_cite_all_already_cited(monkeypatch):
     """答案每句已有角标 → 不再补，trace 全支撑。"""
-    async def fake_embed(texts):
+    async def fake_embed(texts, chunk_ids=None):
         return [[1.0, 0.0] for _ in texts]
     monkeypatch.setattr("app.services.embedding_service.embed_texts", fake_embed)
     answer = "主变油温应≤85℃[1]。应申请停运[1]。"
@@ -49,7 +49,7 @@ def test_auto_cite_bare_sentence_matched(monkeypatch):
     """无角标句子 → 补到最相似 chunk。"""
     calls = []
 
-    async def fake_embed(texts):
+    async def fake_embed(texts, chunk_ids=None):
         calls.append(texts)
         if len(calls) == 1:           # 第一次：chunks
             return [[1.0, 0.0], [0.0, 1.0]]
@@ -67,7 +67,7 @@ def test_auto_cite_below_threshold_not_annotated(monkeypatch):
     """句子与所有 chunk 相似度都低于阈值 → 不补，保留无引用。"""
     calls = []
 
-    async def fake_embed(texts):
+    async def fake_embed(texts, chunk_ids=None):
         calls.append(texts)
         if len(calls) == 1:
             return [[1.0, 0.0], [0.9, 0.4359]]   # 两 chunk 近乎同向
@@ -190,7 +190,7 @@ def test_judge_hallucination_still_works_after_extract(monkeypatch):
 
 def test_verify_check1_drops_out_of_range_ref(monkeypatch):
     """校验1：ref_id 越界（不在 index）→ drop。"""
-    async def fake_embed(texts):  # 校验2 放行（同向量 → cosine=1）
+    async def fake_embed(texts, chunk_ids=None):  # 校验2 放行（同向量 → cosine=1）
         return [[1.0] for _ in texts]
     monkeypatch.setattr("app.services.embedding_service.embed_texts", fake_embed)
     from app.rag.citation_verifier import verify
@@ -207,7 +207,7 @@ def test_verify_check1_drops_out_of_range_ref(monkeypatch):
 def test_verify_check2_drops_low_similarity(monkeypatch):
     """校验2：句 vs chunk cosine < 0.6 → drop。"""
     # 造差异化：句 "完全无关句" → [0,1]，chunk "x" → [1,0]（正交，cosine=0）
-    async def fake_embed2(texts):
+    async def fake_embed2(texts, chunk_ids=None):
         return [[0.0, 1.0] if "无关" in t else [1.0, 0.0] for t in texts]
     monkeypatch.setattr("app.services.embedding_service.embed_texts", fake_embed2)
     from app.rag.citation_verifier import verify
@@ -223,7 +223,7 @@ def test_verify_nli_contradict_drops(monkeypatch):
     async def fake_verify(claims, sources, model_type=None):
         return [{"text": c, "label": "contradict"} for c in claims]
     monkeypatch.setattr("app.rag.judge._verify_claims", fake_verify)
-    async def fake_embed(texts):  # 校验2 放行
+    async def fake_embed(texts, chunk_ids=None):  # 校验2 放行
         return [[1.0] for _ in texts]
     monkeypatch.setattr("app.services.embedding_service.embed_texts", fake_embed)
     from app.rag.citation_verifier import verify

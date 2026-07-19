@@ -94,6 +94,11 @@ class Settings(BaseSettings):
     CACHE_SLIDE_TTL_ENABLE: bool = False        # B2：L1 命中时 EXPIRE 续期，热 query 保活防 evict
     EMBED_CACHE_SLIDE_TTL_ENABLE: bool = False  # B3：embed_query 命中续期（高频 query 保活）
     EMBED_CACHE_TTL: int = 3600                  # B3：embedding 缓存 TTL（秒）
+    # ---------- Batch 2 (A1/A4)：chunk 向量复用（默认关，opt-in）----------
+    # chunk 内容入库后稳定，citation_verifier 校验2 / auto_cite / knowledge_evolution
+    # 多处反复 embed 同一 chunk → 按 chunk_id 查 Redis 缓存，命中跳过，miss embed+存。
+    EMBED_CHUNK_CACHE_ENABLE: bool = False        # 开关：默认关=现状；开才走 chunk_id 缓存
+    EMBED_CHUNK_CACHE_TTL: int = 604800           # chunk 向量缓存 TTL（秒，默认 7 天）
 
     # ---------- Neo4j（知识图谱：设备-故障-处置 多跳推理）----------
     NEO4J_URI: str = "bolt://localhost:7687"

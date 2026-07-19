@@ -63,8 +63,11 @@ async def verify(
         # chunk_id 在 contexts 缺失时用空串(cosine≈0→自然 drop)；不回退到 it.sentence
         # (回退会使 sentence-vs-self cosine=1 自动放行，隐藏 dangling 引用)
         chunk_texts = [ctx_by_id.get(it.chunk_id, {}).get("chunk", "") for it in valid_items]
+        # A1/A4：chunk 内容入库后稳定，传 chunk_id 列表让 embed_texts 走 chunk 向量缓存
+        # （EMBED_CHUNK_CACHE_ENABLE 默认关；关时 chunk_ids 被忽略，行为=现状）
+        chunk_ids = [it.chunk_id for it in valid_items]
         s_embs = await embedding_service.embed_texts(sents)
-        c_embs = await embedding_service.embed_texts(chunk_texts)
+        c_embs = await embedding_service.embed_texts(chunk_texts, chunk_ids=chunk_ids)
         sim = cite._cosine_mat(s_embs, c_embs)
         passed_idx = {i for i in range(len(valid_items))
                       if i < len(sim) and sim[i] and sim[i][i] >= threshold}
