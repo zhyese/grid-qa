@@ -8,8 +8,10 @@ from app.services import qa_service
 
 
 def test_exact_cache_key_and_mysql_hash_are_tenant_scoped():
-    assert qa_service._cache_key(None, "同一个问题", "tenant-a") == "qa:tenant-a:default:同一个问题"
-    assert qa_service._cache_key(None, "同一个问题", "tenant-b") == "qa:tenant-b:default:同一个问题"
+    from app.config import citation_cache_version
+    cv = citation_cache_version()  # cv 化后缓存键含开关版本后缀(c94bd52),断言动态匹配
+    assert qa_service._cache_key(None, "同一个问题", "tenant-a") == f"qa:tenant-a:default:同一个问题:{cv}"
+    assert qa_service._cache_key(None, "同一个问题", "tenant-b") == f"qa:tenant-b:default:同一个问题:{cv}"
     assert qa_service._cache_key("deepseek", "同一个问题", "tenant-a") != qa_service._cache_key(
         "deepseek", "同一个问题", "tenant-b"
     )
