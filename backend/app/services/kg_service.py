@@ -10,6 +10,8 @@ from sqlalchemy import delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.clients import neo4j_client
+from app.clients import redis_client
+from app.config import settings
 from app.core.response import BizError
 from app.models.chunk import Chunk
 from app.models.document import Document
@@ -278,6 +280,31 @@ async def get_hubs(limit: int = 15) -> list[dict]:
         return []
 
 
+async def _tokenize_query(query: str) -> list[str]:
+    """GraphRAG query 分词（jieba）。B5：同 query 分词结果 Redis 缓存（默认关）。
+
+    - KG_TOKENIZE_CACHE_ENABLE=False（默认）→ 现状，每次 jieba.cut
+    - KG_TOKENIZE_CACHE_ENABLE=True → Redis 缓存（key=jieba:{query}），miss 才分词 + 写回
+    Redis 异常静默降级（不走缓存，回退到直接分词）。
+    """
+    import jieba
+    if not getattr(settings, "KG_TOKENIZE_CACHE_ENABLE", False):
+        return [w for w in jieba.cut(query) if len(w.strip()) > 1]
+    key = f"jieba:{query}"
+    try:
+        cached = await redis_client.get_redis().get(key)
+        if cached:
+            return json.loads(cached)
+    except Exception:
+        pass
+    words = [w for w in jieba.cut(query) if len(w.strip()) > 1]
+    try:
+        await redis_client.get_redis().set(key, json.dumps(words, ensure_ascii=False), ex=86400)
+    except Exception:
+        pass
+    return words
+
+
 async def graph_context(
     query: str,
     topk: int = 8,
@@ -289,8 +316,7 @@ async def graph_context(
 
     让问答"走 Neo4j"——检索文档分块之外，补充图谱结构化关系（设备-故障-处置链）。
     """
-    import jieba
-    words = [w for w in jieba.cut(query) if len(w.strip()) > 1]
+    words = await _tokenize_query(query)
     if not words:
         return []
     if tenant is not None:
