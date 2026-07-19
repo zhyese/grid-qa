@@ -21,13 +21,23 @@ async def embed_texts(texts: list[str]) -> list[list[float]]:
 
 
 async def embed_query(text: str, provider: str | None = None) -> list[float]:
-    """单条 query 向量，带 Redis 缓存（高频/重复问题省 embedding 调用）。"""
+    """单条 query 向量，带 Redis 缓存（高频/重复问题省 embedding 调用）。
+
+    B3：命中时可选滑动续期（EMBED_CACHE_SLIDE_TTL_ENABLE，默认关）。
+    开关关 → 现状（固定 TTL 自然过期）；开关开 → 命中续期，高频 query 保活。
+    """
     p = provider or settings.EMB_PROVIDER
     key = f"emb:{p}:{text}"
     r = redis_client.get_redis()
     try:
         cached = await r.get(key)
         if cached:
+            # B3：命中续期（高频 query 保活，默认关）
+            if getattr(settings, "EMBED_CACHE_SLIDE_TTL_ENABLE", False):
+                try:
+                    await r.expire(key, settings.EMBED_CACHE_TTL)
+                except Exception:
+                    pass
             return json.loads(cached)
     except Exception as e:
         degraded("embed_cache_get", e)
@@ -40,7 +50,7 @@ async def embed_query(text: str, provider: str | None = None) -> list[float]:
     except Exception:
         pass
     try:
-        await r.set(key, json.dumps(vec), ex=3600)
+        await r.set(key, json.dumps(vec), ex=getattr(settings, "EMBED_CACHE_TTL", 3600))
     except Exception as e:
         degraded("embed_cache_set", e)
     return vec
