@@ -173,6 +173,9 @@ class Settings(BaseSettings):
     EVIDENCE_GAP_FAQ_DOCTYPE: str = "证据补全FAQ"  # 同步入库的 docType
     # ---------- C5 知识治理 fail-open 兜底（默认关=fail-closed 全拒，生产可开）----------
     KNOWLEDGE_GOVERNANCE_FAIL_OPEN: bool = False  # 治理存储异常时放行+DEGRADED告警(默认fail-closed)
+    # ---------- C4 多轮 standalone 缓存扩面（默认关，opt-in）----------
+    # 多轮指代消解后(search_q!=nq)也缓存：key=search_q+conv_id 隔离对话,_cache_knowledge_valid 复核文档时效兜底脏命中。
+    MULTI_TURN_CACHE_ENABLE: bool = False
 
     # ---------- 结构感知分块 + Parent-Child（small-to-big）----------
     # 检索用小块（精度），命中后召回同组大块给 LLM（完整上下文，解决长规程跨块/表格被切两半）

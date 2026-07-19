@@ -30,6 +30,17 @@ def _cache_key(model_type: str | None, query: str, tenant: str | None = "default
     return f"qa:{_cache_tenant(tenant)}:{model_type or 'default'}:{query}:{citation_cache_version()}"
 
 
+def _multi_cache_key(model_type: str | None, search_q: str, tenant: str | None,
+                     conversation_id: str | None) -> str:
+    """C4 多轮缓存键：standalone query(search_q 含指代消解) + conversation_id 隔离对话。
+
+    同对话同语义追问 → 同 key 命中；跨对话隔离；文档撤回/过期由 _cache_knowledge_valid 复核兜底。
+    """
+    from app.config import citation_cache_version
+    cid = (conversation_id or "")[:8]
+    return f"qa:{_cache_tenant(tenant)}:{model_type or 'default'}:{search_q}:conv{cid}:{citation_cache_version()}"
+
+
 async def _is_blacklisted(nq: str) -> bool:
     """缓存黑名单检查（高频坏答案禁缓存命中，由反馈驱动 auto_tune_cache_ttl 写入 Redis set）。"""
     try:
@@ -402,6 +413,27 @@ async def answer(
         except Exception as e:
             degraded("qa_cache_get_multi", e)
 
+    # C4: 多轮 standalone(search_q!=nq) 缓存扩面——同对话同语义追问命中（MULTI_TURN_CACHE_ENABLE）
+    if (conversation_id and search_q != nq
+            and getattr(settings, "MULTI_TURN_CACHE_ENABLE", False)
+            and not await _is_blacklisted(search_q)):
+        try:
+            cached = await redis_client.cache_get_json(
+                _multi_cache_key(model_type, search_q, tenant, conversation_id))
+            if cached and await _cache_knowledge_valid(db, cached, tenant):
+                cached["cached"] = True
+                cached["cacheLayer"] = "redis_multi"
+                cached["responseTime"] = round(time.time() - t0, 3)
+                try:
+                    from app.core import metrics
+                    metrics.QA_TOTAL.labels(model_type or settings.LLM_PROVIDER, "true").inc()
+                    metrics.cache_hit_inc("redis_multi")
+                except Exception:
+                    pass
+                return cached
+        except Exception as e:
+            degraded("qa_cache_get_multi_standalone", e)
+
     # 智能路由：根据查询特征选择最优检索路径（Phase A）
     routing = None
     if settings.ROUTING_ENABLE:
@@ -580,6 +612,15 @@ async def answer(
             await redis_client.cache_set_json(_cache_key(model_type, nq, tenant), result, settings.QA_CACHE_TTL)
         except Exception as e:
             degraded("qa_cache_set", e)
+        # C4: 多轮 standalone 额外写 multi key（search_q!=nq + 开关开；读配对见上方 C4 块）
+        if (conversation_id and search_q != nq
+                and getattr(settings, "MULTI_TURN_CACHE_ENABLE", False)):
+            try:
+                await redis_client.cache_set_json(
+                    _multi_cache_key(model_type, search_q, tenant, conversation_id),
+                    result, settings.QA_CACHE_TTL)
+            except Exception as e:
+                degraded("qa_cache_set_multi_standalone", e)
         # L1.5: 语义缓存索引（异步，不阻塞）
         if getattr(settings, "SEMANTIC_CACHE_ENABLE", False):
             try:
