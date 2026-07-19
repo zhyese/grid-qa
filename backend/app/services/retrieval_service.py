@@ -30,6 +30,67 @@ def _ov(ov: dict | None, key: str, default):
     return ov.get(key, default) if ov else default
 
 
+# ===== Batch 1 · routing-aware 调参纯函数（RRF_ROUTE_AWARE_ENABLE 开时由 mixed_search 调用）=====
+# 全部为纯函数（无 IO/状态），便于单测覆盖；开关默认关 → mixed_search 不调用 → 现状零变化。
+
+# A3：query_type → MMR λ 映射（未列入的 keyword/unknown → None，保留 settings.MMR_LAMBDA 现状）。
+_MMR_LAMBDA_BY_QUERY_TYPE: dict[str, float] = {
+    "fault": 0.7,    # 精度优先：故障处置关键步骤不因去重被吞
+    "mixed": 0.5,    # 均衡
+    "natural": 0.4,  # 多样性：自然语言表述模糊，广撒网
+}
+
+
+def _rrf_weights_for_route(route: str, base_dense: float, base_sparse: float) -> tuple[float, float]:
+    """A2：按 routing_decision.route 调 RRF 权重。
+
+    - dense        → dense×1.3（语义路更可信）
+    - sparse/sparse_first → sparse×1.3（query IDF 强，BM25 更准）
+    - hybrid/未知  → 等权（=现状）
+
+    rr/dense/sparse 单路根本不调 rrf_fuse（见 mixed_search 路由分支），故 dense/sparse
+    分支仅用于 helper 自洽与未来扩展；实际生效路径是 sparse_first。
+    """
+    if route == "dense":
+        return (round(base_dense * 1.3, 6), base_sparse)
+    if route in ("sparse", "sparse_first"):
+        return (base_dense, round(base_sparse * 1.3, 6))
+    return (base_dense, base_sparse)
+
+
+def _mmr_lambda_for_query_type(query_type: str | None) -> float | None:
+    """A3：按 features.query_type 调 MMR λ。未匹配 → None（caller 走 settings.MMR_LAMBDA）。"""
+    if not query_type:
+        return None
+    return _MMR_LAMBDA_BY_QUERY_TYPE.get(query_type)
+
+
+def _rerank_pool_cap(topk: int, route_aware: bool) -> int:
+    """A5：rerank 早剪枝上限。
+
+    - route_aware=True  → ceil(topk*1.2)（RRF 后只取 1.2x 再 rerank，省 rerank 额度）
+    - route_aware=False → topk*2（现状）
+
+    极端 topk=1 也强制 ≥1（避免空池）。
+    """
+    factor = 1.2 if route_aware else 2
+    return max(1, math.ceil(topk * factor))
+
+
+def _ef_for_route(route: str, query_type: str | None, base_ef: int) -> int:
+    """B6：按路由动态 HNSW ef。
+
+    - sparse/sparse_first → max(16, base_ef//2)：精确匹配场景，ef 减半省延迟（floor 16 防精度崩）
+    - dense + fault       → base_ef*2：故障口语化需更高召回
+    - 其他                → base_ef（=现状）
+    """
+    if route in ("sparse", "sparse_first"):
+        return max(16, base_ef // 2)
+    if route == "dense" and query_type == "fault":
+        return base_ef * 2
+    return base_ef
+
+
 def _to_item(h: dict) -> dict:
     return {
         "chunk": h.get("text", ""),
@@ -116,11 +177,13 @@ async def _hyde_or_cache(q: str, model_type: str | None = None) -> str | None:
 
 
 async def _dense_and_sparse(
-    db: AsyncSession, q: str, cand: int, model_type: str | None = None
+    db: AsyncSession, q: str, cand: int, model_type: str | None = None,
+    route: str = "hybrid", query_type: str | None = None, route_aware: bool = False,
 ) -> tuple[list[dict], list[dict]]:
     """单 query 的 dense（双 collection，可选 HyDE）+ BM25。
 
     HyDE：用 LLM 生成的假设文档做 dense embedding（BM25 仍用原 q，稀疏检索吃原词）。
+    B6：route_aware=True 时按 route/query_type 动态 ef（sparse_first 减半 / dense+fault 翻倍）。
     """
     dense_q = (await _hyde_or_cache(q, model_type)) or q
 
@@ -128,7 +191,8 @@ async def _dense_and_sparse(
         embedding_service.embed_query(dense_q, settings.EMB_PROVIDER),
         embedding_service.embed_query(dense_q, "bge"),
     )
-    _ef = max(config_service.rt_ef(), cand)  # HNSW ef ≥ 召回窗口，保证精度
+    _base_ef = max(config_service.rt_ef(), cand)  # HNSW ef ≥ 召回窗口，保证精度
+    _ef = _ef_for_route(route, query_type, _base_ef) if route_aware else _base_ef
     dense_cloud, dense_bge = await asyncio.gather(
         asyncio.to_thread(milvus_client.search, settings.MILVUS_COLLECTION, qvec_cloud, cand, _ef),
         asyncio.to_thread(milvus_client.search, settings.MILVUS_COLLECTION_BGE, qvec_bge, cand, _ef),
@@ -199,6 +263,14 @@ async def mixed_search(
 
     # 路由调度：根据决策选择检索路径
     route = routing_decision.route if routing_decision else "hybrid"
+    # Batch 1 · routing-aware 调参：routing_decision 可能 None（路由关/兜底），None → 现状。
+    _route_aware = bool(getattr(settings, "RRF_ROUTE_AWARE_ENABLE", False))
+    _query_type = (
+        routing_decision.features.query_type
+        if routing_decision and routing_decision.features else None
+    )
+    # A5：rerank 早剪枝上限（route_aware 开 → topk*1.2；关 → topk*2 现状）。
+    _pool_cap = _rerank_pool_cap(topk, _route_aware)
 
     # 0.5) 多查询分解（仅 hybrid 和 dense 路径启用；sparse 跳过；带缓存）
     queries = [q]
@@ -248,7 +320,8 @@ async def mixed_search(
                 embedding_service.embed_query(dense_q, settings.EMB_PROVIDER),
                 embedding_service.embed_query(dense_q, "bge"),
             )
-            _ef = max(config_service.rt_ef(), cand)  # HNSW ef ≥ 召回窗口，保证精度
+            _base_ef = max(config_service.rt_ef(), cand)  # HNSW ef ≥ 召回窗口，保证精度
+            _ef = _ef_for_route(route, _query_type, _base_ef) if _route_aware else _base_ef
             dense_cloud, dense_bge = await asyncio.gather(
                 asyncio.to_thread(milvus_client.search, settings.MILVUS_COLLECTION, qvec_cloud, cand, _ef),
                 asyncio.to_thread(milvus_client.search, settings.MILVUS_COLLECTION_BGE, qvec_bge, cand, _ef),
@@ -263,40 +336,51 @@ async def mixed_search(
     else:
         # hybrid / sparse_first: 全链路 dense + BM25
         for qq in queries:
-            d, s = await _dense_and_sparse(db, qq, cand, model_type)
+            d, s = await _dense_and_sparse(
+                db, qq, cand, model_type,
+                route=route, query_type=_query_type, route_aware=_route_aware,
+            )
             all_dense.extend(d)
             all_sparse.extend(s)
 
     # 2) RRF 融合 / 单路排序 + sources 归因回填
+    # A5：rerank 早剪枝——_pool_cap（route_aware 开 → topk*1.2；关 → topk*2 现状）。
     fused = []  # 兼容旧引用
     if route == "sparse":
-        # BM25 单路：按分数排序取 topk*2
-        pool = sorted(all_sparse, key=lambda x: -float(x.get("score", 0) or 0))[: topk * 2]
+        # BM25 单路：按分数排序取 _pool_cap
+        pool = sorted(all_sparse, key=lambda x: -float(x.get("score", 0) or 0))[: _pool_cap]
         _src_map = _aggregate_srcs([], all_sparse)
         for h in pool:
             h["srcs"] = _src_map.get(h.get("key"), list(h.get("srcs", [])))
     elif route == "dense":
-        # Dense 单路：按分数排序取 topk*2
-        pool = sorted(all_dense, key=lambda x: -float(x.get("score", 0) or 0))[: topk * 2]
+        # Dense 单路：按分数排序取 _pool_cap
+        pool = sorted(all_dense, key=lambda x: -float(x.get("score", 0) or 0))[: _pool_cap]
         _src_map = _aggregate_srcs(all_dense, [])
         for h in pool:
             h["srcs"] = _src_map.get(h.get("key"), list(h.get("srcs", [])))
     else:
         # hybrid / sparse_first: RRF 融合
+        # A2：route_aware 开时按 route 调权（dense/sparse_first ×1.3），关时等权=现状。
+        #     扫描 overrides 仍优先生效（_ov 默认值=route-aware 计算值）。
+        _default_dw, _default_sw = (
+            _rrf_weights_for_route(route, settings.RRF_DENSE_WEIGHT, settings.RRF_SPARSE_WEIGHT)
+            if _route_aware
+            else (settings.RRF_DENSE_WEIGHT, settings.RRF_SPARSE_WEIGHT)
+        )
         fused = rrf.rrf_fuse([all_dense, all_sparse], key_fn=lambda h: h["key"],
                              k=_ov(overrides, "RRF_K", settings.RRF_K),
-                             weights=[_ov(overrides, "RRF_DENSE_WEIGHT", settings.RRF_DENSE_WEIGHT),
-                                      _ov(overrides, "RRF_SPARSE_WEIGHT", settings.RRF_SPARSE_WEIGHT)])
+                             weights=[_ov(overrides, "RRF_DENSE_WEIGHT", _default_dw),
+                                      _ov(overrides, "RRF_SPARSE_WEIGHT", _default_sw)])
         _src_map = _aggregate_srcs(all_dense, all_sparse)
         for h in fused:
             h["srcs"] = _src_map.get(h.get("key"), [])
-        pool = fused[: topk * 2]
+        pool = fused[: _pool_cap]
 
     # 3) 重排（高置信 sparse 可跳过，单路 dense/sparse 也可跳过）
     if _ov(overrides, "RERANK_ENABLE", settings.RERANK_ENABLE) and len(pool) > 1 and not skip_rerank:
         try:
             docs = [h.get("text", "") for h in pool]
-            ranked = await rerank_service.get_reranker().rerank(q, docs, top_n=min(topk * 2, len(pool)))
+            ranked = await rerank_service.get_reranker().rerank(q, docs, top_n=min(_pool_cap, len(pool)))
             pool = [{**pool[idx], "score": float(score)} for idx, score in ranked]
         except Exception as e:
             degraded("rerank", e)
@@ -338,7 +422,11 @@ async def mixed_search(
 
     # 5) MMR 多样性选 topk
     if _ov(overrides, "MMR_ENABLE", settings.MMR_ENABLE) and len(pool) > topk:
-        pool = mmr.mmr(pool, topk, _ov(overrides, "MMR_LAMBDA", settings.MMR_LAMBDA))
+        # A3：route_aware 开时按 query_type 调 λ（fault.7/mixed.5/natural.4），未匹配→settings.MMR_LAMBDA。
+        #     扫描 overrides 仍优先生效（_ov 默认值=query_type 计算值）。
+        _qt_lambda = _mmr_lambda_for_query_type(_query_type) if _route_aware else None
+        _default_lambda = _qt_lambda if _qt_lambda is not None else settings.MMR_LAMBDA
+        pool = mmr.mmr(pool, topk, _ov(overrides, "MMR_LAMBDA", _default_lambda))
     else:
         pool = pool[:topk]
 

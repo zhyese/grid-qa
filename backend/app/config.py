@@ -113,6 +113,12 @@ class Settings(BaseSettings):
     RRF_K: int = 60                       # RRF 平滑常数（越小头部越集中）
     RRF_DENSE_WEIGHT: float = 1.0         # 稠密向量路权重
     RRF_SPARSE_WEIGHT: float = 1.0        # BM25 稀疏路权重（电网术语精确匹配可调高）
+    # ---------- Batch 1 · routing-aware 调参总开关（A2/A3/A5/B6，默认关=现状）----------
+    # 开 → mixed_search 按 routing_decision.route / features.query_type 动态调：
+    #   A2 RRF 权重（dense/sparse_first 单路 ×1.3）/ A3 MMR λ（fault.7/mixed.5/natural.4）
+    #   A5 rerank 早剪枝（topk*1.2 替代 topk*2 省额度）/ B6 Milvus ef（sparse_first 减半 / dense+fault 翻倍）
+    # 关 → mixed_search 逐字节=现状（等权 RRF / 固定 λ / topk*2 / 固定 ef）
+    RRF_ROUTE_AWARE_ENABLE: bool = False
     RAPTOR_ENABLE: bool = False      # RAPTOR 层次化摘要检索（多粒度融合，默认关）
     SEMANTIC_CACHE_ENABLE: bool = False  # 语义缓存（embedding相似度命中，默认关）
     QUERY_REWRITE_ENABLE: bool = False  # LLM 改写 query（增延迟，默认关）
