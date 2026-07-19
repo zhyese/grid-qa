@@ -171,6 +171,8 @@ class Settings(BaseSettings):
     EVIDENCE_GAP_AUTO_COLLECT: bool = True        # 自动收集 medium/refused
     EVIDENCE_GAP_DRAFT_TOPK_MULT: int = 2         # AI 续写检索放宽倍数
     EVIDENCE_GAP_FAQ_DOCTYPE: str = "证据补全FAQ"  # 同步入库的 docType
+    # ---------- C5 知识治理 fail-open 兜底（默认关=fail-closed 全拒，生产可开）----------
+    KNOWLEDGE_GOVERNANCE_FAIL_OPEN: bool = False  # 治理存储异常时放行+DEGRADED告警(默认fail-closed)
 
     # ---------- 结构感知分块 + Parent-Child（small-to-big）----------
     # 检索用小块（精度），命中后召回同组大块给 LLM（完整上下文，解决长规程跨块/表格被切两半）

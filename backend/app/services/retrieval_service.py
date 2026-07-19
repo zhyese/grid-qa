@@ -479,8 +479,9 @@ async def mixed_search(
         except Exception as e:
             # 生产租户查询采用 fail-closed，避免治理存储异常时把失效知识送入 LLM；
             # 未传 tenant 的离线评测/兼容调用维持原行为。
+            # C5: KNOWLEDGE_GOVERNANCE_FAIL_OPEN 开时改 fail-open（放行+告警，生产可按需开）
             degraded("knowledge_governance_filter", e)
-            if tenant:
+            if tenant and not getattr(settings, "KNOWLEDGE_GOVERNANCE_FAIL_OPEN", False):
                 pool = []
 
     try:
