@@ -481,8 +481,10 @@ async def answer(
         ans, contexts, model_type, db=db, cmap_override=_cmap_override,
     )
     # 校验要求 rewrite 且开关开 → 复用 rewrite_query + mixed_search 重检索重生成再 verify（最多 1 次，防死循环）
+    # C2: CRAG 已 rewritten 时不再二次 rewrite（citation 仍 needed→用现 contexts，省二次 LLM，防级联重检索）
     if (citation_extras.get("citationVerified", {}).get("rewrite_needed")
-            and getattr(settings, "CITATION_REWRITE_ON_FAIL", True)):
+            and getattr(settings, "CITATION_REWRITE_ON_FAIL", True)
+            and crag_action != "rewritten"):
         try:
             from app.services.query_rewrite import rewrite_query
             new_q = await rewrite_query(nq, model_type, force=True)
