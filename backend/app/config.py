@@ -87,6 +87,10 @@ class Settings(BaseSettings):
     CACHE_PERSIST_ENABLE: bool = True     # Write-Through 双写 MySQL
     CACHE_PERSIST_CLEANUP_HOURS: int = 6  # 应用层清理周期（小时），兜底 MySQL Event Scheduler
     CACHE_TIERED_TTL_ENABLE: bool = True  # 分层 TTL：手册 7d / 案例 3d / 实时 5min
+    # ---------- B2/B3 缓存命中滑动续期（默认关，opt-in）----------
+    CACHE_SLIDE_TTL_ENABLE: bool = False        # B2：L1 命中时 EXPIRE 续期，热 query 保活防 evict
+    EMBED_CACHE_SLIDE_TTL_ENABLE: bool = False  # B3：embed_query 命中续期（高频 query 保活）
+    EMBED_CACHE_TTL: int = 3600                  # B3：embedding 缓存 TTL（秒）
 
     # ---------- Neo4j（知识图谱：设备-故障-处置 多跳推理）----------
     NEO4J_URI: str = "bolt://localhost:7687"

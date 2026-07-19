@@ -17,8 +17,21 @@ def get_redis() -> aioredis.Redis:
 
 
 async def cache_get_json(key: str):
-    v = await get_redis().get(key)
-    return json.loads(v) if v else None
+    """L1 读缓存。B2：命中时可选滑动续期（CACHE_SLIDE_TTL_ENABLE，默认关）。
+
+    开关关 → 现状零破坏（命中不 EXPIRE）；开关开 → 命中时 EXPIRE key QA_CACHE_TTL
+    让热 query 保活，防 LRU evict。EXPIRE 异常静默吞，不影响读。
+    """
+    r = get_redis()
+    v = await r.get(key)
+    if not v:
+        return None
+    if getattr(settings, "CACHE_SLIDE_TTL_ENABLE", False):
+        try:
+            await r.expire(key, settings.QA_CACHE_TTL)
+        except Exception:
+            pass  # EXPIRE 失败不阻塞读（键值已拿到）
+    return json.loads(v)
 
 
 async def cache_set_json(key: str, value: dict, ttl: int) -> None:
