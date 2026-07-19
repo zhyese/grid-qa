@@ -451,7 +451,14 @@ async def answer(
         nq, contexts, history, graph, confidence, structured=_structured,
     )
     _llm0 = time.time()
-    raw = await get_llm_provider(model_type).chat(messages, temperature=config_service.rt_temperature())
+    # B4：真实 token usage（opt-in，默认关 → 走原 chat str 路径，估算 token）
+    _llm_usage: dict | None = None
+    if getattr(settings, "LLM_USAGE_TRACK_ENABLE", False):
+        raw, _llm_usage = await get_llm_provider(model_type).chat_with_usage(
+            messages, temperature=config_service.rt_temperature(),
+        )
+    else:
+        raw = await get_llm_provider(model_type).chat(messages, temperature=config_service.rt_temperature())
     raw = safety.safe_answer(raw)  # 答案脱敏（PII_MASK_ENABLE 开启时，D4）
     # STRUCTURED_OUTPUT：LLM 输出 JSON → parse 取 answer_text + 结构化 citation_map(每 ref 一项不重复)
     # 跳过 auto_cite(结构化已有 cmap)；否则走 auto_cite 补标(现状)。
@@ -584,11 +591,16 @@ async def answer(
         metrics.cache_hit_inc("llm")
     except Exception:
         pass
-    # 成本追踪（记录 token 用量 → 成本报告数据来源；估算 input/output token）
+    # 成本追踪（记录 token 用量 → 成本报告数据来源）
+    # B4：LLM_USAGE_TRACK_ENABLE 开 → 用 r.usage 真实 token；关 → 沿用 len//2 估算
     try:
         import asyncio
         from app.services.cost_tracker_service import record_token_usage
-        asyncio.ensure_future(record_token_usage(db, username, tenant, model_type or settings.LLM_PROVIDER, len(str(messages)) // 2, len(ans) // 2))
+        if _llm_usage:
+            _in_tok, _out_tok = _llm_usage.get("input", 0), _llm_usage.get("output", 0)
+        else:
+            _in_tok, _out_tok = len(str(messages)) // 2, len(ans) // 2
+        asyncio.ensure_future(record_token_usage(db, username, tenant, model_type or settings.LLM_PROVIDER, _in_tok, _out_tok))
     except Exception:
         pass
     # 在线质量评测采样（异步跑 LLM Judge，不阻塞响应；评测趋势数据来源）

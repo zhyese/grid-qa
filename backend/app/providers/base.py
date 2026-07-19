@@ -14,6 +14,17 @@ class LLMProvider(ABC):
     async def chat(self, messages: list[dict], temperature: float = 0.2,
                    max_tokens: int = 2048, **kwargs) -> str: ...
 
+    async def chat_with_usage(self, messages: list[dict], temperature: float = 0.2,
+                              max_tokens: int = 2048, **kwargs) -> tuple[str, dict | None]:
+        """B4：副通道暴露真实 token usage（不改 chat 的 str 契约）。
+
+        返回 (content, usage_dict | None)，usage_dict = {"input": int, "output": int}。
+        默认实现回退到 self.chat，usage=None（老 provider 或非 openai 协议时降级）。
+        子类用 openai SDK 时直接 r.usage 透传，避免估算 len(str(messages))//2 误差。
+        """
+        content = await self.chat(messages, temperature=temperature, max_tokens=max_tokens, **kwargs)
+        return content, None
+
     async def stream(self, messages: list[dict], **kwargs) -> AsyncIterator[str]:
         raise NotImplementedError
 

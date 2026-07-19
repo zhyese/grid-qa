@@ -56,6 +56,9 @@ class Settings(BaseSettings):
     EMB_PROVIDER: str = "qwen"          # qwen | doubao
     EMBEDDING_DIM: int = 1024
     EMB_BATCH_CONCURRENCY: int = 3      # 云 embedding 批次并发度（防 429，文档批量向量化加速）
+    # B4：真实 token usage 透传（opt-in，默认关）。开关开 → qa_service 走 chat_with_usage
+    # 拿 r.usage 真实 prompt/completion tokens 记录到 cost_tracker；关 → 沿用 len//2 估算。
+    LLM_USAGE_TRACK_ENABLE: bool = False
 
     # --- DeepSeek ---
     DEEPSEEK_API_KEY: str = ""
