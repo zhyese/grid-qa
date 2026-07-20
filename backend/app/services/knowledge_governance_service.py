@@ -21,6 +21,7 @@ from typing import Any, Iterable, Sequence
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.core.response import BizError
 from app.db.session import AsyncSessionLocal
 from app.models.chunk import Chunk
@@ -30,6 +31,7 @@ from app.models.knowledge_governance import (
     KnowledgeGovernanceIssue,
     KnowledgeGovernanceReview,
 )
+from app.services import quality_event_bus
 
 
 VERSION_STATUSES = {"draft", "active", "superseded", "withdrawn"}
@@ -50,6 +52,30 @@ _STATUS_TRANSITIONS = {
     "resolved": {"open", "resolved"},
     "ignored": {"open", "ignored"},
 }
+
+# 触发 doc_blocked 事件的版本状态（withdrawn/superseded；expired 由扫描发现单独 emit）
+_BLOCKED_VERSION_STATUSES = {"withdrawn", "superseded"}
+
+
+async def _maybe_emit_doc_blocked(doc_id: str, reason: str | None,
+                                 tenant_id: str = "default") -> None:
+    """A2 数据飞轮：emit governance.doc_blocked（订阅者联动清理 Milvus/Neo4j/qa_cache）。
+
+    QUALITY_BUS_ENABLE=False（默认）→ 不 emit 保现状；reason 入 payload 供订阅者区分
+    withdraw/supersede/expire。emit 自身已捕异常，无 throw；caller 需 await。
+    """
+    if not getattr(settings, "QUALITY_BUS_ENABLE", False):
+        return
+    if not reason:
+        return
+    try:
+        await quality_event_bus.emit(
+            "governance", "doc_blocked",
+            {"doc_id": doc_id, "reason": reason},
+            tenant=tenant_id or "default",
+        )
+    except Exception:
+        pass
 
 _NEGATIVE_MARKERS = (
     "严禁", "禁止", "不得", "不允许", "不可", "不应", "不需要", "无需", "禁止性",
@@ -669,6 +695,10 @@ async def upsert_metadata(
     meta.updated_by = operator
     await db.commit()
     await db.refresh(meta)
+    # A2 数据飞轮：withdrawn/superseded 状态 → emit governance.doc_blocked
+    # （订阅者联动清理 Milvus/Neo4j/qa_cache；QUALITY_BUS_ENABLE=False 时不 emit 保现状）
+    if meta.version_status in _BLOCKED_VERSION_STATUSES:
+        await _maybe_emit_doc_blocked(meta.doc_id, meta.version_status, tenant_id)
     return {
         "document": {"docId": doc.id, "docName": doc.doc_name},
         "metadata": _metadata_dict(meta),
@@ -837,6 +867,12 @@ async def run_scan(
     conflicts = detect_potential_conflicts(snapshots) if include_conflicts else []
     findings = [*lifecycle, *conflicts]
     created, updated = await _persist_findings(db, tenant_id, findings, now)
+    # A2 数据飞轮：扫描发现的 expired 文档 → emit governance.doc_blocked（reason=expired）
+    for finding in findings:
+        if finding.issue_type == "expired":
+            await _maybe_emit_doc_blocked(
+                finding.doc_id, "expired", tenant_id,
+            )
     by_type: dict[str, int] = defaultdict(int)
     for finding in findings:
         by_type[finding.issue_type] += 1
