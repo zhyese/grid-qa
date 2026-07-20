@@ -82,6 +82,8 @@ async def semantic_cache_get(
     except Exception:
         exact = None
     if exact:
+        if await _is_blocked_candidate(exact, tenant_id):
+            return None, "miss", 1.0  # A5 治理过滤：精确命中但引用 blocked doc → 降级 miss
         return exact, "exact", 1.0
 
     # 2) 语义匹配：计算 query embedding → matmul 全量余弦
@@ -131,6 +133,8 @@ async def semantic_cache_get(
             try:
                 cached = await redis_client.cache_get_json(cached_key)
                 if cached:
+                    if await _is_blocked_candidate(cached, tenant_id):
+                        return None, "miss", best_sim  # A5：blocked doc 候选 → 降级 miss
                     return cached, "semantic_high", best_sim
             except Exception:
                 pass
@@ -142,11 +146,36 @@ async def semantic_cache_get(
             try:
                 cached = await redis_client.cache_get_json(cached_key)
                 if cached:
+                    if await _is_blocked_candidate(cached, tenant_id):
+                        return None, "miss", best_sim  # A5：blocked doc 候选 → 降级 miss
                     return cached, "semantic_medium", best_sim
             except Exception:
                 pass
 
     return None, "miss", best_sim
+
+
+async def _is_blocked_candidate(cached: dict, tenant_id: str | None) -> bool:
+    """A5 数据飞轮：命中候选是否引用 blocked doc → 应降级 miss。
+
+    SEMANTIC_CACHE_GOV_FILTER_ENABLE=False（默认）→ 不过滤（关=现状零破坏）。
+    开时对 cached.retrievalSource 的 docId 过 blocked_document_ids，命中即拒。
+    """
+    if not getattr(settings, "SEMANTIC_CACHE_GOV_FILTER_ENABLE", False):
+        return False
+    sources = (cached or {}).get("retrievalSource") or []
+    doc_ids = {s.get("docId") for s in sources if isinstance(s, dict) and s.get("docId")}
+    if not doc_ids:
+        return False
+    try:
+        from app.db.session import AsyncSessionLocal
+        from app.services.knowledge_governance_service import blocked_document_ids
+        async with AsyncSessionLocal() as db:
+            blocked = await blocked_document_ids(db, doc_ids, tenant_id=tenant_id)
+        return bool(blocked)
+    except Exception as e:
+        degraded("semantic_cache_gov_filter", e)
+        return False  # 治理查询失败 → 不过滤（保现状返回缓存）
 
 
 async def semantic_cache_set(

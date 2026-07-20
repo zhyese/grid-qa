@@ -113,10 +113,17 @@ async def _invalidate_qa_cache_for_doc(doc_id: str) -> None:
 
 
 async def _bump_gov_generation() -> None:
-    """治理代际 +1（A5 cv G 段）。Redis key qa:gov_gen int 计数器。
+    """治理代际 +1（A5 cv G 段）。Redis qa:gov_gen 持久化 + 进程内存镜像同步。
 
     bump 后 cv 变 → 所有 qa:* cache key 变 → 旧 key 自动 miss（缓存雪崩防护见 spec §9）。
     """
+    # 进程内存镜像（citation_cache_version 同步读这个）
+    try:
+        from app.config import bump_gov_generation_inproc
+        bump_gov_generation_inproc()
+    except Exception as e:
+        degraded("governance_propagate_gov_gen_inproc", e)
+    # Redis 持久化（跨进程/重启保真）
     try:
         await redis_client.get_redis().incr("qa:gov_gen")
     except Exception as e:

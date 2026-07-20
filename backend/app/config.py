@@ -223,6 +223,7 @@ class Settings(BaseSettings):
     QUALITY_BUS_ENABLE: bool = False  # 质量事件总线总开关（emit 入库恒做；开=异步派发订阅者）
     DISLIKE_TO_GAP_ENABLE: bool = False  # B1 dislike→质量事件(→evidence_gap 补全)；opt-in
     GOVERNANCE_PROPAGATE_ENABLE: bool = False  # A3/A4 治理联动清理 Milvus/Neo4j/qa_cache；opt-in
+    SEMANTIC_CACHE_GOV_FILTER_ENABLE: bool = False  # A5 semantic 命中后过 blocked_document_ids 过滤；opt-in
     CITATION_STRUCTURED_OUTPUT: bool = False  # 第三层 LLM 结构化输出 CitationAnswer
     CITATION_REWRITE_ON_FAIL: bool = True    # 校验失败联动 CRAG：rewrite 二次检索 / refused 拒答
     CITATION_VERIFY_SIM_THRESHOLD: float = 0.4  # 校验2专用阈值(答案综合句vs原文chunk),独立于auto_cite补标CITATION_SIM_THRESHOLD=0.6(答案句LLM重组与原文cosine偏低,0.6误杀)
@@ -271,10 +272,25 @@ def get_settings() -> Settings:
 settings = get_settings()
 
 
-def citation_cache_version() -> str:
-    """citation 开关版本串，拼进缓存 key/hash；开关变→key 变→旧缓存自动失效。
+_gov_generation: int = 0  # 治理代际进程内存镜像；bump_gov_generation_inproc() 同步自增
 
-    避免 rebuild + 改开关后旧 query 命中改前行为的缓存（citation_extras 进了缓存）。
+
+def bump_gov_generation_inproc() -> None:
+    """治理代际 +1（进程内存）。governance_propagate_service 同时 Redis INCR 持久化。
+
+    多进程部署需 Redis pub/sub 同步——当前单进程后端进程内存即可。
+    """
+    global _gov_generation
+    _gov_generation += 1
+
+
+def citation_cache_version() -> str:
+    """citation 开关版本串 + 治理代际 G，拼进缓存 key/hash；开关变/G 变→key 变→旧缓存自动失效。
+
+    避免 rebuild + 改开关后旧 query 命中改前行为的缓存（citation_extras 进了缓存）；
+    A5 数据飞轮加 G 段：治理态变（withdraw/supersede/expire）→ governance_propagate_service
+    bump Redis qa:gov_gen + 进程内存镜像 → G 变 → 所有 qa 缓存 key 变 → 自动失效。
     """
     s = settings
-    return f"cv{int(s.CITATION_VERIFIER_ENABLE)}{int(s.CITATION_STRUCTURED_OUTPUT)}{int(s.CITATION_NLI_ENABLE)}"
+    return (f"cv{int(s.CITATION_VERIFIER_ENABLE)}{int(s.CITATION_STRUCTURED_OUTPUT)}"
+            f"{int(s.CITATION_NLI_ENABLE)}{_gov_generation}")
