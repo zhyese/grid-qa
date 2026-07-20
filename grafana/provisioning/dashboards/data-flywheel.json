@@ -1,0 +1,135 @@
+{
+  "uid": "grid-qa-flywheel",
+  "title": "电网运维 RAG — 数据飞轮监控 (Phase 4)",
+  "schemaVersion": 38,
+  "version": 1,
+  "refresh": "10s",
+  "time": {"from": "now-3h", "to": "now"},
+  "tags": ["flywheel", "rag", "quality"],
+  "panels": [
+    {
+      "id": 1,
+      "title": "质量事件总线吞吐 (按 source/type)",
+      "type": "timeseries",
+      "datasource": {"type": "prometheus"},
+      "targets": [
+        {
+          "expr": "sum(rate(grid_quality_event_total[5m])) by (source, type)",
+          "legendFormat": "{{source}}.{{type}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "color": {"mode": "palette-classic"}
+        }
+      },
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0}
+    },
+    {
+      "id": 2,
+      "title": "治理联动清理次数 (Milvus/Neo4j/qa_cache)",
+      "type": "timeseries",
+      "datasource": {"type": "prometheus"},
+      "targets": [
+        {
+          "expr": "sum(rate(grid_governance_propagated_total[5m])) by (action)",
+          "legendFormat": "{{action}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "color": {"mode": "palette-classic"}
+        }
+      },
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0}
+    },
+    {
+      "id": 3,
+      "title": "坏 case 修复率 (dislike→补全→同 query 再 like)",
+      "type": "stat",
+      "datasource": {"type": "prometheus"},
+      "targets": [
+        {"expr": "grid_feedback_fix_rate", "legendFormat": "fix rate", "refId": "A"}
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "red", "value": null},
+              {"color": "orange", "value": 0.2},
+              {"color": "green", "value": 0.3}
+            ]
+          }
+        }
+      },
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}},
+      "gridPos": {"h": 6, "w": 8, "x": 0, "y": 8}
+    },
+    {
+      "id": 4,
+      "title": "Faithfulness 趋势 (LLM-judge 实测)",
+      "type": "timeseries",
+      "datasource": {"type": "prometheus"},
+      "targets": [
+        {"expr": "grid_faithfulness_trend", "legendFormat": "faithfulness", "refId": "A"}
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "red", "value": null},
+              {"color": "yellow", "value": 0.7},
+              {"color": "green", "value": 0.85}
+            ]
+          },
+          "color": {"mode": "thresholds"}
+        }
+      },
+      "gridPos": {"h": 6, "w": 8, "x": 8, "y": 8}
+    },
+    {
+      "id": 5,
+      "title": "知识库时效 (active 文档占比)",
+      "type": "gauge",
+      "datasource": {"type": "prometheus"},
+      "targets": [
+        {"expr": "grid_kb_freshness", "legendFormat": "freshness", "refId": "A"}
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0, "max": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "red", "value": null},
+              {"color": "orange", "value": 0.6},
+              {"color": "green", "value": 0.8}
+            ]
+          }
+        }
+      },
+      "gridPos": {"h": 6, "w": 8, "x": 16, "y": 8}
+    },
+    {
+      "id": 6,
+      "title": "治理态变更事件明细 (doc_blocked 总量)",
+      "type": "stat",
+      "datasource": {"type": "prometheus"},
+      "targets": [
+        {"expr": "sum(grid_quality_event_total{source=\"governance\",type=\"doc_blocked\"})", "legendFormat": "blocked", "refId": "A"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "short"}},
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}},
+      "gridPos": {"h": 5, "w": 24, "x": 0, "y": 14}
+    }
+  ]
+}

@@ -46,6 +46,12 @@ async def emit(source: str, type: str, payload: dict | None = None,
     except Exception as e:
         degraded("quality_event_emit", e)
         return ""
+    # C3 度量：总线吞吐（无论派发与否，入库即计数）
+    try:
+        from app.core import metrics
+        metrics.QUALITY_EVENT_TOTAL.labels(source, type).inc()
+    except Exception:
+        pass
     if getattr(settings, "QUALITY_BUS_ENABLE", False):
         for pattern, handler in list(_subscribers):
             if _matches(source, type, pattern):

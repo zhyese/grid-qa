@@ -235,6 +235,15 @@ def init_metric_series() -> None:
         # 检索调参 baseline（recall/mrr/ndcg 预注册 0，扫描后更新）
         for _tune_m in ("recall", "mrr", "ndcg"):
             RETRIEVAL_BASELINE.labels(_tune_m).set(0)
+        # 数据飞轮（C3）：治理联动清理 + 总线吞吐 预注册 0
+        for _action in ("milvus", "neo4j", "qa_cache"):
+            GOVERNANCE_PROPAGATED.labels(_action).inc(0)
+        for _src in ("feedback", "online_eval", "qa_service", "retrieval_eval", "governance"):
+            for _typ in ("dislike", "low_faith", "refused", "eval_low", "doc_blocked", "sampled"):
+                QUALITY_EVENT_TOTAL.labels(_src, _typ).inc(0)
+        FEEDBACK_FIX_RATE.set(0)
+        FAITHFULNESS_TREND.set(0)
+        KB_FRESHNESS.set(0)
     except Exception:
         # 预注册失败不影响服务启动
         pass
