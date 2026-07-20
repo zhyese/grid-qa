@@ -14,6 +14,7 @@ def _run(coro):
 def test_a5_cv_has_g_segment(monkeypatch):
     """citation_cache_version() 输出形如 cvXXX{G}（G 段=进程内存镜像）。"""
     import app.config as cfg
+    cfg._gov_generation = 0  # 测试隔离：先清零（防其他用例 bump 累积）
     # 模拟 governance_propagate_service bump 7 次
     for _ in range(7):
         cfg.bump_gov_generation_inproc()
@@ -26,13 +27,13 @@ def test_a5_cv_has_g_segment(monkeypatch):
         assert len(cv) >= 5
     finally:
         # 测试隔离：重置进程内存
-        import app.config as _cfg
-        _cfg._gov_generation = 0
+        cfg._gov_generation = 0
 
 
 def test_a5_cv_g_default_zero():
     """进程内存计数默认 0（无 bump 时）。"""
     import app.config as cfg
+    cfg._gov_generation = 0
     cv = cfg.citation_cache_version()
     assert cv.endswith("0")
 
