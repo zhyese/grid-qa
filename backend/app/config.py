@@ -222,6 +222,7 @@ class Settings(BaseSettings):
     # ===== 数据飞轮（跨闭环质量事件总线，opt-in，默认=现状）=====
     QUALITY_BUS_ENABLE: bool = False  # 质量事件总线总开关（emit 入库恒做；开=异步派发订阅者）
     DISLIKE_TO_GAP_ENABLE: bool = False  # B1 dislike→质量事件(→evidence_gap 补全)；opt-in
+    GOVERNANCE_PROPAGATE_ENABLE: bool = False  # A3/A4 治理联动清理 Milvus/Neo4j/qa_cache；opt-in
     CITATION_STRUCTURED_OUTPUT: bool = False  # 第三层 LLM 结构化输出 CitationAnswer
     CITATION_REWRITE_ON_FAIL: bool = True    # 校验失败联动 CRAG：rewrite 二次检索 / refused 拒答
     CITATION_VERIFY_SIM_THRESHOLD: float = 0.4  # 校验2专用阈值(答案综合句vs原文chunk),独立于auto_cite补标CITATION_SIM_THRESHOLD=0.6(答案句LLM重组与原文cosine偏低,0.6误杀)
