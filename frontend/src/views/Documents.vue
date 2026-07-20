@@ -23,6 +23,15 @@
           <button class="btn btn-primary" @click="upload" :disabled="!files.length || uploading">{{ uploading ? '上传中...' : '上传' }}</button>
           <button class="btn btn-ghost" v-if="files.length" @click="files = []">清空</button>
         </div>
+        <details class="row" style="margin-top: 8px; color: var(--muted, #888); font-size: 13px">
+          <summary style="cursor:pointer">治理元数据（可选：上传即填，免后续扫描补录）</summary>
+          <div class="row" style="margin-top: 6px; gap: 6px; flex-wrap: wrap">
+            <input class="input" v-model="effectiveAt" type="datetime-local" title="生效时间（可选）" placeholder="生效时间" style="width:200px" />
+            <input class="input" v-model="expiresAt" type="datetime-local" title="失效时间（可选）" placeholder="失效时间" style="width:200px" />
+            <label style="display:inline-flex;align-items:center;gap:4px"><input type="checkbox" v-model="isPermanent" /> 永久有效</label>
+            <input class="input" v-model="versionOf" placeholder="版本继承(可选,旧doc_id)" style="width:200px" title="新版替代旧版时，填旧文档 id 以建立 supersede 链" />
+          </div>
+        </details>
         <div class="progress" v-if="uploading"><div class="progress-bar" :style="{ width: progress + '%' }"></div><span>{{ progress }}%</span></div>
       </div>
 
@@ -106,6 +115,11 @@ const files = ref([])
 const docType = ref('运维手册')
 const dept = ref('')          // RBAC 文档部门（上传时定）
 const allowedRoles = ref('')  // RBAC 授权角色（逗号分隔，空=部门内全员）
+// C2 治理元数据（可选，opt-in；后端 GOVERNANCE_UPLOAD_REQUIRE 控制是否建 meta）
+const effectiveAt = ref('')
+const expiresAt = ref('')
+const isPermanent = ref(false)
+const versionOf = ref('')
 const uploading = ref(false)
 const progress = ref(0)
 const dragOver = ref(false)
@@ -139,6 +153,11 @@ function onDrop(e) { dragOver.value = false; files.value = [...files.value, ...A
 async function upload() {
   if (!files.value.length) return
   const form = new FormData(); files.value.forEach((f) => form.append('files', f)); form.append('docType', docType.value); form.append('dept', dept.value); form.append('allowedRoles', allowedRoles.value)
+  // C2 治理元数据（空字符串=不传，后端兜底 None）
+  if (effectiveAt.value) form.append('effectiveAt', effectiveAt.value)
+  if (expiresAt.value) form.append('expiresAt', expiresAt.value)
+  if (isPermanent.value) form.append('isPermanent', 'true')
+  if (versionOf.value) form.append('versionOf', versionOf.value)
   uploading.value = true; progress.value = 0
   try { await uploadDocs(form, (e) => { if (e.total) progress.value = Math.round((e.loaded / e.total) * 100) }); await load(); toast('上传成功'); files.value = [] } catch (e) { toast('上传失败') }
   uploading.value = false

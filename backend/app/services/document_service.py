@@ -60,10 +60,15 @@ def _assert_acl(doc: Document, user_dept: str | None, user_role: str | None) -> 
 async def upload_documents(
     db: AsyncSession, files: List[UploadFile], doc_type: str, username: str,
     tenant_id: str = "default", dept: str = "", allowed_roles: str = "",
+    *,
+    effective_at=None, expires_at=None, is_permanent: bool = False,
+    version_of: str = "",
 ) -> dict:
     if len(files) > MAX_FILES:
         raise BizError(f"批量上传不超过 {MAX_FILES} 份", 400)
     success_list, fail_list = [], []
+    # C2 数据飞轮：开关开 → 上传即建 KnowledgeDocumentMetadata（治理元数据上游补录）
+    gov_meta_enabled = bool(getattr(settings, "GOVERNANCE_UPLOAD_REQUIRE", False))
     for f in files:
         name = f.filename or "unnamed"
         try:
@@ -106,6 +111,20 @@ async def upload_documents(
                 tenant_id=tenant_id, dept=dept, allowed_roles=allowed_roles,
             )
             db.add(doc)
+            # C2：开关开 + 元数据齐 → 建 KnowledgeDocumentMetadata（status=draft 默认待审核）
+            if gov_meta_enabled and (effective_at or expires_at or is_permanent or version_of):
+                from app.models.knowledge_governance import KnowledgeDocumentMetadata
+                meta_kwargs = {
+                    "doc_id": doc_id, "tenant_id": tenant_id, "created_by": username,
+                    "updated_by": username,
+                    "effective_at": effective_at,
+                    "expires_at": None if is_permanent else expires_at,
+                    "is_permanent": bool(is_permanent),
+                    "version_status": "draft",  # 上传即建=draft，人工审核激活
+                }
+                if version_of:
+                    meta_kwargs["version_label"] = f"sub of {version_of[:48]}"
+                db.add(KnowledgeDocumentMetadata(**meta_kwargs))
             await db.commit()
             success_list.append(name)
         except Exception as e:

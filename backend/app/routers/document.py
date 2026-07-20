@@ -35,11 +35,29 @@ async def upload(
     docType: str = Form("运维手册"),
     dept: str = Form(""),
     allowedRoles: str = Form(""),
+    effectiveAt: str = Form(""),   # C2 治理元数据：生效时间（ISO 字符串，opt-in）
+    expiresAt: str = Form(""),     # 失效时间
+    isPermanent: bool = Form(False),
+    versionOf: str = Form(""),     # 版本继承（指向旧 doc_id）
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_perm("doc:upload")),
 ):
-    data = await upload_documents(db, files, docType, user.username, user.tenant_id,
-                                  dept=dept, allowed_roles=allowedRoles)
+    # 字符串 → datetime；空字符串/异常 → None（不阻塞上传）
+    from datetime import datetime
+    def _parse(s):
+        s = (s or "").strip()
+        if not s:
+            return None
+        try:
+            return datetime.fromisoformat(s.replace("Z", ""))
+        except Exception:
+            return None
+    data = await upload_documents(
+        db, files, docType, user.username, user.tenant_id,
+        dept=dept, allowed_roles=allowedRoles,
+        effective_at=_parse(effectiveAt), expires_at=_parse(expiresAt),
+        is_permanent=isPermanent, version_of=versionOf,
+    )
     await write_log(
         db, user.username, "文档上传",
         f"成功 {len(data['successList'])} 份，失败 {len(data['failList'])} 份",

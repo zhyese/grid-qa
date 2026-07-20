@@ -226,6 +226,7 @@ class Settings(BaseSettings):
     SEMANTIC_CACHE_GOV_FILTER_ENABLE: bool = False  # A5 semantic 命中后过 blocked_document_ids 过滤；opt-in
     EVAL_EMIT_ENABLE: bool = False  # B3 评测低分 emit(online_eval.low_faith/retrieval_eval.eval_low)；opt-in
     EVAL_TO_TUNE_ENABLE: bool = False  # C1 评测低分→retrieval_tune 订阅触发扫描；opt-in
+    GOVERNANCE_UPLOAD_REQUIRE: bool = False  # C2 上传引导治理元数据（建 KnowledgeDocumentMetadata）；opt-in
     CITATION_STRUCTURED_OUTPUT: bool = False  # 第三层 LLM 结构化输出 CitationAnswer
     CITATION_REWRITE_ON_FAIL: bool = True    # 校验失败联动 CRAG：rewrite 二次检索 / refused 拒答
     CITATION_VERIFY_SIM_THRESHOLD: float = 0.4  # 校验2专用阈值(答案综合句vs原文chunk),独立于auto_cite补标CITATION_SIM_THRESHOLD=0.6(答案句LLM重组与原文cosine偏低,0.6误杀)
