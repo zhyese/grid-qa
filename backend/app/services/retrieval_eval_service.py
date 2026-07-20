@@ -8,9 +8,14 @@ from pathlib import Path
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.services import retrieval_service
+from app.config import settings
+from app.core.obs import degraded
+from app.services import quality_event_bus, retrieval_service
 
 _GOLDEN = Path(__file__).resolve().parent.parent.parent / "data" / "golden_qa.json"
+
+# golden 回归 recall 门禁（低于此值 emit eval_low，供 retrieval_tune 订阅调参）
+_RECALL_GATE = 0.92
 
 
 def _load_golden() -> list[dict]:
@@ -78,8 +83,33 @@ async def evaluate_over_golden(db: AsyncSession, overrides: dict | None = None, 
             n = _ndcg(item.get("relevant_docs", {}), got)
             ndcgs.append(n)
         per_query.append({"query": item["query"], "recall": r, "mrr": m, "ndcg": n})
-    return {
+    result = {
         "recall": _mean(recalls), "mrr": _mean(mrrs), "ndcg": _mean(ndcgs),
         "noResultRate": round(n_empty / len(golden), 4) if golden else 0.0,
         "sampleSize": len(golden), "validSample": len(recalls), "perQuery": per_query,
     }
+    # B3：baseline run（无 overrides）+ recall 低 → emit retrieval_eval.eval_low
+    if overrides is None:
+        await _maybe_emit_eval_low(result)
+    return result
+
+
+async def _maybe_emit_eval_low(result: dict) -> None:
+    """B3 数据飞轮：baseline recall < _RECALL_GATE → emit retrieval_eval.eval_low。
+
+    只在 baseline（overrides=None）emit，扫描时的 overrides 不 emit（避免每次扫都刷屏）。
+    EVAL_EMIT_ENABLE 默认关；QUALITY_BUS_ENABLE 决定是否派发订阅者。
+    """
+    if not getattr(settings, "EVAL_EMIT_ENABLE", False):
+        return
+    if result.get("recall", 1.0) >= _RECALL_GATE:
+        return
+    try:
+        await quality_event_bus.emit(
+            "retrieval_eval", "eval_low",
+            {"recall": result.get("recall"), "gate": _RECALL_GATE,
+             "validSample": result.get("validSample")},
+            tenant="default",
+        )
+    except Exception as e:
+        degraded("retrieval_eval_emit", e)

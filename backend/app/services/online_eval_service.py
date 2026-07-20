@@ -18,7 +18,9 @@ from datetime import datetime
 from sqlalchemy import desc, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.core.obs import degraded
+from app.services import quality_event_bus
 
 _SAMPLE_RATE = 1.0  # 采样率（演示期全采以快速积累趋势；生产改回 0.1）
 
@@ -96,6 +98,26 @@ async def eval_quality(
             await sdb.commit()
     except Exception as e:
         degraded("online_eval_log", e)
+
+    # B3 数据飞轮：faithfulness 低于门禁 → emit online_eval.low_faith（订阅者进 evidence_gap/tune）
+    if getattr(settings, "EVAL_EMIT_ENABLE", False) and faithfulness < settings.FAITHFULNESS_GATE:
+        try:
+            await quality_event_bus.emit(
+                "online_eval", "low_faith",
+                {"query": query[:200], "answer": (answer or "")[:500],
+                 "faithfulness": faithfulness, "gate": settings.FAITHFULNESS_GATE},
+                tenant="default",
+            )
+        except Exception as e:
+            degraded("online_eval_emit", e)
+
+    # C3 度量：faithfulness 趋势
+    try:
+        from app.core import metrics
+        metrics.FAITHFULNESS_TREND.set(faithfulness)
+        metrics.QUALITY_EVENT_TOTAL.labels("online_eval", "sampled").inc(0)
+    except Exception:
+        pass
 
     return result
 
