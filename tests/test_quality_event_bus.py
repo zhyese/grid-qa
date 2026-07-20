@@ -117,3 +117,18 @@ def test_handler_exception_does_not_block(monkeypatch):
         return eid
     eid = _run(go())
     assert eid  # emit 不被 handler 异常阻塞
+
+
+def test_dislike_handler_calls_collect(monkeypatch):
+    """B2：feedback.dislike 事件 → evidence_gap._on_dislike_gap → collect（坏 case 进补全链）。"""
+    import app.services.evidence_gap_service as eg
+    called = {}
+
+    async def fake_collect(query, answer, confidence, grade, action, source, tenant):
+        called.update(query=query, source=source, tenant=tenant)
+    monkeypatch.setattr(eg, "collect", fake_collect)
+    _run(eg._on_dislike_gap("eid", "feedback", "dislike",
+                            {"query": "主变油温", "answer": "x"}, "t1"))
+    assert called.get("query") == "主变油温"
+    assert called.get("source") == "feedback_dislike"
+    assert called.get("tenant") == "t1"

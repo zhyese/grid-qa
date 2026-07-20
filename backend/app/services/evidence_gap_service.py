@@ -387,3 +387,29 @@ async def deep_cron_loop(tenant: str = "default"):
                 print(f"[evidence-gap] 定时深度补全+落库: {s}")
         except Exception as e:
             degraded("evidence_gap_deep_cron", e)
+
+
+# ===== B2 数据飞轮：订阅 feedback.dislike → 收集证据缺口 =====
+async def _on_dislike_gap(event_id, source, type, payload, tenant):
+    """质量事件订阅：dislike 坏 case → evidence_gap.collect（被修复而非仅屏蔽）。
+
+    confidence 标 medium（待补全），source=feedback_dislike 便于 Admin 台区分来源。
+    """
+    await collect(
+        query=payload.get("query", ""),
+        answer=payload.get("answer", ""),
+        confidence="medium", grade="", action="dislike",
+        source="feedback_dislike", tenant=tenant,
+    )
+
+
+def _register_quality_bus() -> None:
+    """注册质量事件订阅（幂等，import 时调一次；quality_event_bus 未就绪则跳过）。"""
+    try:
+        from app.services.quality_event_bus import subscribe
+        subscribe("feedback.dislike", _on_dislike_gap)
+    except Exception:
+        pass
+
+
+_register_quality_bus()  # import 副作用注册（evidence_gap_service 被 qa_service import 即触发）

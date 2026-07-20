@@ -197,6 +197,18 @@ async def feedback(
             _bg_tasks.add(asyncio.create_task(maybe_blacklist_on_dislike(body.query)))
         except Exception:
             pass
+        # B1 数据飞轮：dislike → 质量事件总线 → 订阅者(evidence_gap 补全等)；opt-in
+        from app.config import settings as _cfg
+        if getattr(_cfg, "DISLIKE_TO_GAP_ENABLE", False):
+            try:
+                from app.services.quality_event_bus import emit as _qemit
+                _bg_tasks.add(asyncio.create_task(_qemit(
+                    "feedback", "dislike",
+                    {"query": body.query, "answer": (body.answer or "")[:500]},
+                    tenant=getattr(user, "tenant_id", None) or "default",
+                )))
+            except Exception:
+                pass
     return success(None, "感谢反馈")
 
 
