@@ -130,3 +130,33 @@ def get_tune_report() -> dict:
     except Exception as e:
         degraded("tune_report_read", e)
         return {"empty": True}
+
+
+# ===== C1 数据飞轮：订阅 eval_low/low_faith → 触发扫描（只建议模式，不自动改参）=====
+async def _on_eval_low(event_id, source, type, payload, tenant):
+    """质量事件订阅：retrieval_eval.eval_low / online_eval.low_faith → run_scan。
+
+    EVAL_TO_TUNE_ENABLE 默认关（关=不订阅触发，YAGNI 边界保持只建议模式）。
+    独立 session 避免并发；异常 degraded 不阻塞总线。
+    """
+    if not getattr(settings, "EVAL_TO_TUNE_ENABLE", False):
+        return
+    try:
+        from app.db.session import AsyncSessionLocal
+        async with AsyncSessionLocal() as db:
+            await run_scan(db)
+    except Exception as e:
+        degraded("tune_on_eval_low", e)
+
+
+def _register_quality_bus() -> None:
+    """注册质量事件订阅（幂等，import 时调一次；bus 未就绪则跳过）。"""
+    try:
+        from app.services.quality_event_bus import subscribe
+        subscribe("retrieval_eval.eval_low", _on_eval_low)
+        subscribe("online_eval.low_faith", _on_eval_low)
+    except Exception:
+        pass
+
+
+_register_quality_bus()  # import 副作用注册
