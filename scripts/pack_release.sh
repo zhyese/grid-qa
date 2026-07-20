@@ -160,7 +160,14 @@ EOF
 cd "$REPO_DIR/release"
 info "压缩中(可能需 1-3 分钟)..."
 tar -czf "$PKG.tar.gz" "$PKG"
-SHA=$(sha256sum "$PKG.tar.gz" | cut -d' ' -f1)
+# 跨平台 sha256: sha256sum(Linux) / shasum -a 256(macOS) / openssl(兜底)
+if command -v sha256sum >/dev/null 2>&1; then
+  SHA=$(sha256sum "$PKG.tar.gz" | cut -d' ' -f1)
+elif command -v shasum >/dev/null 2>&1; then
+  SHA=$(shasum -a 256 "$PKG.tar.gz" | cut -d' ' -f1)
+else
+  SHA=$(openssl dgst -sha256 "$PKG.tar.gz" | awk '{print $NF}')
+fi
 SIZE=$(du -h "$PKG.tar.gz" | cut -f1)
 
 echo ""

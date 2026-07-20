@@ -33,6 +33,15 @@ gen_password() {
   if command -v openssl >/dev/null 2>&1; then openssl rand -base64 18 | tr -d '/+=' | head -c 16
   else head -c 12 /dev/urandom | od -An -tx1 | tr -d ' \n'; fi
 }
+# 跨平台 sed -i: macOS(BSD) 需要显式空后缀,GNU 不需要
+_sed_i() {
+  if sed --version 2>/dev/null | grep -q 'GNU'; then
+    sed -i "$@"
+  else
+    sed -i '' "$@"
+  fi
+}
+
 env_get() { grep -E "^$1=" .env 2>/dev/null | head -1 | cut -d= -f2-; }
 is_placeholder() { [ -z "${1:-}" ] || echo "$1" | grep -qi '<CHANGE_ME'; }
 
@@ -64,13 +73,13 @@ ensure_env() {
   # 自动生成 JWT_SECRET
   if is_placeholder "$(env_get JWT_SECRET)"; then
     local s; s="$(gen_secret)"
-    sed -i "s#^JWT_SECRET=.*#JWT_SECRET=$s#" .env
+    _sed_i "s#^JWT_SECRET=.*#JWT_SECRET=$s#" .env
     info "已自动生成 JWT_SECRET"
   fi
   # 自动生成 ADMIN_PASSWORD 并回写
   if is_placeholder "$(env_get ADMIN_PASSWORD)"; then
     local p; p="$(gen_password)"
-    sed -i "s#^ADMIN_PASSWORD=.*#ADMIN_PASSWORD=$p#" .env
+    _sed_i "s#^ADMIN_PASSWORD=.*#ADMIN_PASSWORD=$p#" .env
     warn "已自动生成管理员密码(已写入 .env): ${GREEN}$p${NC}"
   fi
 
