@@ -254,6 +254,7 @@ async def _enrich_citation_metadata(db: AsyncSession, citation_map: list) -> Non
 async def _apply_citation_verification(
     ans: str, contexts: list[dict], model_type: str | None,
     *, db: AsyncSession | None = None, cmap_override: list | None = None,
+    query: str | None = None, tenant: str = "default",
 ) -> tuple[str, dict]:
     """可核验引用后处理：结构化解析 → 元数据补查 → 三层校验 → 返回 (最终答案, 附加字段)。
 
@@ -287,7 +288,15 @@ async def _apply_citation_verification(
     if db is not None:
         await _enrich_citation_metadata(db, cmap)
 
-    verdict = await verify(ans_text, cmap, index, contexts, model_type)
+    # C1：NLI 异步后置（CITATION_NLI_ASYNC_ENABLE）——同步只跑校验1+2（不阻塞首答/done），
+    # 校验3 NLI 由 _schedule_nli_backfill 后台跑完回写缓存（复用 _bg_tasks 持引用防 GC）。
+    # 关=现状（verify 内同步跑 NLI，或 CITATION_NLI_ENABLE 关则不跑）。
+    _nli_async = getattr(settings, "CITATION_NLI_ASYNC_ENABLE", False)
+    _nli_on = getattr(settings, "CITATION_NLI_ENABLE", False)
+    verdict = await verify(
+        ans_text, cmap, index, contexts, model_type,
+        nli_enable=(False if _nli_async else _nli_on),
+    )
 
     # 把 drop 的编号从答案里剔除（替换为警示说明）
     final_ans = ans_text
@@ -299,7 +308,71 @@ async def _apply_citation_verification(
         "citationMap": [c.model_dump() for c in cmap if c.ref_id not in verdict.dropped_refs],
         "unverifiedClaims": unverified + verdict.unverified_additions,
     }
+    # C1：NLI 异步后置——同步阶段(NLI 未跑)派发后台 task，结果回写缓存(尽力)+degraded 日志
+    if _nli_async and _nli_on:
+        _schedule_nli_backfill(model_type, cmap, contexts, query, tenant, verdict)
     return final_ans, extras
+
+
+def _schedule_nli_backfill(model_type, citation_map, contexts, query, tenant, sync_verdict):
+    """C1：NLI 异步后置调度——同步校验1+2 返回后，后台跑校验3 NLI（不阻塞首答/done）。
+
+    结果回写缓存 citationVerified.nli（下次命中即完整）+ degraded 日志；任何异常吞掉不影响主链路。
+    复用 _bg_tasks 持 task 引用防 GC，done 回调清理集合。
+    """
+    try:
+        t = asyncio.create_task(_nli_backfill(model_type, citation_map, contexts, query, tenant, sync_verdict))
+        _bg_tasks.add(t)
+        t.add_done_callback(_bg_tasks.discard)
+    except Exception as e:
+        degraded("citation_nli_async_schedule", e)
+
+
+async def _nli_backfill(model_type, citation_map, contexts, query, tenant, sync_verdict):
+    """C1：NLI 后台核验——对同步阶段通过校验1+2 的项跑 NLI，结果回写缓存。
+
+    用 ref_id 对齐 sync_verdict.items(valid=True) 与 citation_map(sentence)，重现 verify 校验3 输入。
+    容错：NLI 超时/异常、缓存 miss/异常均降级跳过（degraded 日志），永不阻塞主链路。
+    """
+    from app.rag import judge
+    # 同步路径 NLI 未跑 → valid=True 即校验1+2 通过；按 ref_id 取 sentence 作 NLI claims
+    valid_refs = {it.ref_id for it in sync_verdict.items if it.valid}
+    valid = [c for c in citation_map if c.ref_id in valid_refs and c.sentence]
+    if not valid:
+        return
+    ctx_by_id = {c.get("chunkId"): c for c in contexts}
+    claims = [c.sentence for c in valid]
+    sources = [ctx_by_id.get(c.chunk_id, {}).get("chunk", "") for c in valid]
+    try:
+        verdicts = await asyncio.wait_for(
+            judge._verify_claims(claims, sources, model_type),
+            timeout=settings.CITATION_NLI_TIMEOUT,
+        )
+    except Exception as e:
+        degraded("citation_nli_async", e)
+        return
+    # 回写缓存（尽力而为：query 缺/缓存 miss/异常均跳过）
+    if not query:
+        return
+    try:
+        ck = _cache_key(model_type, query, tenant)
+        cached = await redis_client.cache_get_json(ck)
+    except Exception as e:
+        degraded("citation_nli_async_cache_read", e)
+        return
+    if not cached or not cached.get("citationVerified"):
+        return
+    try:
+        cv = cached["citationVerified"]
+        label_by_ref = {c.ref_id: v.get("label", "neutral") for c, v in zip(valid, verdicts)}
+        for it in cv.get("items", []):
+            if it.get("ref_id") in label_by_ref:
+                it["nli_label"] = label_by_ref[it["ref_id"]]
+        cv["nli_async_done"] = True
+        cached["citationVerified"] = cv
+        await redis_client.cache_set_json(ck, cached, settings.QA_CACHE_TTL)
+    except Exception as e:
+        degraded("citation_nli_async_cache_write", e)
 
 
 async def answer(
@@ -1019,6 +1092,16 @@ async def stream_answer(
         annotated, _trace = await citation.auto_cite(full, contexts)
     else:
         annotated, _trace = full, citation.evidence_trace(full)
+    # C3：流式接校验（CITATION_VERIFIER_ENABLE 开时，done 前同步跑校验1+2；NLI 按 C1 异步后置）。
+    # annotated 可能被校验 drop 编号→警示替换；citationVerified 随 done 下发（前端零改动，不读该字段）。
+    _stream_citation_extras: dict = {}
+    if getattr(settings, "CITATION_VERIFIER_ENABLE", False):
+        try:
+            annotated, _stream_citation_extras = await _apply_citation_verification(
+                annotated, contexts, model_type, db=db, query=nq, tenant=tenant,
+            )
+        except Exception as e:
+            degraded("stream_citation_verify", e)
     # 成本追踪（记录 token 用量 → 成本报告数据来源；估算 input/output token）
     try:
         import asyncio
@@ -1098,7 +1181,7 @@ async def stream_answer(
             )))
         except Exception:
             pass
-    yield {
+    done_ev = {
         "type": "done",
         "responseTime": round(time.time() - t0, 3),
         "hallucinationRate": halluc,
@@ -1116,6 +1199,10 @@ async def stream_answer(
         "route": routing.route if routing else "hybrid",
         "routeReason": routing.reason if routing else "",
     }
+    # C3：校验开时随 done 下发 citationVerified（关时不带此字段=现状，前端零改动）
+    if _stream_citation_extras.get("citationVerified"):
+        done_ev["citationVerified"] = _stream_citation_extras["citationVerified"]
+    yield done_ev
 
 
 async def generate_related(

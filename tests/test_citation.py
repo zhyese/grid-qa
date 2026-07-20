@@ -268,3 +268,209 @@ def test_apply_citation_verification_enabled_includes_fields(monkeypatch):
     assert "citationIndex" in extras
     assert extras["citationIndex"] == {1: "c1"}            # build_index 位置→chunk_id
     assert ans == "主变油温应≤85℃[1]。"                       # 无 drop，答案不变
+
+
+# ---------- C1: NLI 异步后置（CITATION_NLI_ASYNC_ENABLE）----------
+
+
+def test_apply_citation_nli_async_skips_sync_and_schedules_backfill(monkeypatch):
+    """C1：ASYNC 开+NLI 开 → verify 同步路径 nli_enable=False（NLI 不阻塞首答），并派发后台回填。"""
+    import app.config as cfg
+    monkeypatch.setattr(cfg.settings, "CITATION_VERIFIER_ENABLE", True)
+    monkeypatch.setattr(cfg.settings, "CITATION_NLI_ENABLE", True)
+    monkeypatch.setattr(cfg.settings, "CITATION_NLI_ASYNC_ENABLE", True)
+    seen = {}
+
+    async def fake_verify(answer_text, cmap, index, contexts, mt, *, nli_enable=None):
+        seen["nli_enable"] = nli_enable
+        from app.schemas.citation import VerifyItem, VerifyResult
+        return VerifyResult(items=[VerifyItem(ref_id=1, chunk_id="c1", valid=True,
+                                              nli_label="unknown", action="keep")])
+    monkeypatch.setattr("app.rag.citation_verifier.verify", fake_verify)
+    scheduled = []
+    monkeypatch.setattr("app.services.qa_service._schedule_nli_backfill",
+                        lambda *a, **kw: scheduled.append(a))
+    from app.services.qa_service import _apply_citation_verification
+    _run(_apply_citation_verification(
+        "油温限值[1]。", [{"chunkId": "c1", "chunk": "油温不超过85", "docName": "A"}], "deepseek",
+        query="油温限值", tenant="t1"))
+    assert seen["nli_enable"] is False          # 同步路径不跑 NLI（不阻塞首答）
+    assert len(scheduled) == 1                  # 派发后台 NLI 回填
+    assert scheduled[0][3] == "油温限值"          # query 透传（回写缓存 key 用）
+
+
+def test_apply_citation_nli_sync_when_async_disabled(monkeypatch):
+    """C1：ASYNC 关+NLI 开 → verify 同步跑 NLI（=现状），不派发后台 task。"""
+    import app.config as cfg
+    monkeypatch.setattr(cfg.settings, "CITATION_VERIFIER_ENABLE", True)
+    monkeypatch.setattr(cfg.settings, "CITATION_NLI_ENABLE", True)
+    monkeypatch.setattr(cfg.settings, "CITATION_NLI_ASYNC_ENABLE", False)
+    seen = {}
+
+    async def fake_verify(answer_text, cmap, index, contexts, mt, *, nli_enable=None):
+        seen["nli_enable"] = nli_enable
+        from app.schemas.citation import VerifyItem, VerifyResult
+        return VerifyResult(items=[VerifyItem(ref_id=1, chunk_id="c1", valid=True, action="keep")])
+    monkeypatch.setattr("app.rag.citation_verifier.verify", fake_verify)
+    scheduled = []
+    monkeypatch.setattr("app.services.qa_service._schedule_nli_backfill",
+                        lambda *a, **kw: scheduled.append(a))
+    from app.services.qa_service import _apply_citation_verification
+    _run(_apply_citation_verification(
+        "油温[1]。", [{"chunkId": "c1", "chunk": "油温", "docName": "A"}], "deepseek"))
+    assert seen["nli_enable"] is True           # 同步现状
+    assert scheduled == []                      # 不派发后台
+
+
+def test_nli_backfill_writes_nli_label_to_cache(monkeypatch):
+    """C1：_nli_backfill 跑 NLI 后回写缓存 citationVerified.items 的 nli_label。"""
+    import app.config as cfg
+    monkeypatch.setattr(cfg.settings, "CITATION_NLI_TIMEOUT", 5)
+    from app.schemas.citation import CitationItem, VerifyItem, VerifyResult
+    sync_verdict = VerifyResult(items=[VerifyItem(ref_id=1, chunk_id="c1", valid=True,
+                                                  nli_label="unknown", action="keep")])
+    cmap = [CitationItem(sentence="油温限值85度", ref_id=1, chunk_id="c1")]
+    contexts = [{"chunkId": "c1", "chunk": "油温不超过85度"}]
+
+    async def fake_nli(claims, sources, model_type=None):
+        return [{"text": c, "label": "contradict"} for c in claims]
+    monkeypatch.setattr("app.rag.judge._verify_claims", fake_nli)
+
+    from app.services.qa_service import _nli_backfill, _cache_key
+    ck = _cache_key("deepseek", "油温限值", "t1")
+    cache_store = {ck: {"answer": "x", "citationVerified": {
+        "items": [{"ref_id": 1, "chunk_id": "c1", "valid": True, "nli_label": "unknown", "action": "keep"}],
+        "dropped_refs": [], "unverified_additions": [], "degraded": False, "rewrite_needed": False,
+    }}}
+
+    async def fake_get(key): return cache_store.get(key)
+    written = {}
+    async def fake_set(key, data, ttl): written[key] = data
+    monkeypatch.setattr("app.services.qa_service.redis_client.cache_get_json", fake_get)
+    monkeypatch.setattr("app.services.qa_service.redis_client.cache_set_json", fake_set)
+
+    _run(_nli_backfill("deepseek", cmap, contexts, "油温限值", "t1", sync_verdict))
+    assert ck in written
+    items = written[ck]["citationVerified"]["items"]
+    assert items[0]["nli_label"] == "contradict"          # NLI 结果回写
+    assert written[ck]["citationVerified"]["nli_async_done"] is True
+
+
+def test_nli_backfill_skips_write_when_cache_miss(monkeypatch):
+    """C1：_nli_backfill 缓存 miss → NLI 仍跑（不因 miss 跳过），但不回写（尽力而为）。"""
+    import app.config as cfg
+    monkeypatch.setattr(cfg.settings, "CITATION_NLI_TIMEOUT", 5)
+    from app.schemas.citation import CitationItem, VerifyItem, VerifyResult
+    sync_verdict = VerifyResult(items=[VerifyItem(ref_id=1, chunk_id="c1", valid=True, action="keep")])
+    cmap = [CitationItem(sentence="油温", ref_id=1, chunk_id="c1")]
+    called = {"nli": False}
+
+    async def fake_nli(claims, sources, model_type=None):
+        called["nli"] = True
+        return [{"text": c, "label": "support"} for c in claims]
+    monkeypatch.setattr("app.rag.judge._verify_claims", fake_nli)
+    async def fake_get(key): return None
+    written = {}
+    async def fake_set(key, data, ttl): written[key] = data
+    monkeypatch.setattr("app.services.qa_service.redis_client.cache_get_json", fake_get)
+    monkeypatch.setattr("app.services.qa_service.redis_client.cache_set_json", fake_set)
+    from app.services.qa_service import _nli_backfill
+    _run(_nli_backfill("deepseek", cmap, [{"chunkId": "c1", "chunk": "油温"}], "油温", "t1", sync_verdict))
+    assert called["nli"] is True                  # NLI 仍执行
+    assert written == {}                          # 缓存 miss 不回写
+
+
+# ---------- C3: stream_answer done 接校验（CITATION_VERIFIER_ENABLE）----------
+
+
+def _patch_stream_externals(monkeypatch):
+    """stream_answer LLM 路径外部依赖最小替身（单轮、high 置信走缓存写）。"""
+    import app.config as cfg
+    for k in ("CACHE_PERSIST_ENABLE", "KG_RAG_ENABLE", "ROUTING_ENABLE",
+              "SEMANTIC_CACHE_ENABLE", "SELF_RAG_ENABLE", "EVIDENCE_GAP_AUTO_COLLECT",
+              "MULTI_TURN_CACHE_ENABLE", "CITATION_STRUCTURED_OUTPUT"):
+        monkeypatch.setattr(cfg.settings, k, False)
+
+    async def fake_sq(db, query, nq, cid, history, mt): return nq
+    monkeypatch.setattr("app.services.qa_service._search_query_for_retrieve", fake_sq)
+    async def fake_bl(nq): return False
+    monkeypatch.setattr("app.services.qa_service._is_blacklisted", fake_bl)
+    async def fake_get_cache(key): return None
+    monkeypatch.setattr("app.services.qa_service.redis_client.cache_get_json", fake_get_cache)
+    async def fake_set_cache(*a, **kw): return None
+    monkeypatch.setattr("app.services.qa_service.redis_client.cache_set_json", fake_set_cache)
+    async def fake_cc(*a, **kw): return type("Conv", (), {"id": "conv1"})()
+    monkeypatch.setattr("app.services.qa_service.conversation_service.create_conversation", fake_cc)
+    async def fake_sm(*a, **kw): return None
+    monkeypatch.setattr("app.services.qa_service.conversation_service.save_message", fake_sm)
+
+
+def test_stream_done_includes_citation_when_enabled(monkeypatch):
+    """C3：CITATION_VERIFIER_ENABLE 开 → stream done 含 citationVerified（前端零改动，不读该字段）。"""
+    import app.config as cfg
+    monkeypatch.setattr(cfg.settings, "CITATION_VERIFIER_ENABLE", True)
+    monkeypatch.setattr(cfg.settings, "CITATION_AUTO_ENABLE", False)   # 跳过 auto_cite
+    _patch_stream_externals(monkeypatch)
+
+    async def fake_apply(ans, contexts, mt, *, db=None, cmap_override=None, query=None, tenant="default"):
+        return ans, {"citationVerified": {"items": [{"ref_id": 1, "valid": True}], "dropped_refs": []}}
+    monkeypatch.setattr("app.services.qa_service._apply_citation_verification", fake_apply)
+
+    ctx = [{"chunkId": "c1", "chunk": "油温不超过85度", "docName": "A", "score": 0.9}]
+    async def fake_mixed(*a, **kw): return ctx
+    monkeypatch.setattr("app.services.qa_service.retrieval_service.mixed_search", fake_mixed)
+    async def fake_crag(*a, **kw): return (ctx, "high", "none", "good")
+    monkeypatch.setattr("app.services.qa_service._crag_correct", fake_crag)
+
+    async def fake_stream(messages, temperature=0.5):
+        yield "油温限值[1]。"
+    monkeypatch.setattr("app.services.qa_service.get_llm_provider",
+                        lambda mt: type("P", (), {"stream": staticmethod(fake_stream)})())
+
+    from app.services.qa_service import stream_answer
+    events = []
+
+    async def collect():
+        async for ev in stream_answer(None, "油温限值", "deepseek", conversation_id=None,
+                                      username="u", tenant="t1"):
+            events.append(ev)
+    _run(collect())
+    done = [e for e in events if e.get("type") == "done"]
+    assert done and "citationVerified" in done[0]
+    assert done[0]["citationVerified"]["items"][0]["ref_id"] == 1
+
+
+def test_stream_done_no_citation_when_disabled(monkeypatch):
+    """C3：CITATION_VERIFIER_ENABLE 关 → 不调校验，done 不含 citationVerified（=现状）。"""
+    import app.config as cfg
+    monkeypatch.setattr(cfg.settings, "CITATION_VERIFIER_ENABLE", False)
+    monkeypatch.setattr(cfg.settings, "CITATION_AUTO_ENABLE", False)
+    _patch_stream_externals(monkeypatch)
+    called = {"apply": False}
+
+    async def fake_apply(*a, **kw):
+        called["apply"] = True
+        return a[0], {}
+    monkeypatch.setattr("app.services.qa_service._apply_citation_verification", fake_apply)
+
+    ctx = [{"chunkId": "c1", "chunk": "油温", "docName": "A", "score": 0.9}]
+    async def fake_mixed(*a, **kw): return ctx
+    monkeypatch.setattr("app.services.qa_service.retrieval_service.mixed_search", fake_mixed)
+    async def fake_crag(*a, **kw): return (ctx, "high", "none", "good")
+    monkeypatch.setattr("app.services.qa_service._crag_correct", fake_crag)
+    async def fake_stream(messages, temperature=0.5):
+        yield "油温限值。"
+    monkeypatch.setattr("app.services.qa_service.get_llm_provider",
+                        lambda mt: type("P", (), {"stream": staticmethod(fake_stream)})())
+
+    from app.services.qa_service import stream_answer
+    events = []
+
+    async def collect():
+        async for ev in stream_answer(None, "油温", "deepseek", conversation_id=None,
+                                      username="u", tenant="t1"):
+            events.append(ev)
+    _run(collect())
+    assert called["apply"] is False               # 关时不调校验
+    done = [e for e in events if e.get("type") == "done"]
+    assert done and "citationVerified" not in done[0]

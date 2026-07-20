@@ -217,6 +217,7 @@ class Settings(BaseSettings):
     CITATION_VERIFIER_ENABLE: bool = False   # 第四层校验引擎总开关（格式+向量+NLI）
     CITATION_NLI_ENABLE: bool = False        # 校验3 NLI 精准核验（最重，独立开关）
     CITATION_NLI_TIMEOUT: int = 5            # 校验3 NLI 超时秒（超时降级仅走校验1+2）
+    CITATION_NLI_ASYNC_ENABLE: bool = False  # C1 校验3 NLI 异步后置（done 后后台跑,不阻塞首答;关=verify 内同步现状）
     CITATION_STRUCTURED_OUTPUT: bool = False  # 第三层 LLM 结构化输出 CitationAnswer
     CITATION_REWRITE_ON_FAIL: bool = True    # 校验失败联动 CRAG：rewrite 二次检索 / refused 拒答
     CITATION_VERIFY_SIM_THRESHOLD: float = 0.4  # 校验2专用阈值(答案综合句vs原文chunk),独立于auto_cite补标CITATION_SIM_THRESHOLD=0.6(答案句LLM重组与原文cosine偏低,0.6误杀)
