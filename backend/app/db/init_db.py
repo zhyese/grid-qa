@@ -93,18 +93,33 @@ _INDEX_MIGRATIONS = [
 
 
 async def _ensure_columns() -> None:
-    """幂等补列：逐条 ALTER，列已存在时 MySQL 报 1060，忽略即可。"""
+    """幂等补列：逐条 ALTER，列已存在时 MySQL 报 1060，忽略即可。
+
+    重要：原版 bare except 静默吞所有异常（连接/权限/锁），导致 schema drift
+    长期不可见（如 chunks.table_header 加列失败后任务 SELECT 1054）。
+    现版区分 1060/1061（幂等跳过）与其他异常（degraded 记录，让 /metrics 和日志可见）。
+    """
+    from app.core.obs import degraded
     async with engine.begin() as conn:
         for table, col, typedef in _COLUMN_MIGRATIONS:
             try:
                 await conn.execute(text(f"ALTER TABLE `{table}` ADD COLUMN `{col}` {typedef}"))
-            except Exception:
-                pass  # 列已存在（1060）或表不存在，跳过
+            except Exception as e:
+                msg = str(e)
+                # MySQL 1060 "Duplicate column name" = 列已存在，幂等跳过
+                if "1060" in msg or "Duplicate column" in msg or "already exists" in msg.lower():
+                    continue
+                # 其他异常（权限/锁/连接/语法）→ degraded 让 drift 可见，不再静默吞
+                degraded("init_db_column_migration", e, f"{table}.{col}")
         for table, _name, definition in _INDEX_MIGRATIONS:
             try:
                 await conn.execute(text(f"ALTER TABLE `{table}` ADD {definition}"))
-            except Exception:
-                pass  # 索引已存在（1061）或表不存在，跳过
+            except Exception as e:
+                msg = str(e)
+                # MySQL 1061 "Duplicate key name" = 索引已存在，幂等跳过
+                if "1061" in msg or "Duplicate key" in msg or "already exists" in msg.lower():
+                    continue
+                degraded("init_db_index_migration", e, f"{table}.{_name}")
 
 
 async def init_db() -> None:
