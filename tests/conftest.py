@@ -25,6 +25,20 @@ def cleanup_database_pool():
         pass
 
 
+@pytest.fixture(autouse=True)
+def _reset_quality_bus_subscribers():
+    """teardown 清 quality_event_bus 订阅者：防模块 import 副作用注册的订阅
+    （如 evidence_gap_service._on_dislike_gap）跨测试累积，以及 emit 后台触发订阅者
+    污染共享真 MySQL（test_collect_dedup 等连真 mysql，去重会命中残留）。
+    C4 集成测试跑时订阅已在（注册先于 teardown），teardown 在其之后才清，不破。"""
+    yield
+    try:
+        from app.services.quality_event_bus import reset_subscribers
+        reset_subscribers()
+    except Exception:
+        pass
+
+
 @pytest_asyncio.fixture
 async def test_db():
     """sqlite in-memory 单测会话（unit test 用；集成测试连真实 MySQL 不用它）。

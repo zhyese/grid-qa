@@ -19,8 +19,13 @@ _subscribers: list[tuple[str, object]] = []  # (pattern, async handler)
 
 
 def subscribe(pattern: str, handler) -> None:
-    """注册订阅者。pattern 支持 fnmatch：'feedback.*' / '*.dislike' / 'governance.*'。"""
-    _subscribers.append((pattern, handler))
+    """注册订阅者。pattern 支持 fnmatch：'feedback.*' / '*.dislike' / 'governance.*'。
+
+    幂等：同 (pattern, handler) 不重复注册——防 evidence_gap_service 等模块 import 副作用
+    在测试套件多次触发时累积注册，污染后续测试。
+    """
+    if (pattern, handler) not in _subscribers:
+        _subscribers.append((pattern, handler))
 
 
 def reset_subscribers() -> None:
