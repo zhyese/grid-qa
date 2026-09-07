@@ -480,6 +480,9 @@ app.include_router(knowledge_governance.router, prefix=settings.API_PREFIX)
 app.include_router(knowledge_evolution.router, prefix=settings.API_PREFIX)
 app.include_router(integrations.router, prefix=settings.API_PREFIX)
 app.include_router(mcp_router, prefix=settings.API_PREFIX)
+if settings.WORKFLOW_ENABLE:  # 可视化工作流编排（关=现状不注册，零开销）
+    from app.routers import workflow as workflow_router  # noqa: E402
+    app.include_router(workflow_router.router, prefix=settings.API_PREFIX)
 
 
 # ---- 全局异常：BizError -> 统一 {code, message, data}（HTTP 恒 200，业务码放 body）----

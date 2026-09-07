@@ -36,6 +36,7 @@ from app.models.favorite import Favorite  # noqa: F401  个人收藏夹
 from app.models.agent_memory import AgentMemory  # noqa: F401  N1 Agent 长期记忆
 from app.models.qa_trace import QaTrace  # noqa: F401  问答链路 trace（启动 create_all 自动建表）
 from app.models.quality_event import QualityEvent  # noqa: F401  质量事件总线(数据飞轮 Task A1)；缺此行→表不建→emit 撞 Table doesn't exist
+from app.models.workflow import Workflow, WorkflowRun  # noqa: F401  可视化工作流编排（缺此行→表不建→run 撞 Table doesn't exist）
 
 
 # 现有表加列的幂等迁移（create_all 只建不 ALTER；老库靠这里补列，列已存在则忽略 1060 错误）。

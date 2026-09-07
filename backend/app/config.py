@@ -365,6 +365,10 @@ class Settings(BaseSettings):
     # 闭环回填：confirm/reject/to-ticket 成功后 emit 质量事件（source=proactive-ops）；关=现状不 emit
     PROACTIVE_FEEDBACK_ENABLE: bool = False
 
+    # ---------- 可视化工作流编排（DAG，BRD §5.3.1）----------
+    # 可视化工作流编排：开=/api/workflows 全套 API（拖拽 DAG→保存→异步执行→运行历史）；关=现状无此功能
+    WORKFLOW_ENABLE: bool = False
+
 
 @lru_cache
 def get_settings() -> Settings:

@@ -111,6 +111,8 @@ AGENT_CALLS = Counter("grid_agent_calls_total", "Agent 引擎调用次数", ["pe
 AGENT_TOOL_CALLS = Counter("grid_agent_tool_calls_total", "Agent 工具调用次数", ["persona", "tool"])
 # S4：工具调用权限拒绝次数（高风险工具按 role 限）
 AGENT_TOOL_DENIED = Counter("grid_agent_tool_calls_denied_total", "Agent 工具权限拒绝", ["tool"])
+# 可视化工作流编排：执行结果分布（done/failed/stopped）
+WORKFLOW_RUNS = Counter("grid_workflow_runs_total", "工作流执行次数", ["status"])
 # 告警闭环：Grafana alerting webhook 回调接收到的告警数（按 severity）
 ALERT_RECEIVED = Counter("grid_alert_received_total", "告警接收总数(Grafana回调)", ["severity"])
 # 缓存分层命中（Redis / MySQL / LLM）—— Phase 2 三级缓存可见性

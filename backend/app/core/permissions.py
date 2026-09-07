@@ -33,6 +33,9 @@ AUDIT_READ = "audit:read"            # agent 工具调用审计
 OPTIMIZER_MANAGE = "optimizer:manage"
 EVIDENCE_MANAGE = "evidence:manage"
 METRIC_READ = "metric:read"          # 成本 / 评测趋势看板
+# 可视化工作流编排
+WORKFLOW_MANAGE = "workflow:manage"  # 建/改/删/运行工作流（admin+editor）
+WORKFLOW_READ = "workflow:read"      # 查看工作流列表/详情/运行历史
 
 # admin 全权限标记（require_perm 见 "*" 直接放行）
 ADMIN_ALL = "*"
@@ -53,6 +56,7 @@ ROLE_PERMISSIONS: dict[str, set[str]] = {
         DOC_READ, DOC_UPLOAD, DOC_DELETE, DOC_MANAGE,
         QA_ANSWER, FEEDBACK_READ,
         KG_READ, KG_EDIT, DOMAIN_USE, TICKET_MANAGE,
+        WORKFLOW_MANAGE, WORKFLOW_READ,
     },
     "operator": {
         DOC_READ, QA_ANSWER, FEEDBACK_READ,
@@ -62,6 +66,7 @@ ROLE_PERMISSIONS: dict[str, set[str]] = {
         DOC_READ, QA_ANSWER, FEEDBACK_READ,
         KG_READ, DOMAIN_USE,
         ALERT_READ, AUDIT_READ, METRIC_READ,
+        WORKFLOW_READ,
     },
 }
 
