@@ -125,10 +125,15 @@ services:
       NEO4J_AUTH: neo4j/${NEO4J_PASSWORD:-neo4j123456}
       # 2026-09-07：宿主机异常断电致事务日志尾部损坏（checkpoint 指向无效位置，恢复失败循环重启）。
       # 允许截断损坏尾部抢救启动（KG 三元组在 MySQL KgTriple 有镜像，可重建，风险可控）。
-      # 注：internal.* 为未声明内部项，5.x 默认 strict_validation 会拒启（Failed to read config:
-      # Unrecognized setting → 重启循环 230 次）；显式放宽校验让其通过。
+      # 注① internal.* 为未声明内部项，5.x 默认 strict_validation 会拒启；显式放宽校验。
+      # 注② docker env 转义规则：_ → . ，__ → _。目标 fail_on_corrupted_log_files（下划线）
+      #    必须写 fail__on__corrupted__log__files；写成 fail_on 会被转成 fail.on（不识别）。
+      # 注③ 断电后 tx log 文件整体缺失（MissingTransactionLogsCheck 拒启）→ 放行缺失检查
+      #    （官方口径 db.recovery.fail_on_missing_files=false，官方 KB 18000369252115；
+      #     dbms.recovery.* 为旧名，5.26 识别但报 deprecated）。
       NEO4J_server_config_strict__validation_enabled: "false"
-      NEO4J_internal_dbms_tx__log_fail_on_corrupted_log_files: "false"
+      NEO4J_internal_dbms_tx__log_fail__on__corrupted__log__files: "false"
+      NEO4J_db_recovery_fail__on__missing__files: "false"
     ports:
       - "7474:7474"   # Neo4j Browser
       - "7687:7687"   # Bolt 协议
