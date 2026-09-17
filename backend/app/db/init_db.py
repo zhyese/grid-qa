@@ -2,6 +2,7 @@
 from sqlalchemy import select, text
 
 from app.config import settings
+from app.models.ops_workbench import OpsSnapshot, TelemetryPoint  # noqa: F401
 from app.models.domain_event import DomainEvent, EventDelivery  # noqa: F401
 from app.models.knowledge_governance import (  # noqa: F401
     KnowledgeDocumentMetadata,

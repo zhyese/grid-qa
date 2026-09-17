@@ -77,6 +77,7 @@ const navItems = computed(() => {
     { to: '/chat', icon: '💬', label: '智能问答' },
     { to: '/diagnose', icon: '🩺', label: '故障诊断' },
     { to: '/operations', icon: '⚡', label: '主动运维' },
+    { to: '/ops-workbench', icon: '🗂️', label: '运维工作台' },
     { to: '/documents', icon: '📄', label: '知识库' },
     { to: '/dashboard', icon: '📊', label: '统计看板' },
     { to: '/kg', icon: '🧠', label: '知识图谱' },

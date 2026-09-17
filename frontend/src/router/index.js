@@ -9,6 +9,7 @@ const routes = [
     component: AppLayout,
     children: [
       { path: '', redirect: '/chat' },
+      { path: 'ops-workbench', component: () => import('../views/OpsWorkbench.vue'), meta: { auth: true, title: '运维工作台', sub: '规程变更 · 交接班 · 设备档案 · 遥测 · 表格' } },
       { path: 'chat', component: () => import('../views/Chat.vue'), meta: { auth: true, title: '智能问答', sub: '自然语言提问 · 自纠错 · 可信答案' } },
       { path: 'profile', component: () => import('../views/Profile.vue'), meta: { auth: true, title: '个人资料', sub: '改部门 · 改密码' } },
       { path: 'diagnose', component: () => import('../views/Diagnose.vue'), meta: { auth: true, title: '故障诊断', sub: '多查询分解 · 因果链 · 原因排序' } },

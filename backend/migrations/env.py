@@ -18,6 +18,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from app.config import settings  # noqa: E402
 from app.db.base import Base  # noqa: E402
 import app.models.user  # noqa: E402,F401  注册所有模型
+import app.models.ops_workbench  # noqa: E402,F401
 import app.models.document  # noqa: E402,F401
 import app.models.chunk  # noqa: E402,F401
 import app.models.conversation  # noqa: E402,F401

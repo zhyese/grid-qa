@@ -23,6 +23,8 @@ class Settings(BaseSettings):
     BACKEND_HOST: str = "127.0.0.1"
     BACKEND_PORT: int = 8001   # 本机 8000 被 Manager.exe 占用，固定 8001
     API_PREFIX: str = "/api"
+    # 关=现状；开=独立运维工作台，不改变原 QA/缓存链路，不执行设备控制。
+    OPS_WORKBENCH_ENABLE: bool = False
     DEBUG: bool = True
     STARTUP_DEPENDENCY_RETRIES: int = 0   # >0 时启动前等待 MySQL（单 Pod 演示模式）
     STARTUP_DEPENDENCY_INTERVAL: float = 2.0

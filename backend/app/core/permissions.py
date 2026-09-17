@@ -11,6 +11,9 @@
 # ===== 权限常量（资源:动作）=====
 # 文档
 DOC_READ = "doc:read"
+OPS_READ = "ops:read"
+OPS_WRITE = "ops:write"
+OPS_REVIEW = "ops:review"
 DOC_UPLOAD = "doc:upload"
 DOC_DELETE = "doc:delete"
 DOC_MANAGE = "doc:manage"            # 改文档级 ACL（dept/allowed_roles）
@@ -53,16 +56,19 @@ def _wc(resource: str) -> str:
 ROLE_PERMISSIONS: dict[str, set[str]] = {
     "admin": {ADMIN_ALL},
     "editor": {
+        OPS_READ, OPS_WRITE, OPS_REVIEW,
         DOC_READ, DOC_UPLOAD, DOC_DELETE, DOC_MANAGE,
         QA_ANSWER, FEEDBACK_READ,
         KG_READ, KG_EDIT, DOMAIN_USE, TICKET_MANAGE,
         WORKFLOW_MANAGE, WORKFLOW_READ,
     },
     "operator": {
+        OPS_READ, OPS_WRITE,
         DOC_READ, QA_ANSWER, FEEDBACK_READ,
         KG_READ, DOMAIN_USE,
     },
     "auditor": {
+        OPS_READ,
         DOC_READ, QA_ANSWER, FEEDBACK_READ,
         KG_READ, DOMAIN_USE,
         ALERT_READ, AUDIT_READ, METRIC_READ,

@@ -447,6 +447,7 @@ async def health():
 # ---- 路由挂载 ----
 from app.routers import (  # noqa: E402
     document,
+    ops_workbench,
     domain,
     kg,
     knowledge_governance,
@@ -465,6 +466,7 @@ from app.routers import (  # noqa: E402
 from app.mcp.server import router as mcp_router  # noqa: E402
 
 app.include_router(system.router, prefix=settings.API_PREFIX)
+app.include_router(ops_workbench.router, prefix=settings.API_PREFIX)
 app.include_router(document.router, prefix=settings.API_PREFIX)
 app.include_router(retrieval.router, prefix=settings.API_PREFIX)
 app.include_router(retrieval_tune_router.router, prefix=settings.API_PREFIX)
@@ -501,7 +503,10 @@ async def biz_error_handler(request: Request, exc: BizError):
 # ---- Prometheus 指标 + 中间件 ----
 import time  # noqa: E402
 
-from prometheus_client import make_asgi_app  # noqa: E402
+try:  # noqa: E402
+    from prometheus_client import make_asgi_app  # noqa: E402,F401  # 保留引用备用（/metrics 走自定义路由）
+except ImportError:  # pragma: no cover
+    make_asgi_app = None
 
 from app.core import metrics  # noqa: E402
 

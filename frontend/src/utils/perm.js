@@ -15,15 +15,18 @@ const ADMIN_ALL = '*'
 const ROLE_PERMISSIONS = {
   admin: new Set([ADMIN_ALL]),
   editor: new Set([
+    'ops:read', 'ops:write', 'ops:review',
     'doc:read', 'doc:upload', 'doc:delete', 'doc:manage',
     'qa:answer', 'feedback:read',
     'kg:read', 'kg:edit', 'domain:use', 'ticket:manage',
   ]),
   operator: new Set([
+    'ops:read', 'ops:write',
     'doc:read', 'qa:answer', 'feedback:read',
     'kg:read', 'domain:use',
   ]),
   auditor: new Set([
+    'ops:read',
     'doc:read', 'qa:answer', 'feedback:read',
     'kg:read', 'domain:use',
     'alert:read', 'audit:read', 'metric:read',
