@@ -81,6 +81,9 @@ services:
     container_name: grid-milvus
     command: ["milvus", "run", "standalone"]
     restart: unless-stopped
+    # 2026-09-07：MinIO 磁盘水位触底 → datanode 写入 panic → 崩溃循环 52 次，
+    # WSL crash dump 每次抓 3-4GB（共 28.4GB）把宿主 C 盘塞满。加内存上限防失控。
+    mem_limit: 6g
     depends_on:
       - etcd
       - milvus-minio
@@ -120,6 +123,12 @@ services:
     restart: unless-stopped
     environment:
       NEO4J_AUTH: neo4j/${NEO4J_PASSWORD:-neo4j123456}
+      # 2026-09-07：宿主机异常断电致事务日志尾部损坏（checkpoint 指向无效位置，恢复失败循环重启）。
+      # 允许截断损坏尾部抢救启动（KG 三元组在 MySQL KgTriple 有镜像，可重建，风险可控）。
+      # 注：internal.* 为未声明内部项，5.x 默认 strict_validation 会拒启（Failed to read config:
+      # Unrecognized setting → 重启循环 230 次）；显式放宽校验让其通过。
+      NEO4J_server_config_strict__validation_enabled: "false"
+      NEO4J_internal_dbms_tx__log_fail_on_corrupted_log_files: "false"
     ports:
       - "7474:7474"   # Neo4j Browser
       - "7687:7687"   # Bolt 协议
