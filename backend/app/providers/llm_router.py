@@ -63,6 +63,15 @@ def classify_llm(query: str) -> tuple[str, str]:
             return "turbo", "术语密集·简短查询"
         if f.query_type == "fault":
             return "plus", "故障诊断·需推理"
+        # FACT_FAST（opt-in，关=现状）：natural 低推理短问走 turbo。
+        # 语义：查"是什么/有哪些"的事实清单类问题，检索质量决定答案质量、生成只需组织语言。
+        # 密度阈值 0.05 = ≤20 字时至少命中 1 个 _TERM_DICT 领域词（实测样本密度 0.071）。
+        if (getattr(settings, "LLM_TIER_FACT_FAST_ENABLE", False)
+                and f.query_type == "natural"
+                and f.query_length <= 20
+                and f.term_density >= 0.05
+                and not f.has_numeric_param):
+            return "turbo", f"事实短问·低推理(密度{f.term_density:.2f})"
         return "plus", "默认质量档"
     except Exception as e:
         degraded("llm_classify", e)

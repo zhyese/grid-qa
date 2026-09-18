@@ -79,6 +79,9 @@ class Settings(BaseSettings):
     LLM_CIRCUIT_COOLDOWN: int = 60                     # 熔断冷却秒数
     LLM_PROBE_INTERVAL: int = 30                       # 健康探活周期秒
     LLM_TIER_ENABLE: bool = False                      # L2 query 特征分档(turbo/plus) opt-in 默认关
+    # 关=现状(事实型短问也走 plus)；开=natural 类低推理短问(≤20字、术语密度≥0.15、非故障)走 turbo——
+    # 实测 2026-09-17：典型巡视类问题 turbo 7.4s vs plus 15.2s，CRAG grade 同为 correct
+    LLM_TIER_FACT_FAST_ENABLE: bool = False
     RERANK_TIMEOUT: float = 2.0                        # rerank 单次超时（超时降级用 RRF 原序稳 p99；云 API 偶发 891ms+）
     LLM_LOCAL_TIMEOUT: float = 60.0                    # 本地 Ollama 兜底超时（CPU 推理慢于云端 API）
 
