@@ -31,7 +31,7 @@ services:
 
   # ---------- MinIO：源文档对象存储 ----------
   minio:
-    image: minio/minio:latest
+    image: minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e   # pin-digest（原 minio/minio:latest）
     container_name: grid-minio
     restart: unless-stopped
     environment:
@@ -43,6 +43,12 @@ services:
     volumes:
       - ./data/minio:/data
     command: server /data --console-address ":9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/ready"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
 
   # ---------- etcd：Milvus 元数据依赖 ----------
   etcd:
@@ -65,7 +71,7 @@ services:
 
   # ---------- Milvus 专用对象存储 ----------
   milvus-minio:
-    image: minio/minio:latest
+    image: minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e   # pin-digest（原 minio/minio:latest）
     container_name: grid-milvus-minio
     restart: unless-stopped
     environment:
@@ -118,7 +124,7 @@ services:
 
   # ---------- Neo4j：知识图谱（设备-故障-处置 多跳推理）----------
   neo4j:
-    image: neo4j:5-community
+    image: neo4j@sha256:4bae36aff76271e27fd6a6ed0835413f86a284cd179cfb1cb7d188f5f7533aca   # pin-digest（原 neo4j:5-community）
     container_name: grid-neo4j
     restart: unless-stopped
     environment:
@@ -139,13 +145,20 @@ services:
       - "7687:7687"   # Bolt 协议
     volumes:
       - ./data/neo4j:/data
+    healthcheck:
+      # 7474 HTTP 就绪即 Bolt 可用（镜像内无 curl，有 wget）
+      test: ["CMD-SHELL", "wget -qO- http://localhost:7474 >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
 
   # ---------- Ollama：本地应急 LLM（云端 qwen/deepseek/doubao 全部不可用时的兜底，非强依赖）----------
   # LLM_FALLBACK_CHAIN 末位新增 ollama；首次启动自动拉取模型（7B q4 量化，约 4.5GB，CPU 可推理）。
   # mem_limit/cpus 防止真实触发兜底、开始推理时把 mysql/milvus/redis/neo4j 挤爆(OOM/CPU 饥饿)；
   # 按部署机器实际配置调整数值。
   ollama:
-    image: ollama/ollama:latest
+    image: ollama/ollama@sha256:1685741456770df6e3cceb2a945a5f75e020f658d1701509668d6f4688f1dd3f   # pin-digest（原 ollama/ollama:latest）
     container_name: grid-ollama
     restart: unless-stopped
     ports:
@@ -189,12 +202,20 @@ services:
     restart: unless-stopped
     env_file: .env                     # API keys / 开关注入（environment 块优先级更高，覆盖连接串等）
     depends_on:
-      - mysql
-      - minio
-      - milvus
-      - redis
-      - neo4j
-      - ollama
+      # 强依赖：必须健康才起后端（防"依赖崩溃循环、后端照常启动、功能静默降级"）
+      mysql:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      milvus:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      neo4j:
+        condition: service_healthy
+      # 弱依赖：本地兜底 LLM，起了就行（镜像无 curl/wget 可做探活）
+      ollama:
+        condition: service_started
     environment:
       # 容器内用 service name + 内部端口连接（覆盖 .env 的 localhost）
       DATABASE_URL: mysql+aiomysql://grid:grid123456@mysql:3306/grid_qa?charset=utf8mb4
@@ -262,7 +283,7 @@ services:
   # ---------- Prometheus 指标采集 ----------
   # 注：采集本地 uvicorn(host.docker.internal:8001)，不依赖 backend 容器
   prometheus:
-    image: prom/prometheus:latest
+    image: prom/prometheus@sha256:c6b27ea434f8389bfe233fbc7be381cf50587c286e871bc842008f5a1b1908a7   # pin-digest（原 prom/prometheus:latest）
     container_name: grid-prometheus
     restart: unless-stopped
     ports:
@@ -273,7 +294,7 @@ services:
 
   # ---------- Grafana 可视化仪表盘（好看的开箱监控界面）----------
   grafana:
-    image: grafana/grafana:latest
+    image: grafana/grafana@sha256:121a7a9ece6dc10b969f1f96eed64b4f07dfac0d0b8abc070f7cb83bbde86f63   # pin-digest（原 grafana/grafana:latest）
     container_name: grid-grafana
     restart: unless-stopped
     ports:
@@ -290,7 +311,7 @@ services:
   # ---------- Langfuse：LLM trace 可视化（N4）----------
   langfuse:
     # 钉到 v3 大版本（:latest 会静默升到新大版本导致再次缺依赖崩溃）
-    image: langfuse/langfuse:3
+    image: langfuse/langfuse@sha256:60a668b1dd06e2d9a034ba8b2ed5e84303e66c6202d76b288020059a755fd037   # pin-digest（原 langfuse/langfuse:3）
     container_name: grid-langfuse
     restart: unless-stopped
     depends_on:
@@ -366,7 +387,7 @@ services:
 
   # ---------- Langfuse Worker（v3 事件处理：消费 Redis 队列 → 写 S3 + ClickHouse）----------
   langfuse-worker:
-    image: langfuse/langfuse-worker:3
+    image: langfuse/langfuse-worker@sha256:138a5b510cd76262a2abb02af1ddc563105013fdc9a62e63ccce526140ad05ba   # pin-digest（原 langfuse/langfuse-worker:3）
     container_name: grid-langfuse-worker
     restart: unless-stopped
     depends_on:
