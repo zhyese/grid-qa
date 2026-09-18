@@ -67,6 +67,13 @@ async def lifespan(app: FastAPI):
 
     setup_logging()
 
+    # 安全自检（占位密钥/默认口令 → WARN + grid_insecure_config 指标；不拦截只可见）
+    try:
+        from app.core.security_check import run_startup_check
+        run_startup_check()
+    except Exception as e:
+        print(f"[security] 启动自检跳过：{e}")
+
     await _wait_for_startup_dependencies()
 
     # Nacos 配置覆盖（若 CONFIG_SOURCE=nacos，在连接任何服务前拉取覆盖 .env）
