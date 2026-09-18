@@ -13,7 +13,6 @@
 - 每个 case 重置 settings 子属性 + FakeRedis 状态
 """
 import json
-import time
 from uuid import uuid4
 
 import pytest

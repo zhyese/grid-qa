@@ -1,0 +1,6 @@
+# Ruff 配置（2026-09-18 起纳入 CI 门禁）
+# E402 豁免依据：本仓库两条刻意范式——
+#   1) services 层大量函数内延迟导入（解循环依赖 + 缩短冷启动导入链）；
+#   2) main.py 先创建 app/lifespan 再 import 路由并挂载。
+[lint]
+ignore = ["E402"]

@@ -4,15 +4,12 @@
 """
 import hashlib
 import time
-from typing import Optional
 
 from app.core.obs import degraded
 from app.routing.config import router_config
 from app.routing.query_classifier import (
-    QueryFeatures,
     RoutingDecision,
     classify,
-    should_skip_rerank,
 )
 
 
@@ -49,7 +46,7 @@ def route_query(query: str, user_hash: str = "") -> RoutingDecision:
     if is_b_group:
         decision = RoutingDecision(
             "hybrid", 1.0,
-            f"A/B 测试(B组): 走 hybrid 全链路对比",
+            "A/B 测试(B组): 走 hybrid 全链路对比",
             decision.features, False,
         )
 

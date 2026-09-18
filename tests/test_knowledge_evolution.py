@@ -142,7 +142,8 @@ async def test_reflow_idempotent(test_db, monkeypatch):
     from app.services import knowledge_evolution_service as ev
     calls = []
     async def fake_persist(db, draft):
-        calls.append(draft.id); return "chunk_" + draft.id
+        calls.append(draft.id)
+        return "chunk_" + draft.id
     monkeypatch.setattr(ev, "_persist_chunk_to_kb", fake_persist)
     test_db.add(KnowledgeEvolutionDraft(
         id="d4", tenant_id="default", cluster_id="c", representative_query="q", status="approved"))

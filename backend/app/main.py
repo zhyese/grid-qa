@@ -265,6 +265,17 @@ async def lifespan(app: FastAPI):
             print(f"[memory] 记忆衰减后台任务已启动（每 {_settings.MEMORY_DECAY_CRON_HOURS}h）")
     except Exception as e:
         print(f"[memory] 记忆衰减 loop 启动跳过：{e}")
+    # KG 每日对账（MySQL 镜像 vs Neo4j 边数；KG_RECONCILE_CRON_HOURS<=0 关闭）
+    try:
+        from app.services.kg_reconcile_service import reconcile_loop
+        from app.config import settings as _settings
+        if float(getattr(_settings, "KG_RECONCILE_CRON_HOURS", 24)) > 0:
+            app.state.kg_reconcile_task = asyncio.create_task(
+                reconcile_loop(float(_settings.KG_RECONCILE_CRON_HOURS))
+            )
+            print(f"[kg-reconcile] KG 对账后台任务已启动（每 {_settings.KG_RECONCILE_CRON_HOURS}h）")
+    except Exception as e:
+        print(f"[kg-reconcile] KG 对账 loop 启动跳过：{e}")
     # ---- 关闭 ----
     yield
     try:
@@ -308,6 +319,10 @@ async def lifespan(app: FastAPI):
     _memory_decay = getattr(app.state, "memory_decay_task", None)
     if _memory_decay:
         _memory_decay.cancel()
+    # KG 对账 loop 也需 cancel
+    _kg_reconcile = getattr(app.state, "kg_reconcile_task", None)
+    if _kg_reconcile:
+        _kg_reconcile.cancel()
     try:
         from app.clients import neo4j_client
         await neo4j_client.close()

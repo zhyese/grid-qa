@@ -75,7 +75,6 @@ async def predict(days: int = 30) -> dict:
 
     # 按标题聚合（全窗口）
     bucket: dict[str, dict] = {}
-    sev_seen: dict[str, str] = {}
     rec7_cnt: Counter = Counter()
     prev7_cnt: Counter = Counter()
     for _typ, content, t in alerts:

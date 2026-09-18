@@ -12,7 +12,7 @@ import asyncio
 import json
 from datetime import datetime, timedelta
 
-from sqlalchemy import delete, func, select, text
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.clients import redis_client

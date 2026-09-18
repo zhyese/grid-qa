@@ -1,7 +1,6 @@
 """通用 Agent 引擎单测。异步用 asyncio.run（项目无 pytest-asyncio）。"""
 import asyncio
 
-import pytest
 
 from app.services.agent_runtime import (
     AgentResult, Persona, Tool, ToolRegistry, _extract_json, _to_openai_tool_calls,
@@ -192,7 +191,7 @@ def test_agent_metrics_preregistered_in_registry():
 
 # ===== Task 4: run_agent 引擎循环 =====
 from app.services import agent_runtime
-from app.services.agent_runtime import Persona, Tool, ToolRegistry, run_agent
+from app.services.agent_runtime import run_agent
 
 
 class FakeProvider:
@@ -453,7 +452,6 @@ def test_run_agent_on_step_callback_fires(monkeypatch):
 def test_stream_agent_event_sequence(monkeypatch):
     """S2: _stream_agent 事件序列 meta→tool_step→token→done。"""
     from app.services import qa_service
-    from app.services.agent_runtime import AgentResult
 
     async def fake_run(db, persona, msg, mt, ctx=None, on_step=None, registry=None):
         if on_step:
@@ -468,7 +466,8 @@ def test_stream_agent_event_sequence(monkeypatch):
     monkeypatch.setattr(qa_service.redis_client, "cache_get_json", fake_cache_get)
     monkeypatch.setattr(qa_service.settings, "CACHE_PERSIST_ENABLE", False)
 
-    class _C: id = "c1"
+    class _C:
+        id = "c1"
     async def fake_create(db, username, query): return _C()
     async def fake_save(db, cid, role, text): pass
     monkeypatch.setattr(qa_service.conversation_service, "create_conversation", fake_create)

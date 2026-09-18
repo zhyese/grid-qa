@@ -9,13 +9,12 @@
 采样策略：对流式/非流式答案按一定比例采样（默认 10%），异步跑 Judge 评分。
 评分结果写入 eval_log 表，Grafana 可配置面板展示质量趋势。
 """
-import asyncio
 import json
 import random
 import time
 from datetime import datetime
 
-from sqlalchemy import desc, func, select, text
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings

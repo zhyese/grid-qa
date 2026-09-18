@@ -6,12 +6,11 @@
 - _should_export 采样策略（异常 span 强制导出，正常 span 按采样率）
 - force_export：faithfulness < 0.85 强制导出标记
 """
-import asyncio
 
 import pytest
 from opentelemetry import trace
 from opentelemetry.sdk.trace import TracerProvider
-from opentelemetry.trace import SpanKind, Status, StatusCode
+from opentelemetry.trace import Status, StatusCode
 
 from app.core import otel_genai
 
@@ -69,7 +68,7 @@ def test_get_trace_id_empty_outside_span():
 
 def test_get_trace_id_has_value_inside_span():
     """span 内 get_trace_id 返回 32 位 hex trace_id。"""
-    with otel_genai.trace_span("root") as span:
+    with otel_genai.trace_span("root"):
         tid = otel_genai.get_trace_id()
         assert len(tid) == 32  # OTel trace_id 格式化为 032x
         assert all(c in "0123456789abcdef" for c in tid)

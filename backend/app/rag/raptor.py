@@ -7,22 +7,18 @@
 用 RRF 融合排序后返回，让相关摘要段也作为 LLM 上下文给到生成器，
 提升长文档/跨文档问答的 recall。
 """
-import asyncio
 import json
-import time
 from pathlib import Path
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config import settings
 from app.core.obs import degraded
 from app.models.chunk import Chunk
 from app.models.document import Document
 from app.providers.factory import get_llm_provider
 from app.routing.routing_service import RoutingDecision
 from app.services import embedding_service
-from app.services.term_service import normalize
 
 _SUMMARY_TTL = 86400 * 30  # 30天重新生成摘要
 
@@ -178,8 +174,6 @@ async def retrieve_with_raptor(
     对摘要层做语义检索（cosine），与原有 chunk 检索 RRF 融合。
     返回格式兼容 mixed_search。
     """
-    t0 = time.time()
-
     # 1) 收集所有文档的摘要（从缓存或实时生成）
     result = await db.execute(
         select(Document.id, Document.doc_name).where(

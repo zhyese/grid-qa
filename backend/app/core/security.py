@@ -6,7 +6,6 @@ from datetime import datetime, timedelta, timezone
 
 import bcrypt
 import jwt
-from jwt import ExpiredSignatureError, InvalidTokenError
 
 from app.config import settings
 

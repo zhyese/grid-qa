@@ -155,7 +155,6 @@ def _dump_milvus_sync() -> dict:
     """同步：遍历两 collection 全量 entity（query_iterator），embedding→base64 紧凑。"""
     import numpy as np
     from pymilvus import Collection
-    from app.config import settings
     from app.clients import milvus_client
     milvus_client.ensure_collections()  # 连接(default alias) + load 两 collection，复用项目连接
     out: dict = {}
@@ -235,7 +234,6 @@ async def restore_milvus(filename: str) -> dict:
     """从 milvus_{ts}.json 恢复：drop 现有两 collection → 重建 → 灌回向量。⚠ 覆盖。"""
     import asyncio
     from pymilvus import utility
-    from app.config import settings
     path = _safe_filename(filename)
     if not os.path.isfile(path):
         raise BizError("备份文件不存在", 404)

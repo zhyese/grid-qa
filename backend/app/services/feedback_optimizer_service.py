@@ -10,11 +10,11 @@
 不再单独维护 track_rewrite_effectiveness（原函数零调用且需额外检索成本算 recall A/B，ROI 低）。
 """
 import json
-from collections import Counter, defaultdict
+from collections import defaultdict
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from sqlalchemy import desc, func, select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings

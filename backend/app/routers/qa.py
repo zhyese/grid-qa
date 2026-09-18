@@ -11,7 +11,7 @@ from app.core.limiter import limiter
 from app.core.response import success
 from app.db.session import get_db
 from app.core.permissions import FEEDBACK_MANAGE, FEEDBACK_READ, QA_ANSWER
-from app.dependencies import get_current_user, require_admin, require_perm
+from app.dependencies import get_current_user, require_perm
 from app.models.user import User
 from app.schemas.qa import (
     BatchDeleteRequest,

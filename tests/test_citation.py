@@ -8,7 +8,6 @@
 """
 import asyncio
 
-from app.config import settings
 from app.rag import citation
 from app.rag.citation_index import build_index, chunk_id_of
 

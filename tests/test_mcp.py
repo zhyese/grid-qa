@@ -9,7 +9,6 @@
 import asyncio
 import json
 
-import pytest
 from httpx import Response
 
 from app.mcp.client import McpClient, mcp_to_openai, openai_to_mcp

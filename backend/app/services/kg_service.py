@@ -6,7 +6,7 @@
 import json
 import re
 
-from sqlalchemy import delete, func, or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.clients import neo4j_client

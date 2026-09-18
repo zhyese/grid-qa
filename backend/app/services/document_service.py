@@ -530,7 +530,6 @@ async def find_similar_docs(db: AsyncSession, text: str, topk: int = 5) -> list[
     text = (text or "").strip()
     if not text:
         return []
-    from app.services import embedding_service
     vec = await embedding_service.embed_query(text)
     hits = milvus_client.search(
         milvus_client.primary_document_collection(), vec, topk=topk * 3,

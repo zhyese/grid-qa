@@ -11,7 +11,6 @@ VLM 用 Qwen-VL（百炼 OpenAI 兼容），默认关(VLM_ENABLE)，失败回退
 """
 import base64
 import re
-from typing import Optional
 
 from app.config import settings
 from app.core.obs import degraded

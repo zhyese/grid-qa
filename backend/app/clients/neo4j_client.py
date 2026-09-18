@@ -82,6 +82,14 @@ async def delete_by_doc(doc_id: str) -> None:
         await s.run("MATCH (:Entity)-[r:REL {doc_id: $doc_id}]->() DELETE r", doc_id=doc_id)
 
 
+async def count_rel_edges() -> int:
+    """全库 :REL 边数（KG 对账用；与 MySQL DISTINCT(s,r,o) 应相等——MERGE 幂等去重）。"""
+    async with _get().session() as s:
+        result = await s.run("MATCH ()-[r:REL]->() RETURN count(r) AS c")
+        rec = await result.single()
+        return rec["c"] if rec else 0
+
+
 async def count_by_doc(doc_id: str) -> int:
     """统计某文档产生的边数（治理 dry-run 候选报告用，不删除）。失败返回 0。"""
     try:

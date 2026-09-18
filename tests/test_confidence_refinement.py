@@ -111,7 +111,7 @@ async def test_crag_correct_v3_picks_up_detail(monkeypatch):
 
 # ===== T4 · v1/v2 口径统一 grade 吃 es（断点 C）=====
 
-from app.rag.crag import grade as crag_grade, GRADE_CORRECT, GRADE_AMBIGUOUS, GRADE_INCORRECT
+from app.rag.crag import grade as crag_grade, GRADE_CORRECT, GRADE_AMBIGUOUS
 
 
 def test_grade_uses_es_when_provided():
@@ -247,7 +247,6 @@ def test_init_metric_series_preregisters_v3_labels():
 async def test_crag_v7_emits_metrics(monkeypatch):
     """V3 路径跑通后，CRAG_CONFIDENCE_LABEL 被 observe（refused 路径最易断言）。"""
     from app.services import qa_service
-    from app.core import metrics
     from prometheus_client import generate_latest
     await _seed_rewrite(monkeypatch, 0.1)  # rewrite 仍 incorrect → refused
     for k, v in {"CRAG_ENABLE": True, "CRAG_PERDOC_ENABLE": False,

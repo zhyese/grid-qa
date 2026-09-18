@@ -1,5 +1,4 @@
 """CRAG v2 per-doc 分级单测与强健解析测试。"""
-import pytest
 import asyncio
 from app.rag import crag, crag_v2
 from app.rag.crag_v2 import labels_to_grade, _parse_llm_json, grade_with_llm

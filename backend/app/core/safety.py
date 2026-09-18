@@ -7,7 +7,7 @@
 - extract_high_risk：提取答案中的高风险操作词，供前端风险 badge 展示
 """
 import re
-from typing import Dict, List, Tuple
+from typing import Dict, List
 
 from app.config import settings
 

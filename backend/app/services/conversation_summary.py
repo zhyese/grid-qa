@@ -3,10 +3,8 @@
 多轮对话每 N 轮做一次 LLM 摘要 → 存储为摘要片段。
 下次检索时用摘要替代/补全原始历史，节省 token 且保留关键上下文。
 """
-import json
-from datetime import datetime
 
-from sqlalchemy import desc, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.obs import degraded

@@ -29,13 +29,16 @@ async def test_evaluation_router_sends_knowledge_gap_to_evolution(monkeypatch):
     emitted, collected, scans = [], [], []
 
     async def fake_emit(source, type, payload, tenant="default"):
-        emitted.append((source, type, tenant)); return "qe-1"
+        emitted.append((source, type, tenant))
+        return "qe-1"
 
     async def fake_collect(*args):
-        collected.append(args); return "gap-1"
+        collected.append(args)
+        return "gap-1"
 
     async def fake_scan(tenant, since_hours=168, model_type=None):
-        scans.append((tenant, since_hours)); return {"taskId": "t-1"}
+        scans.append((tenant, since_hours))
+        return {"taskId": "t-1"}
 
     monkeypatch.setattr(service.quality_event_bus, "emit", fake_emit)
     monkeypatch.setattr("app.services.evidence_gap_service.collect", fake_collect)

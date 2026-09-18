@@ -12,7 +12,7 @@ import time
 
 from app.core.obs import degraded
 from app.providers.factory import get_llm_provider
-from app.services import retrieval_service, term_service
+from app.services import retrieval_service
 
 _DECOMPOSE_PROMPT = """你是电网运维复杂问题分解专家。将用户问题拆解为 2-4 个独立可检索的子问题。
 要求：

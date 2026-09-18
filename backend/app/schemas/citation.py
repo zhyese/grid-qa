@@ -2,7 +2,6 @@
 """第三层 · 标准化引用输出 schema + 降级解析。"""
 import json
 import re
-from typing import Optional
 
 from pydantic import BaseModel, Field
 

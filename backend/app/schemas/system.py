@@ -1,5 +1,4 @@
 """系统（日志/配置）相关 schema。"""
-from datetime import datetime
 from typing import Literal, Optional
 
 from pydantic import BaseModel

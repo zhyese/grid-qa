@@ -18,5 +18,8 @@ jobs:
           python -m pip install --upgrade pip
           grep -v "sentence-transformers" backend/requirements.txt > /tmp/req.txt
           pip install -r /tmp/req.txt
+          pip install ruff
+      - name: Lint（ruff，与本地同配置 ruff.toml；E402 豁免见配置内注释）
+        run: ruff check backend tests
       - name: 运行单元测试（跳过需服务的集成测试）
         run: python -m pytest tests/ -v -m "not integration"

@@ -138,6 +138,8 @@ class Settings(BaseSettings):
     KG_RAG_ENABLE: bool = True   # 问答时融合知识图谱结构化上下文(GraphRAG)
     KG_AUTO_EXTRACT_ENABLE: bool = True  # 文档向量化后是否后台调用 LLM 自动抽取三元组
     KG_TOKENIZE_CACHE_ENABLE: bool = False  # B5：jieba 分词结果 Redis 缓存（默认关，opt-in）
+    # KG 每日对账（2026-09-17 断电后 MySQL 镜像 11052 vs Neo4j 61 漂移 170 倍无人知的教训）；<=0 关闭
+    KG_RECONCILE_CRON_HOURS: float = 24.0
 
     # ---------- 重排 ----------
     RERANK_ENABLE: bool = True

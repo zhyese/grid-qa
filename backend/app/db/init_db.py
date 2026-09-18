@@ -29,12 +29,12 @@ from app.models.operation_log import OperationLog  # noqa: F401  确保表被注
 from app.models.qa_cache import QaCache  # noqa: F401  确保表被注册
 from app.models.ticket import Ticket  # noqa: F401  确保两票表与来源幂等约束被注册
 from app.models.user import User  # noqa: F401
-from app.models.agent_tool_call import AgentToolCall  # noqa: F401  S4 工具调用审计
-from app.models.alert_disposal import AlertDisposal  # noqa: F401  S3 告警处置
-from app.models.persona_config import PersonaConfig  # noqa: F401  S5 persona 配置覆盖
+from app.models.agent_tool_call import AgentToolCall   # noqa: F401  # S4 工具调用审计
+from app.models.alert_disposal import AlertDisposal   # noqa: F401  # S3 告警处置
+from app.models.persona_config import PersonaConfig   # noqa: F401  # S5 persona 配置覆盖
 from app.models.permission import RolePermission  # noqa: F401  RBAC 角色权限覆盖
 from app.models.favorite import Favorite  # noqa: F401  个人收藏夹
-from app.models.agent_memory import AgentMemory  # noqa: F401  N1 Agent 长期记忆
+from app.models.agent_memory import AgentMemory   # noqa: F401  # N1 Agent 长期记忆
 from app.models.qa_trace import QaTrace  # noqa: F401  问答链路 trace（启动 create_all 自动建表）
 from app.models.quality_event import QualityEvent  # noqa: F401  质量事件总线(数据飞轮 Task A1)；缺此行→表不建→emit 撞 Table doesn't exist
 from app.models.workflow import Workflow, WorkflowRun  # noqa: F401  可视化工作流编排（缺此行→表不建→run 撞 Table doesn't exist）

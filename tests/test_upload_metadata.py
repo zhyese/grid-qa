@@ -4,9 +4,7 @@ upload_documents 收 effectiveAt/expiresAt/isPermanent/versionOf → 建 Knowled
 （status=draft）。开关 GOVERNANCE_UPLOAD_REQUIRE 默认关（关=现状不上传即建，开=引导）。
 """
 import asyncio
-import uuid as _u
 from datetime import datetime
-from types import SimpleNamespace
 
 
 def _run(coro):

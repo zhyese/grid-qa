@@ -10,7 +10,6 @@ schema 转换 1:1（MCP inputSchema == OpenAI parameters）：
   OpenAI → MCP: {"name":oai.function.name,"description":oai.function.description,"inputSchema":oai.function.parameters}
 """
 import json
-from typing import Any
 
 import httpx
 

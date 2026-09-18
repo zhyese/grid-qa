@@ -1,5 +1,5 @@
 """路由配置：阈值/开关/权重。"""
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 
 @dataclass

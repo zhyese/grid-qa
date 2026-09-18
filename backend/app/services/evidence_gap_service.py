@@ -86,7 +86,6 @@ async def ai_draft(gap_id: int, model_type: str | None = None) -> str:
     """AI 续写草稿：自适应 prompt（backbone 共享）+ 放宽检索。失败返回空串。"""
     from app.config import settings
     from app.services import retrieval_service
-    from app.services.knowledge_backbone import generate_adaptive_draft
     try:
         async with AsyncSessionLocal() as db:
             row = (await db.execute(select(EvidenceGap).where(EvidenceGap.id == gap_id))).scalar_one_or_none()

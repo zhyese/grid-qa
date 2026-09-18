@@ -20,8 +20,8 @@ def labels_to_grade(labels: list[str]) -> tuple[str, dict]:
     ≥2 条 relevant=correct（证据充分）；1 条 relevant/partial=ambiguous（证据有限）；
     全 irrelevant=incorrect（触发纠错）。
     """
-    rel = sum(1 for l in labels if l == "relevant")
-    partial = sum(1 for l in labels if l == "partial")
+    rel = sum(1 for lb in labels if lb == "relevant")
+    partial = sum(1 for lb in labels if lb == "partial")
     if rel >= 2:
         grade = GRADE_CORRECT
     elif rel + partial >= 1:

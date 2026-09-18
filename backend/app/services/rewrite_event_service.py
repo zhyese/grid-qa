@@ -72,7 +72,9 @@ async def stats(period: str = "today") -> dict:
             )).all()
             daily = []
             for d, t, a, c in daily_rows:
-                t = int(t or 0); a = int(a or 0); c = int(c or 0)
+                t = int(t or 0)
+                a = int(a or 0)
+                c = int(c or 0)
                 daily.append({
                     "date": str(d), "total": t, "adopted": a, "cacheHit": c,
                     "adoptedRate": round(a / t, 3) if t else 0,

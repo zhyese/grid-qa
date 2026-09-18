@@ -1,5 +1,4 @@
 """RewriteStrategyClassifier 单测：类型分类 + few-shot + adaptive skip。"""
-import pytest
 from app.services.rewrite_strategy import classify, get_fewshot
 
 

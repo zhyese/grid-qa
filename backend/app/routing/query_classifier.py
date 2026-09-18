@@ -5,7 +5,7 @@
 import json
 import os
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Optional
 
 # ---- 电网术语词典（约 50 核心词 + grid_terms.json 别名）----
@@ -127,7 +127,6 @@ def extract_features(query: str) -> QueryFeatures:
         f.query_type = "mixed"
 
     # 术语密度
-    words = set(text)  # 字符级，对中文更适用（避免分词差异）
     term_hits = sum(1 for t in _TERM_DICT if t in text)
     f.term_density = min(term_hits / max(len(text), 1), 1.0)
 

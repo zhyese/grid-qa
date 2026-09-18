@@ -17,11 +17,10 @@ import json
 import uuid
 
 from sqlalchemy import func, select, update
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.core.obs import degraded
-from app.core.otel_genai import get_trace_id, trace_span
+from app.core.otel_genai import trace_span
 from app.db.session import AsyncSessionLocal
 from app.models.agent_memory import AgentMemory
 from app.providers.factory import get_llm_provider
@@ -340,7 +339,6 @@ class _AgentMemoryService:
             return ""
 
         # 格式化为 system 消息
-        trace_id = get_trace_id()
         header = "以下是关于该用户的长期记忆（供参考，不要直接暴露给用户）："
         body = "\n".join(f"- {p}" for p in parts)
         return f"{header}\n{body}"

@@ -15,7 +15,6 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from app.config import settings
 from app.services import qa_service
 
 

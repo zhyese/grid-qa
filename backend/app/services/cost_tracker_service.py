@@ -7,11 +7,8 @@
       COST_QUOTA_EXCEEDED Counter(user, tenant)
 """
 import json
-import time
 from datetime import date, datetime
-from decimal import Decimal
 
-from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.obs import degraded
@@ -101,7 +98,6 @@ async def check_quota(username: str, tenant: str) -> dict:
 
 async def get_cost_report(db: AsyncSession, period: str = "today") -> dict:
     """成本报告（Admin 看板）。"""
-    today = date.today().isoformat()
     try:
         # token 数据由 record_token_usage 落 operation_logs（operate_type=cost_track）
         from sqlalchemy import text

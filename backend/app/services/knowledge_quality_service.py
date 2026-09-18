@@ -2,15 +2,10 @@
 
 对知识库按 chunk 维度打分 + 整体质量评估 + 盲区发现。
 """
-import json
-import re
-from collections import Counter
-from pathlib import Path
 
-from sqlalchemy import func, select, text
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.obs import degraded
 from app.models.chunk import Chunk
 from app.models.document import Document
 from app.models.feedback import Feedback

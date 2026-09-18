@@ -163,7 +163,8 @@ async def test_retest_skips_recent_indexed(unique_tenant, monkeypatch):
 
     called = []
     async def fake_top1(db, q, t, top_k=1):
-        called.append(q); return [{"score": 0.99, "doc_id": "d"}]
+        called.append(q)
+        return [{"score": 0.99, "doc_id": "d"}]
     monkeypatch.setattr(ev, "_retrieve_top1", fake_top1)
     monkeypatch.setattr(metrics.EVOLUTION_LIFT, "observe", lambda x: None)
 
@@ -195,7 +196,8 @@ async def test_retest_switch_disable(unique_tenant, monkeypatch):
 
     called = []
     async def fake_top1(db, q, t, top_k=1):
-        called.append(q); return [{"score": 0.99, "doc_id": "d"}]
+        called.append(q)
+        return [{"score": 0.99, "doc_id": "d"}]
     monkeypatch.setattr(ev, "_retrieve_top1", fake_top1)
     monkeypatch.setattr(metrics.EVOLUTION_LIFT, "observe", lambda x: None)
 

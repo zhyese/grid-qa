@@ -773,7 +773,6 @@ async def answer(
         return hot
 
     # 多轮不走缓存（上下文变化）；单轮走三级缓存：Redis(L1) → 语义缓存(L1.5) → MySQL(L2) → LLM(L3)
-    cache_layer = "llm"  # 默认走 LLM
     if is_single and not await _is_blacklisted(nq):
         # L1: Redis 热点缓存（精确 key 匹配）
         try:
@@ -978,7 +977,8 @@ async def answer(
         _tier, _tier_reason = "plus", "skip"
     _tc0 = _get_trace()
     if _tc0:
-        _tc0.mark("llm_tier", _tier); _tc0.mark("llm_route_reason", _tier_reason)
+        _tc0.mark("llm_tier", _tier)
+        _tc0.mark("llm_route_reason", _tier_reason)
     _llm0 = time.time()
     _llm_prov = get_llm_provider(model_type, tier=_tier)
     # B4：真实 token usage（opt-in，默认关 → 走原 chat str 路径，估算 token）
@@ -1423,7 +1423,6 @@ async def stream_answer(
 
     # 0) 单轮三级缓存：Redis(L1) → MySQL(L2) → LLM(L3)
     #    regen=True（重新生成）跳过缓存读，强制重走 LLM
-    cache_layer = "llm"
     if is_single and not regen and not await _is_blacklisted(nq):
         # L1: Redis 热点
         try:
@@ -1654,7 +1653,8 @@ async def stream_answer(
         _tier, _tier_reason = "plus", "skip"
     _tc0 = _get_trace()
     if _tc0:
-        _tc0.mark("llm_tier", _tier); _tc0.mark("llm_route_reason", _tier_reason)
+        _tc0.mark("llm_tier", _tier)
+        _tc0.mark("llm_route_reason", _tier_reason)
     parts: list[str] = []
     _llm0 = time.time()
     _llm_prov = get_llm_provider(model_type, tier=_tier)

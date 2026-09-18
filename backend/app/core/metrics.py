@@ -73,6 +73,9 @@ KB_VECTORIZED_DOCS = Gauge("grid_kb_vectorized_docs", "已向量化文档数(sta
 # 知识图谱
 KG_EXTRACT = Counter("grid_kg_extract_total", "知识图谱抽取次数")
 KB_TRIPLES = Gauge("grid_kb_triples", "知识图谱三元组总数")
+# KG 每日对账（2026-09-17 断电漂移 170 倍无人知的教训）：镜像 vs 本体
+KG_RECONCILE = Gauge("grid_kg_reconcile", "KG 对账计数", ["store"])  # store=mysql_distinct|neo4j_edges
+KG_DRIFT_TRIPLES = Gauge("grid_kg_drift_triples", "KG 三元组漂移(MySQL DISTINCT - Neo4j 边, 应=0)")
 # 降级：业务/IO 失败被兜底吞掉时的计数（Neo4j挂/rerank挂/缓存挂/删除失败…）—— 让盲降级可见
 DEGRADED = Counter("grid_degraded_total", "静默降级次数(失败被兜底)", ["tag"])
 LLM_USER_OBSERVER_EVENTS = Counter(

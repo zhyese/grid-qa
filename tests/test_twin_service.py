@@ -7,7 +7,6 @@
 - push_alert_location 告警定位推送
 """
 import asyncio
-import datetime
 
 import pytest
 

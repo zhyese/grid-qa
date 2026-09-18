@@ -26,7 +26,7 @@ async def test_list_gaps_filter_by_source():
     res = await eg.list_gaps(status="pending", source="auto_crag", page=1, size=200)
     queries = [g["query"] for g in res["list"]]
     assert q_crag in queries, f"auto_crag 来源记录应在结果中: {queries[:5]}"
-    assert q_manual not in queries, f"manual 来源记录不应在 auto_crag 过滤结果中"
+    assert q_manual not in queries, "manual 来源记录不应在 auto_crag 过滤结果中"
 
 
 @pytest.mark.asyncio

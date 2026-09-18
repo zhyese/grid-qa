@@ -295,7 +295,6 @@ async def delete_ticket(
 
 async def get_ticket_stats(db: AsyncSession, tenant: str = "default") -> dict:
     """票据统计看板。"""
-    base = select(Ticket).where(Ticket.is_deleted == 0, Ticket.tenant_id == tenant)
     total = (await db.execute(select(func.count()).select_from(Ticket).where(
         Ticket.is_deleted == 0, Ticket.tenant_id == tenant))).scalar() or 0
     by_status = (await db.execute(

@@ -56,11 +56,14 @@ def parse_ticket(text: str, ticket_type: str = "操作票") -> dict:
         if not s:
             continue
         if _is_header(s, _STEP_MARKERS):
-            section = "steps"; continue
+            section = "steps"
+            continue
         if _is_header(s, _SAFETY_MARKERS):
-            section = "safety"; continue
+            section = "safety"
+            continue
         if _is_header(s, _DANGER_MARKERS):
-            section = "dangers"; continue
+            section = "dangers"
+            continue
         # 跳过已被字段正则消费的行
         if re.match(r"(?:操作任务|工作任务|任务)\s*[:：]", s) \
            or re.match(r"(?:调度)?(?:指令|命令)", s) \
@@ -226,7 +229,8 @@ async def audit_ticket(text: str, ticket_type: str = "操作票", model_type: st
     t0 = time.perf_counter()
     rules = _load_rules()
     parsed = parse_ticket(text, ticket_type)
-    latency = lambda: int((time.perf_counter() - t0) * 1000)
+    def latency() -> int:
+        return int((time.perf_counter() - t0) * 1000)
 
     # 解析为空短路
     if not parsed["task"] and not parsed["steps"]:
