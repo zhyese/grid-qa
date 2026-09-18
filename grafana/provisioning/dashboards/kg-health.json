@@ -1,0 +1,79 @@
+{
+  "title": "电网运维 RAG · KG 健康对账",
+  "uid": "grid-qa-kg-health",
+  "schemaVersion": 38,
+  "refresh": "1m",
+  "time": { "from": "now-24h", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "title": "三元组漂移（MySQL DISTINCT - Neo4j 边，恒应为 0）",
+      "type": "stat",
+      "gridPos": { "x": 0, "y": 0, "w": 12, "h": 6 },
+      "datasource": { "type": "prometheus" },
+      "targets": [
+        { "expr": "max(grid_kg_drift_triples)", "legendFormat": "漂移", "refId": "A" }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 1 },
+              { "color": "red", "value": 6 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" }
+    },
+    {
+      "id": 2,
+      "title": "对账双端计数（应重合）",
+      "type": "timeseries",
+      "gridPos": { "x": 12, "y": 0, "w": 12, "h": 6 },
+      "datasource": { "type": "prometheus" },
+      "targets": [
+        { "expr": "max(grid_kg_reconcile{store=\"mysql_distinct\"})", "legendFormat": "MySQL DISTINCT 三元组", "refId": "A" },
+        { "expr": "max(grid_kg_reconcile{store=\"neo4j_edges\"})", "legendFormat": "Neo4j REL 边", "refId": "B" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] }
+    },
+    {
+      "id": 3,
+      "title": "不安全配置计数（应恒 0）",
+      "type": "stat",
+      "gridPos": { "x": 0, "y": 6, "w": 12, "h": 6 },
+      "datasource": { "type": "prometheus" },
+      "targets": [
+        { "expr": "max(grid_insecure_config)", "legendFormat": "命中数", "refId": "A" }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 1 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" }
+    },
+    {
+      "id": 4,
+      "title": "图谱抽取速率",
+      "type": "timeseries",
+      "gridPos": { "x": 12, "y": 6, "w": 12, "h": 6 },
+      "datasource": { "type": "prometheus" },
+      "targets": [
+        { "expr": "sum(rate(grid_kg_extract_total[1h]))", "legendFormat": "抽取次数/h", "refId": "A" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] }
+    }
+  ]
+}
