@@ -39,6 +39,15 @@ METRIC_READ = "metric:read"          # 成本 / 评测趋势看板
 # 可视化工作流编排
 WORKFLOW_MANAGE = "workflow:manage"  # 建/改/删/运行工作流（admin+editor）
 WORKFLOW_READ = "workflow:read"      # 查看工作流列表/详情/运行历史
+# N7 运维报告智能生成
+REPORT_READ = "report:read"          # 查看报告列表/详情/导出（全角色）
+REPORT_MANAGE = "report:manage"      # 生成/重生成/删除报告（admin+editor）
+# 文档协作批注 + 电子签批
+DOC_ANNOTATE = "doc:annotate"        # 文档锚点批注/回复/解决（admin+editor+operator）
+DOC_SIGNOFF = "doc:signoff"          # 发起/管理签批流（admin+editor）；签批动作校验指定签批人
+# N5 故障仿真演练沙箱
+DRILL_READ = "drill:read"            # 查看剧本/演练历史/复盘（全角色）
+DRILL_MANAGE = "drill:manage"        # 建/改/删剧本 + 发起/终止演练（admin+editor+operator 一线可练）
 
 # admin 全权限标记（require_perm 见 "*" 直接放行）
 ADMIN_ALL = "*"
@@ -61,11 +70,16 @@ ROLE_PERMISSIONS: dict[str, set[str]] = {
         QA_ANSWER, FEEDBACK_READ,
         KG_READ, KG_EDIT, DOMAIN_USE, TICKET_MANAGE,
         WORKFLOW_MANAGE, WORKFLOW_READ,
+        REPORT_READ, REPORT_MANAGE,
+        DOC_ANNOTATE, DOC_SIGNOFF,
+        DRILL_READ, DRILL_MANAGE,
     },
     "operator": {
         OPS_READ, OPS_WRITE,
         DOC_READ, QA_ANSWER, FEEDBACK_READ,
         KG_READ, DOMAIN_USE,
+        REPORT_READ, DOC_ANNOTATE,
+        DRILL_READ, DRILL_MANAGE,
     },
     "auditor": {
         OPS_READ,
@@ -73,6 +87,7 @@ ROLE_PERMISSIONS: dict[str, set[str]] = {
         KG_READ, DOMAIN_USE,
         ALERT_READ, AUDIT_READ, METRIC_READ,
         WORKFLOW_READ,
+        REPORT_READ, DRILL_READ,
     },
 }
 

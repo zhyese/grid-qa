@@ -507,6 +507,15 @@ app.include_router(mcp_router, prefix=settings.API_PREFIX)
 if settings.WORKFLOW_ENABLE:  # 可视化工作流编排（关=现状不注册，零开销）
     from app.routers import workflow as workflow_router  # noqa: E402
     app.include_router(workflow_router.router, prefix=settings.API_PREFIX)
+if settings.OPS_REPORT_ENABLE:  # N7 运维报告智能生成（关=现状不注册）
+    from app.routers import ops_report  # noqa: E402
+    app.include_router(ops_report.router, prefix=settings.API_PREFIX)
+if settings.DOC_COLLAB_ENABLE:  # 文档协作批注+电子签批（关=现状不注册）
+    from app.routers import doc_collab  # noqa: E402
+    app.include_router(doc_collab.router, prefix=settings.API_PREFIX)
+if settings.DRILL_SANDBOX_ENABLE:  # N5 故障仿真演练沙箱（关=现状不注册）
+    from app.routers import drill  # noqa: E402
+    app.include_router(drill.router, prefix=settings.API_PREFIX)
 
 
 # ---- 全局异常：BizError -> 统一 {code, message, data}（HTTP 恒 200，业务码放 body）----

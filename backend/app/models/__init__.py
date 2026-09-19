@@ -3,6 +3,8 @@
 启动建表仍由 ``app.db.init_db`` 显式导入；这里提供跨模块使用时的稳定入口。
 """
 from app.models.domain_event import DomainEvent, EventDelivery
+from app.models.doc_collab import DocAnnotation, DocSignoff, DocSignoffEvent
+from app.models.drill import DrillRun, DrillScenario
 from app.models.knowledge_governance import (
     KnowledgeDocumentMetadata,
     KnowledgeGovernanceIssue,
@@ -11,6 +13,7 @@ from app.models.knowledge_governance import (
 from app.models.persistent_task import PersistentTask
 from app.models.realtime_event import ProactiveOpsRun, RealtimeDeviceMapping, RealtimeEvent
 from app.models.knowledge_evolution import KnowledgeEvolutionDraft
+from app.models.ops_report import OpsReport
 from app.models.qa_trace import QaTrace
 
 __all__ = [
@@ -19,4 +22,7 @@ __all__ = [
     "RealtimeEvent", "RealtimeDeviceMapping", "ProactiveOpsRun",
     "KnowledgeEvolutionDraft",
     "QaTrace",
+    "OpsReport",
+    "DocAnnotation", "DocSignoff", "DocSignoffEvent",
+    "DrillScenario", "DrillRun",
 ]

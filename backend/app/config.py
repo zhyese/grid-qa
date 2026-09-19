@@ -376,6 +376,25 @@ class Settings(BaseSettings):
     # 可视化工作流编排：开=/api/workflows 全套 API（拖拽 DAG→保存→异步执行→运行历史）；关=现状无此功能
     WORKFLOW_ENABLE: bool = False
 
+    # ---------- N7 运维报告智能生成 ----------
+    # 开=/api/ops-reports 全套 API（聚合交接班/遥测/两票/告警/预测数据→LLM 生成结构化报告→Word 导出）；
+    # 关=现状无此功能。聚合数据源全部来自既有 MySQL 表，LLM 失败降级为纯模板拼接（degraded 不 crash）。
+    OPS_REPORT_ENABLE: bool = False
+    # 报告时间范围上限（天），防一次拉全量告警/遥测拖垮 DB
+    OPS_REPORT_MAX_DAYS: int = 31
+
+    # ---------- 文档协作批注 + 电子签批 ----------
+    # 开=/api/doc-collab 全套 API（文档锚点批注/回复/解决 + 多人会签电子签批流+哈希链留痕）；关=现状无此功能。
+    # 签批 = 口令复核 + 时间戳 + 内容哈希链（防篡改可审计），不引入 CA 证书体系。
+    DOC_COLLAB_ENABLE: bool = False
+
+    # ---------- N5 故障仿真演练沙箱 ----------
+    # 开=/api/drills 全套 API（演练剧本 CRUD/孪生故障链生成剧本/时间轴仿真推演/操作打卡/评分+AI 复盘）；
+    # 关=现状无此功能。仿真基于剧本时间轴 + 孪生故障链数据，不触碰真实设备（纯只读推演）。
+    DRILL_SANDBOX_ENABLE: bool = False
+    # 演练单次时长上限（秒），超时自动判 finished
+    DRILL_MAX_DURATION_SECONDS: int = 3600
+
 
 @lru_cache
 def get_settings() -> Settings:

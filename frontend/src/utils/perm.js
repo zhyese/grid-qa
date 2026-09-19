@@ -19,17 +19,23 @@ const ROLE_PERMISSIONS = {
     'doc:read', 'doc:upload', 'doc:delete', 'doc:manage',
     'qa:answer', 'feedback:read',
     'kg:read', 'kg:edit', 'domain:use', 'ticket:manage',
+    'report:read', 'report:manage',
+    'doc:annotate', 'doc:signoff',
+    'drill:read', 'drill:manage',
   ]),
   operator: new Set([
     'ops:read', 'ops:write',
     'doc:read', 'qa:answer', 'feedback:read',
     'kg:read', 'domain:use',
+    'report:read', 'doc:annotate',
+    'drill:read', 'drill:manage',
   ]),
   auditor: new Set([
     'ops:read',
     'doc:read', 'qa:answer', 'feedback:read',
     'kg:read', 'domain:use',
     'alert:read', 'audit:read', 'metric:read',
+    'report:read', 'drill:read',
   ]),
 }
 

@@ -310,3 +310,52 @@ export const getEvolutionDraft = (id) => request.get(`/knowledge-evolution/draft
 export const reviewEvolutionDraft = (id, action, note = '') => request.post(`/knowledge-evolution/drafts/${id}/review`, { action, note })
 export const withdrawEvolutionDraft = (id, note = '') => request.post(`/knowledge-evolution/drafts/${id}/withdraw`, { note })
 export const getEvolutionStats = () => request.get('/knowledge-evolution/stats')
+
+// ===== N7 运维报告智能生成 =====
+export const getReportMeta = () => request.get('/ops-reports/meta')
+export const getReports = (params = {}) => request.get('/ops-reports', { params })
+export const createReport = (data) => request.post('/ops-reports', data)
+export const getReport = (id) => request.get(`/ops-reports/${id}`)
+export const regenerateReport = (id) => request.post(`/ops-reports/${id}/regenerate`)
+export const deleteReport = (id) => request.delete(`/ops-reports/${id}`)
+export const exportReportDocx = async (id) => {
+  const auth = useAuthStore()
+  const resp = await fetch(`/api/ops-reports/${id}/export/docx`, {
+    headers: auth.token ? { Authorization: `Bearer ${auth.token}` } : {},
+  })
+  if (!resp.ok) throw new Error('导出失败（报告未启用或未生成完成）')
+  return await resp.blob()
+}
+
+// ===== 文档协作批注 + 电子签批 =====
+export const getAnnotations = (docId, status = '') =>
+  request.get(`/doc-collab/documents/${docId}/annotations`, { params: status ? { status } : {} })
+export const addAnnotation = (docId, data) => request.post(`/doc-collab/documents/${docId}/annotations`, data)
+export const replyAnnotation = (id, content) => request.post(`/doc-collab/annotations/${id}/reply`, { content })
+export const resolveAnnotation = (id, resolved) => request.post(`/doc-collab/annotations/${id}/resolve`, { resolved })
+export const deleteAnnotation = (id) => request.delete(`/doc-collab/annotations/${id}`)
+export const getAnnotationStats = (docId) => request.get(`/doc-collab/documents/${docId}/annotation-stats`)
+export const suggestSigners = () => request.get('/doc-collab/signers')
+export const createSignoff = (docId, data) => request.post(`/doc-collab/documents/${docId}/signoffs`, data)
+export const getSignoffs = (docId) => request.get(`/doc-collab/documents/${docId}/signoffs`)
+export const getMyPendingSignoffs = () => request.get('/doc-collab/signoffs/my-pending')
+export const getSignoff = (id) => request.get(`/doc-collab/signoffs/${id}`)
+export const submitSignoff = (id) => request.post(`/doc-collab/signoffs/${id}/submit`)
+export const signSignoff = (id, password, comment = '') => request.post(`/doc-collab/signoffs/${id}/sign`, { password, comment })
+export const rejectSignoff = (id, password, reason = '') => request.post(`/doc-collab/signoffs/${id}/reject`, { password, reason })
+export const cancelSignoff = (id) => request.post(`/doc-collab/signoffs/${id}/cancel`)
+export const verifySignoff = (id) => request.get(`/doc-collab/signoffs/${id}/verify`)
+
+// ===== N5 故障仿真演练沙箱 =====
+export const getDrillScenarios = (params = {}) => request.get('/drills/scenarios', { params })
+export const createDrillScenario = (data) => request.post('/drills/scenarios', data)
+export const genScenarioFromFaultChain = (data) => request.post('/drills/scenarios/from-fault-chain', data)
+export const updateDrillScenario = (id, data) => request.put(`/drills/scenarios/${id}`, data)
+export const deleteDrillScenario = (id) => request.delete(`/drills/scenarios/${id}`)
+export const startDrillRun = (scenarioId) => request.post('/drills/runs', { scenarioId })
+export const getDrillRunState = (id) => request.get(`/drills/runs/${id}`)
+export const recordDrillAction = (id, action) => request.post(`/drills/runs/${id}/actions`, { action })
+export const finishDrillRun = (id) => request.post(`/drills/runs/${id}/finish`)
+export const abortDrillRun = (id) => request.post(`/drills/runs/${id}/abort`)
+export const getDrillRuns = (params = {}) => request.get('/drills/runs', { params })
+export const getDrillStats = () => request.get('/drills/stats')

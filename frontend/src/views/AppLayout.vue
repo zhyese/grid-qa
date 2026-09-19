@@ -89,6 +89,15 @@ const navItems = computed(() => {
     items.splice(4, 0, { to: '/knowledge-governance', icon: '🧭', label: '知识治理' })
     items.splice(5, 0, { to: '/knowledge-evolution', icon: '🧬', label: '知识自进化' })
   }
+  if (hasPerm(auth.role, 'report:read')) {
+    items.push({ to: '/ops-report', icon: '📝', label: '运维报告' })
+  }
+  if (hasPerm(auth.role, 'doc:read')) {
+    items.push({ to: '/doc-collab', icon: '🗒️', label: '文档协作' })
+  }
+  if (hasPerm(auth.role, 'drill:read')) {
+    items.push({ to: '/drill', icon: '🧯', label: '演练沙箱' })
+  }
   if (hasPerm(auth.role, 'metric:read')) {
     items.push({ to: '/prediction', icon: '🔮', label: '故障预测' })
     items.push({ to: '/trace', icon: '⏱', label: '链路诊断' })
