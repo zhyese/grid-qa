@@ -307,15 +307,14 @@ async def _generate(report_id: str, report_type: str, params: dict,
     """后台生成：默认独立 session（与请求生命周期解耦），测试可注入；失败落 failed 状态。"""
     from app.db.session import AsyncSessionLocal
 
-    async def _run(db: AsyncSession) -> None:
-        rpt = (await db.execute(select(OpsReport).where(
+    async def _run(session: AsyncSession) -> None:
+        rpt = (await session.execute(select(OpsReport).where(
             OpsReport.id == report_id, OpsReport.tenant == tenant_id))).scalar_one_or_none()
         if rpt is None:
             return
         try:
-            data = await collect_data(db, tenant_id, report_type, params["days"],
+            data = await collect_data(session, tenant_id, report_type, params["days"],
                                       params.get("deviceId", ""))
-            gen = None
             try:
                 gen = await _generate_sections(report_type, data, model_type)
             except Exception as e:  # noqa: BLE001 — LLM 失败降级模板，报告仍可交付
@@ -331,13 +330,36 @@ async def _generate(report_id: str, report_type: str, params: dict,
             degraded("ops_report_generate", e)
             rpt.status = "failed"
             rpt.error = str(e)
-        await db.commit()
+        await session.commit()
+        await _notify_done(rpt)
 
     if db is not None:
         await _run(db)
         return
     async with AsyncSessionLocal() as session:
         await _run(session)
+
+
+async def _notify_done(rpt: OpsReport) -> None:
+    """报告完成/失败通知创建者（cron 生成时创建者为 system → 改推 admin+editor）。"""
+    from app.services import notification_service
+
+    ok = rpt.status == "done"
+    title = f"运维报告{'生成完成' if ok else '生成失败'}：{rpt.title}"
+    body = (rpt.summary or rpt.error or "")[:200]
+    link = f"/ops-report?id={rpt.id}"
+    if rpt.created_by and rpt.created_by != "system":
+        await notification_service.notify_user(
+            rpt.created_by, "report_done" if ok else "report_failed",
+            title, body=body, link=link, tenant=rpt.tenant)
+        return
+    # system（cron）生成 → 通知 admin+editor（独立 session：_notify_done 可能被测试注入的
+    # sqlite session 调用，此分支仍应走真库查角色用户）
+    from app.db.session import AsyncSessionLocal
+    async with AsyncSessionLocal() as db:
+        await notification_service.notify_role(
+            db, ["admin", "editor"], "report_done" if ok else "report_failed",
+            title, body=body, link=link, tenant=rpt.tenant)
 
 
 async def regenerate(db: AsyncSession, report_id: str, tenant_id: str,
@@ -425,3 +447,36 @@ def type_meta() -> list[dict]:
     """前端下拉：报告类型元数据。"""
     return [{"type": k, "label": v["label"], "defaultDays": v["days"],
              "sections": v["sections"]} for k, v in REPORT_TYPES.items()]
+
+
+async def auto_report_loop(hours: float) -> None:
+    """定时自动生成（OPS_REPORT_CRON_HOURS>0 时由 main.py 挂载）。
+
+    created_by=system → 完成通知走 _notify_done 的 admin+editor 分支。
+    生成中防重入：同类型存在 generating 状态的 system 报告则跳过本轮。
+    """
+    import asyncio
+
+    from app.db.session import AsyncSessionLocal
+
+    while True:
+        await asyncio.sleep(hours * 3600)
+        try:
+            types = [t.strip() for t in
+                     (getattr(settings, "OPS_REPORT_AUTO_TYPES", "weekly") or "").split(",")
+                     if t.strip() in REPORT_TYPES]
+            async with AsyncSessionLocal() as db:
+                for t in types or ["weekly"]:
+                    spec = REPORT_TYPES[t]
+                    running = (await db.execute(
+                        select(func.count(OpsReport.id)).where(
+                            OpsReport.tenant == "default",
+                            OpsReport.report_type == t,
+                            OpsReport.status == "generating"))).scalar() or 0
+                    if running:
+                        continue
+                    await create_report(db, "default", "system", t,
+                                        days=spec["days"])
+                    print(f"[ops-report] cron 已触发 {spec['label']} 自动生成")
+        except Exception as e:  # noqa: BLE001 — 单轮失败不终止 loop
+            degraded("ops_report_cron", e)

@@ -22,6 +22,7 @@ const ROLE_PERMISSIONS = {
     'report:read', 'report:manage',
     'doc:annotate', 'doc:signoff',
     'drill:read', 'drill:manage',
+    'workflow:manage', 'workflow:read',
   ]),
   operator: new Set([
     'ops:read', 'ops:write',
@@ -36,6 +37,7 @@ const ROLE_PERMISSIONS = {
     'kg:read', 'domain:use',
     'alert:read', 'audit:read', 'metric:read',
     'report:read', 'drill:read',
+    'workflow:read',
   ]),
 }
 

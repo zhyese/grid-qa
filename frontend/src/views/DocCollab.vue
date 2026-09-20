@@ -72,6 +72,7 @@
             <input class="input" style="max-width:300px" v-model="replyDraft[a.id]" placeholder="回复…" size="12"
                    @keyup.enter="handleReply(a)" />
             <button class="btn btn-ghost btn-sm" :disabled="!(replyDraft[a.id] || '').trim()" @click="handleReply(a)">回复</button>
+            <button v-if="canSignoff" class="btn btn-ghost btn-sm" @click="handleToIssue(a)" title="转入知识治理工单">📋 转治理</button>
             <button v-if="a.status === 'open'" class="btn btn-ghost btn-sm" @click="handleResolve(a, true)">✔ 解决</button>
             <button v-else class="btn btn-ghost btn-sm" @click="handleResolve(a, false)">↩ 重新打开</button>
             <button v-if="auth.role === 'admin' || a.author === auth.username" class="btn btn-danger btn-sm" @click="handleDeleteAnn(a)">🗑</button>
@@ -207,7 +208,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useAuthStore } from '../stores/auth'
 import { hasPerm } from '../utils/perm'
 import {
-  addAnnotation, cancelSignoff, createSignoff, deleteAnnotation, getAnnotationStats,
+  addAnnotation, annotationToIssue, cancelSignoff, createSignoff, deleteAnnotation, getAnnotationStats,
   getAnnotations, getMyPendingSignoffs, getSignoff, getSignoffs, listDocs,
   rejectSignoff, replyAnnotation, resolveAnnotation, signSignoff, submitSignoff,
   suggestSigners, verifySignoff,
@@ -295,6 +296,14 @@ async function handleReply(a) {
   await replyAnnotation(a.id, text)
   replyDraft.value[a.id] = ''
   loadAnnotations()
+}
+
+async function handleToIssue(a) {
+  if (!confirm('将该批注转为知识治理 issue（进知识治理页处置）？')) return
+  try {
+    const res = await annotationToIssue(a.id)
+    alert(res.data?.existing ? '该批注已转过治理工单' : '已转治理 issue，请到「知识治理」页查看处置')
+  } catch (e) { /* 拦截器已提示 */ }
 }
 
 async function handleResolve(a, resolved) {

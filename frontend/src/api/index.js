@@ -359,3 +359,35 @@ export const finishDrillRun = (id) => request.post(`/drills/runs/${id}/finish`)
 export const abortDrillRun = (id) => request.post(`/drills/runs/${id}/abort`)
 export const getDrillRuns = (params = {}) => request.get('/drills/runs', { params })
 export const getDrillStats = () => request.get('/drills/stats')
+export const getDrillLeaderboard = (days = 30) => request.get('/drills/leaderboard', { params: { days } })
+// 批注转治理 issue
+export const annotationToIssue = (id) => request.post(`/doc-collab/annotations/${id}/to-issue`)
+
+// ===== 通知中心 =====
+export const getNotifications = (unread = false, limit = 50) =>
+  request.get('/notifications', { params: { unread, limit } })
+export const getUnreadCount = () => request.get('/notifications/unread-count')
+export const markNotificationRead = (id) => request.post(`/notifications/${id}/read`)
+export const markAllNotificationsRead = () => request.post('/notifications/read-all')
+
+// ===== eval_matrix 产品化 =====
+export const runEvalMatrix = (dims = ['retrieval']) => request.post('/system/eval-matrix/run', { dims })
+export const getEvalMatrixStatus = () => request.get('/system/eval-matrix/status')
+export const getEvalMatrixReports = () => request.get('/system/eval-matrix/reports')
+export const getEvalMatrixReport = (name) =>
+  request.get(`/system/eval-matrix/reports/${encodeURIComponent(name)}`)
+
+// ===== 记忆召回 =====
+export const recallMemory = (query, scope = 'user', agentId = '') =>
+  request.post('/memory/recall', { query, scope, agentId })
+
+// ===== 可视化工作流编排 =====
+export const getWorkflows = (params = {}) => request.get('/workflows', { params })
+export const getWorkflowMeta = () => request.get('/workflows/meta')
+export const createWorkflow = (data) => request.post('/workflows', data)
+export const getWorkflow = (id) => request.get(`/workflows/${id}`)
+export const updateWorkflow = (id, data) => request.put(`/workflows/${id}`, data)
+export const deleteWorkflow = (id) => request.delete(`/workflows/${id}`)
+export const runWorkflow = (id, query, vars = {}) => request.post(`/workflows/${id}/run`, { query, vars })
+export const getWorkflowRuns = (id, params = {}) => request.get(`/workflows/${id}/runs`, { params })
+export const getWorkflowRun = (runId) => request.get(`/workflows/runs/${runId}`)

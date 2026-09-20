@@ -129,6 +129,15 @@ async def drill_stats_api(
     return success(await svc.drill_stats(db, user.tenant_id))
 
 
+@router.get("/leaderboard")
+async def drill_leaderboard_api(
+    days: int = Query(30, ge=1, le=366),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_perm(DRILL_READ)),
+):
+    return success(await svc.leaderboard(db, user.tenant_id, days=days))
+
+
 @router.get("/runs/{run_id}")
 async def run_state_api(
     run_id: str,

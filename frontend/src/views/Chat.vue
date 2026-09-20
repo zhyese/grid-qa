@@ -111,6 +111,9 @@
               <a v-if="m.content && !m.streaming" class="ev-btn" @click="showEvidence(m)">🔍 证据溯源</a>
               <a v-if="m.trace" class="ev-btn" @click="m._linkOpen = !m._linkOpen">📊 链路耗时</a>
               <a v-if="m.content && !m.streaming && (m.confidence==='medium'||m.confidence==='refused')" class="ev-btn" @click="reportGap(m)">⚠️ 上报证据不足</a>
+              <a v-if="m.content && !m.streaming" class="ev-btn" @click="actToReport(m)" title="以此问答为线索生成运维报告">📝 生成报告</a>
+              <a v-if="m.content && !m.streaming" class="ev-btn" @click="actToTicket(m)" title="以答案要点起草两票">📋 转两票</a>
+              <a v-if="m.content && !m.streaming && ttsSupported" class="ev-btn" @click="toggleTts(m)">{{ m._ttsOn ? '⏹ 停止' : '🔊 朗读' }}</a>
             </div>
             <!-- 证据溯源弹窗 -->
             <div class="modal-overlay" v-if="m._evOpen" @click.self="m._evOpen = false">
@@ -171,6 +174,9 @@
         </select>
         <label class="ws-toggle" title="WebSocket 双向流式（默认 SSE）"><input type="checkbox" v-model="useWS" /> WS</label>
         <label class="ws-toggle" title="深度思考：AI 自主多轮调工具(检索/图谱/案例)交叉验证后作答（仅 SSE）"><input type="checkbox" v-model="agentMode" /> 🎯深度</label>
+        <button v-if="asrSupported" class="btn btn-ghost btn-sm" style="flex:none"
+                :class="{ 'btn-primary': listening }" @click="toggleAsr" :title="listening ? '停止录音' : '语音输入'">
+          {{ listening ? '⏺ 录音中' : '🎤' }}</button>
         <input class="input" v-model="query" placeholder="输入运维问题，如：主变压器温度异常如何处置..." @keyup.enter="ask" :disabled="loading" />
         <button v-if="loading && !useWS" class="btn btn-danger send-btn" @click="stopGen">⏹ 停止</button>
         <button v-else class="btn btn-primary send-btn" @click="ask" :disabled="loading">{{ loading ? '生成中...' : '发送' }}</button>
@@ -260,6 +266,46 @@ const quickQuestions = [
   '变压器日常巡视检查哪些项目？',
 ]
 function quickAsk(q) { query.value = q; ask() }
+
+// ===== 行动入口：问答 → 报告/两票（页面互跳，参数随行）=====
+function actToReport(m) { router.push({ path: '/ops-report', query: { type: 'fault', device: (m.query || '').slice(0, 40) } }) }
+function actToTicket(m) { router.push({ path: '/ticket', query: { task: (m.query || '').slice(0, 60) } }) }
+
+// ===== 语音输入（浏览器 Web Speech API，Chrome/Edge 原生，零后端依赖）=====
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition
+const asrSupported = !!SR
+const listening = ref(false)
+let recog = null
+function toggleAsr() {
+  if (!asrSupported) return
+  if (listening.value) { recog?.stop(); return }
+  recog = new SR()
+  recog.lang = 'zh-CN'
+  recog.interimResults = true
+  recog.continuous = false
+  recog.onresult = (e) => {
+    let text = ''
+    for (let i = e.resultIndex; i < e.results.length; i++) text += e.results[i][0].transcript
+    query.value = (query.value ? query.value + text : text).slice(0, 500)
+  }
+  recog.onend = () => { listening.value = false }
+  recog.onerror = () => { listening.value = false }
+  listening.value = true
+  try { recog.start() } catch (e) { listening.value = false }
+}
+
+// ===== TTS 答案播报（speechSynthesis，播报当前答案前 500 字）=====
+const ttsSupported = 'speechSynthesis' in window
+function toggleTts(m) {
+  if (!ttsSupported) return
+  if (speechSynthesis.speaking) { speechSynthesis.cancel(); (messages.value || []).forEach(x => (x._ttsOn = false)); return }
+  const plain = String(m.content || '').replace(/[#*`>\[\]()]/g, '').slice(0, 500)
+  const u = new SpeechSynthesisUtterance(plain)
+  u.lang = 'zh-CN'
+  u.onend = () => { m._ttsOn = false }
+  m._ttsOn = true
+  speechSynthesis.speak(u)
+}
 function askRelated(q) { query.value = q; ask() }
 
 async function loadRelated(m) {

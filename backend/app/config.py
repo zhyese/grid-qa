@@ -382,6 +382,10 @@ class Settings(BaseSettings):
     OPS_REPORT_ENABLE: bool = False
     # 报告时间范围上限（天），防一次拉全量告警/遥测拖垮 DB
     OPS_REPORT_MAX_DAYS: int = 31
+    # 定时自动生成（<=0 关）：每 N 小时按 OPS_REPORT_AUTO_TYPES 生成（created_by=system，
+    # 完成后通知 admin+editor）。逗号分隔类型，如 "weekly,shift"。
+    OPS_REPORT_CRON_HOURS: float = 0.0
+    OPS_REPORT_AUTO_TYPES: str = "weekly"
 
     # ---------- 文档协作批注 + 电子签批 ----------
     # 开=/api/doc-collab 全套 API（文档锚点批注/回复/解决 + 多人会签电子签批流+哈希链留痕）；关=现状无此功能。
@@ -394,6 +398,21 @@ class Settings(BaseSettings):
     DRILL_SANDBOX_ENABLE: bool = False
     # 演练单次时长上限（秒），超时自动判 finished
     DRILL_MAX_DURATION_SECONDS: int = 3600
+    # 超时结算 sweep 周期（秒，<=0 关）：无人轮询的 running 演练由后台兜底结算
+    DRILL_SWEEP_INTERVAL: float = 300.0
+    # 演练遗漏动作 → 质量事件（drill_missed_action，喂培训盲区分析）；关=现状不 emit
+    DRILL_MISS_TO_QUALITY_ENABLE: bool = False
+
+    # ---------- P4-⑭ 多轮对话摘要压缩（接线开关，默认关=现状完整历史喂 LLM）----------
+    # 开 → 多轮历史 > CONV_SUMMARY_THRESHOLD 条时异步 LLM 摘要存 conversation.summary，
+    #      prompt 组装用「摘要 + 最近 N 条」替代全部历史（省 token 不丢关键上下文）
+    CONV_SUMMARY_ENABLE: bool = False
+    CONV_SUMMARY_THRESHOLD: int = 8   # 超过多少条消息触发摘要
+    CONV_SUMMARY_KEEP_LAST: int = 4   # 摘要模式保留的最近消息条数
+
+    # ---------- eval_matrix 产品化（夜间定时评测）----------
+    # 每 N 小时自动跑一次评测矩阵（<=0 关）；报告落 reports/eval_matrix_*.md 并通知 admin
+    EVAL_MATRIX_CRON_HOURS: float = 0.0
 
 
 @lru_cache

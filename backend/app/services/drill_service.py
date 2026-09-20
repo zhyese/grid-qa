@@ -5,7 +5,7 @@
 （LLM 失败降级模板，degraded 不 crash）。纯只读推演，不触碰任何真实设备/工单。
 """
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -345,6 +345,7 @@ async def finish_run(db: AsyncSession, run_id: str, tenant_id: str, username: st
     r.duration_sec = _elapsed_sec(r)
     score = _score_run(r)
     r.score = score
+    await _emit_missed_quality(r, score)
     if with_llm and not auto:
         data = {"scenario": r.scenario_name, "faultDevice": r.fault_device,
                 "events": r.propagation, "actions": r.actions,
@@ -368,7 +369,20 @@ async def finish_run(db: AsyncSession, run_id: str, tenant_id: str, username: st
     else:
         r.evaluation_md = _template_evaluation(r, score)
     await db.commit()
+    await _notify_finished(r)
     return _run_row(r, live=False)
+
+
+async def _notify_finished(r: DrillRun) -> None:
+    """演练复盘完成通知演练者（auto 超时结算也通知）。"""
+    from app.services import notification_service
+
+    grade = (r.score or {}).get("grade", "")
+    await notification_service.notify_user(
+        r.started_by, "drill_finished",
+        f"演练复盘就绪：{r.scenario_name}（{grade}）",
+        body=f"覆盖率 {int(((r.score or {}).get('coverage') or 0) * 100)}%，用时 {r.duration_sec}s",
+        link="/drill", tenant=r.tenant)
 
 
 async def abort_run(db: AsyncSession, run_id: str, tenant_id: str,
@@ -380,6 +394,7 @@ async def abort_run(db: AsyncSession, run_id: str, tenant_id: str,
     r.finished_at = datetime.now()
     r.duration_sec = _elapsed_sec(r)
     r.score = _score_run(r)  # 中止也给当前进度评分（覆盖不全自然低分）
+    await _emit_missed_quality(r, r.score)
     await db.commit()
     return _run_row(r, live=False)
 
@@ -417,3 +432,84 @@ async def drill_stats(db: AsyncSession, tenant_id: str) -> dict:
     return {"finished": len(rows), "running": running,
             "avgCoverage": round(sum(covs) / len(covs), 3) if covs else None,
             "byGrade": grades}
+
+
+async def sweep_timeout_runs(tenant: str = "default") -> int:
+    """超时结算兜底：running 且超 DRILL_MAX_DURATION_SECONDS 的演练强制 finish（模板评分）。
+
+    修复"超时 finish 依赖 GET 轮询副作用"——无人轮询的演练也能被后台 cron 结算。
+    返回本轮结算数。
+    """
+    from app.db.session import AsyncSessionLocal
+
+    limit = int(getattr(settings, "DRILL_MAX_DURATION_SECONDS", 3600))
+    n = 0
+    async with AsyncSessionLocal() as db:
+        rows = (await db.execute(
+            select(DrillRun).where(DrillRun.tenant == tenant,
+                                   DrillRun.status == "running"))).scalars().all()
+        for r in rows:
+            if _elapsed_sec(r) > limit:
+                await finish_run(db, r.id, tenant, r.started_by, auto=True)
+                n += 1
+    return n
+
+
+async def sweep_loop(interval: float, tenant: str = "default") -> None:
+    import asyncio
+
+    while True:
+        await asyncio.sleep(max(30.0, interval))
+        try:
+            n = await sweep_timeout_runs(tenant)
+            if n:
+                print(f"[drill] sweep 结算 {n} 场超时演练")
+        except Exception as e:  # noqa: BLE001 — 单轮失败不终止 loop
+            degraded("drill_sweep", e)
+
+
+async def leaderboard(db: AsyncSession, tenant: str, days: int = 30) -> list[dict]:
+    """演练排行（by 演练者）：场次/平均覆盖率/平均响应/最近演练时间。"""
+    since = datetime.now() - timedelta(days=max(1, days))
+    rows = (await db.execute(
+        select(DrillRun).where(DrillRun.tenant == tenant,
+                               DrillRun.status == "finished",
+                               DrillRun.started_at >= since)
+        .order_by(DrillRun.started_at.desc()).limit(1000))).scalars().all()
+    by_user: dict[str, dict] = {}
+    for r in rows:
+        sc = r.score or {}
+        u = by_user.setdefault(r.started_by, {"user": r.started_by, "runs": 0,
+                                              "covSum": 0.0, "respSum": 0.0, "respN": 0,
+                                              "lastAt": ""})
+        u["runs"] += 1
+        u["covSum"] += float(sc.get("coverage") or 0)
+        if sc.get("avgResponseSec") is not None:
+            u["respSum"] += float(sc["avgResponseSec"])
+            u["respN"] += 1
+        u["lastAt"] = max(u["lastAt"], (r.started_at.isoformat() if r.started_at else ""))
+    out = [{"user": u["user"], "runs": u["runs"],
+            "avgCoverage": round(u["covSum"] / u["runs"], 3),
+            "avgResponseSec": round(u["respSum"] / u["respN"], 1) if u["respN"] else None,
+            "lastAt": u["lastAt"]} for u in by_user.values()]
+    return sorted(out, key=lambda x: (-x["avgCoverage"], x["avgResponseSec"] or 1e9))[:20]
+
+
+async def _emit_missed_quality(r: DrillRun, score: dict) -> None:
+    """遗漏动作 → 质量事件（DRILL_MISS_TO_QUALITY_ENABLE 开时；喂培训盲区分析）。"""
+    if not getattr(settings, "DRILL_MISS_TO_QUALITY_ENABLE", False):
+        return
+    missed_ids = set(score.get("missed") or [])
+    actions = [c.get("action", "") for c in (r.checklist or [])
+               if c.get("id") in missed_ids]
+    if not actions:
+        return
+    try:
+        from app.services.quality_event_bus import emit
+        await emit("drill", "drill_missed_action", {
+            "runId": r.id, "scenario": r.scenario_name, "user": r.started_by,
+            "missedActions": actions[:10],
+            "coverage": score.get("coverage"), "grade": score.get("grade"),
+        }, tenant=r.tenant)
+    except Exception as e:  # noqa: BLE001 — 事件失败不影响演练结果
+        degraded("drill_missed_quality", e)

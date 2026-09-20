@@ -846,6 +846,9 @@ async def answer(
     history: list[dict] = []
     if conversation_id:
         history = await conversation_service.get_messages(db, conversation_id, _HISTORY_LIMIT)
+        # P4-⑭ 多轮摘要（CONV_SUMMARY_ENABLE 默认关=原样；开=超阈值换「摘要+最近K条」）
+        from app.services.conversation_summary import summarized_history_for_prompt
+        history = await summarized_history_for_prompt(db, conversation_id, history)
     # 多轮指代消解：检索用改写后的独立查询
     with _trace_span("standalone_rewrite"):
         search_q = await _search_query_for_retrieve(db, query, nq, conversation_id, history, model_type)
@@ -1532,6 +1535,9 @@ async def stream_answer(
     history: list[dict] = []
     if conversation_id:
         history = await conversation_service.get_messages(db, conversation_id, _HISTORY_LIMIT)
+        # P4-⑭ 多轮摘要（CONV_SUMMARY_ENABLE 默认关=原样；开=超阈值换「摘要+最近K条」）
+        from app.services.conversation_summary import summarized_history_for_prompt
+        history = await summarized_history_for_prompt(db, conversation_id, history)
     with _trace_span("standalone_rewrite"):
         search_q = await _search_query_for_retrieve(db, query, nq, conversation_id, history, model_type)
     _tc = _get_trace()

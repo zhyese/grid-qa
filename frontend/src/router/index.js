@@ -27,6 +27,7 @@ const routes = [
       { path: 'retrieval-debug', component: () => import('../views/RetrievalDebug.vue'), meta: { auth: true, admin: true, title: '检索调试', sub: '全链路 trace · 命中归因' } },
       { path: 'trace', component: () => import('../views/TraceDiagnosis.vue'), meta: { auth: true, roles: ['admin', 'auditor'], title: '链路诊断', sub: '问答耗时 · 节点瓶颈 · 历史追溯' } },
       { path: 'quality-events', component: () => import('../views/QualityEvents.vue'), meta: { auth: true, roles: ['admin', 'auditor'], title: '质量事件', sub: '跨源质量事件 · 状态流转 · 处置留痕' } },
+      { path: 'workflow', component: () => import('../views/WorkflowEditor.vue'), meta: { auth: true, title: '工作流编排', sub: '拖拽 DAG · 异步执行 · 运行历史' } },
       { path: 'ops-report', component: () => import('../views/OpsReport.vue'), meta: { auth: true, title: '运维报告', sub: '数据聚合 · LLM 生成 · Word 导出' } },
       { path: 'doc-collab', component: () => import('../views/DocCollab.vue'), meta: { auth: true, title: '文档协作', sub: '锚点批注 · 多人会签 · 电子签批' } },
       { path: 'drill', component: () => import('../views/DrillSandbox.vue'), meta: { auth: true, title: '演练沙箱', sub: '故障剧本 · 时间轴推演 · 评分复盘' } },

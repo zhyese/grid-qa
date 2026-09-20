@@ -12,6 +12,7 @@
       <button class="tab" :class="{ active: tab === 'quality' }" @click="loadQuality(); tab = 'quality'" v-if="can('system:config')">📚 知识库质量</button>
       <button class="tab" :class="{ active: tab === 'eval' }" @click="loadEval(); tab = 'eval'" v-if="can('metric:read')">📊 评测趋势</button>
       <button class="tab" :class="{ active: tab === 'abtest' }" @click="loadABTest(); tab = 'abtest'" v-if="can('system:config')">🧪 A/B测试</button>
+      <button class="tab" :class="{ active: tab === 'evalmatrix' }" @click="loadEvalMatrix(); tab = 'evalmatrix'" v-if="can('system:config')">🧮 评测矩阵</button>
       <button class="tab" :class="{ active: tab === 'tune' }" @click="loadTuneReport(); tab = 'tune'" v-if="can('system:config')">🎯 检索调参</button>
       <button class="tab" :class="{ active: tab === 'users' }" @click="loadUsers(); tab = 'users'" v-if="can('user:manage')">👥 用户管理</button>
       <button class="tab" :class="{ active: tab === 'persona' }" @click="loadPersonas(); tab = 'persona'" v-if="can('system:config')">🧩 Persona</button>
@@ -738,6 +739,30 @@
 
       <div class="toast" v-if="toastMsg">{{ toastMsg }}</div>
   </div>
+
+    <!-- 评测矩阵（eval_matrix 产品化）-->
+    <div class="card" v-show="tab === 'evalmatrix'">
+      <div class="card-header">
+        <h3 class="card-title">🧮 开关对照评测矩阵
+          <span class="hint">变体×维度对照评测（检索维需 Milvus；生成维耗 LLM 额度），verdict 仅建议</span></h3>
+        <div class="row">
+          <button class="btn btn-ghost btn-sm" @click="loadEvalMatrix">🔄 刷新</button>
+          <button class="btn btn-primary btn-sm" :disabled="emStatus.active" @click="triggerEvalMatrix(['retrieval'])">
+            {{ emStatus.active ? `运行中（${emStatus.dims || ''}）…` : '▶ 跑检索维' }}</button>
+        </div>
+      </div>
+      <div v-if="emStatus.lastError" class="hint" style="color:var(--danger)">上次运行失败：{{ emStatus.lastError }}</div>
+      <div v-if="!emReports.length" class="empty">暂无报告</div>
+      <div v-for="r in emReports" :key="r.name" class="ticket-card" @click="openEmReport(r.name)"
+           :class="{ active: emSel === r.name }" style="cursor:pointer">
+        <div class="tc-header">
+          <span class="badge badge-info">md</span>
+          <span class="tc-title">{{ r.name }}</span>
+          <span class="hint" style="margin-left:auto">{{ r.mtime }} · {{ Math.round(r.size / 1024) }}KB</span>
+        </div>
+      </div>
+      <div v-if="emContent" class="md-body" style="margin-top:12px;max-height:520px;overflow-y:auto">{{ emContent }}</div>
+    </div>
 </template>
 
 <script setup>
@@ -751,6 +776,8 @@ import { TooltipComponent, LegendComponent, GridComponent } from 'echarts/compon
 import { CanvasRenderer } from 'echarts/renderers'
 import { getLogs, getAlerts, configMilvus, configModel, getMilvusConfig, getModelConfig, getProviderHealth, rebuildBm25, getFeedbacks, markFeedbackGolden, getFeedbackStats, alertDispose, getAlertDisposals, getPersonas, upsertPersona, deletePersona, agentRun, getUsers, updateUserRole, updateUserStatus, deleteUser, resetUserPassword, backupDB, listBackups, restoreDB, removeBackup, getLogArchiveStats, archiveLogs, getTerms, addTerm, deleteTerm, getPromptConfig, updatePromptConfig, getLlmRouterConfig, updateLlmRouterConfig, getSemanticRules, addSemanticRule, deleteSemanticRule, getRetrievalTuneReport, runRetrievalTune, confirmDisposal, rejectDisposal, disposalToTicket, closeDisposal, backupAll, restoreAllBackup, listManifestBackups, deleteManifestBackup, getMemories, deleteMemory, getMemoryStats } from '../api'
 import request from '../api/request'
+import { getCostReport, getEvalMatrixReport, getEvalMatrixReports, getEvalMatrixStatus,
+         getEvalTrends, getKnowledgeQuality, getRoutingConfig, runEvalMatrix } from '../api'
 
 echarts.use([PieChart, BarChart, ScatterChart, LineChart, TooltipComponent, LegendComponent, GridComponent, CanvasRenderer])
 
@@ -1196,10 +1223,10 @@ function severityBadge(s) {
   return { high: 'badge badge-danger', medium: 'badge badge-warning', low: 'badge badge-info' }[s] || 'badge badge-neutral'
 }
 const costReport = ref(null); const quality = ref(null); const evalTrend = ref(null); const abConfig = ref(null); const qualityPieEl = ref(null); const qualityPieScoreEl = ref(null); const qualityPieCovEl = ref(null); const qualityBarEl = ref(null); const evalLineEl = ref(null)
-async function loadCostReport() { try { costReport.value = (await request.get('/system/cost/report', { params: { period: 'today' } })).data } catch (e) { toast('加载失败') } }
+async function loadCostReport() { try { costReport.value = (await getCostReport('today')).data } catch (e) { toast('加载失败') } }
 async function loadQuality() {
   try {
-    quality.value = (await request.get('/system/knowledge/quality')).data
+    quality.value = (await getKnowledgeQuality()).data
     await nextTick(); renderQualityCharts()
   } catch (e) { toast('加载失败') }
 }
@@ -1254,7 +1281,7 @@ function renderQualityCharts() {
 }
 async function loadEval() {
   try {
-    evalTrend.value = (await request.get('/system/eval/trends', { params: { days: 7 } })).data
+    evalTrend.value = (await getEvalTrends(7)).data
     await nextTick(); renderEvalChart()
   } catch (e) { toast('加载失败') }
 }
@@ -1282,7 +1309,26 @@ function renderEvalChart() {
     ],
   })
 }
-async function loadABTest() { try { abConfig.value = (await request.get('/system/routing/config')).data } catch (e) { toast('加载失败') } }
+// ===== 评测矩阵 =====
+const emStatus = ref({ active: false })
+const emReports = ref([])
+const emSel = ref('')
+const emContent = ref('')
+async function loadEvalMatrix() {
+  try {
+    emStatus.value = (await getEvalMatrixStatus()).data || {}
+    emReports.value = (await getEvalMatrixReports()).data || []
+  } catch (e) { toast('评测矩阵加载失败（后端未升级？）') }
+}
+async function triggerEvalMatrix(dims) {
+  try { await runEvalMatrix(dims); toast('已触发，后台运行中（完成后通知）'); setTimeout(loadEvalMatrix, 1500) } catch (e) { /* 拦截器已提示 */ }
+}
+async function openEmReport(name) {
+  emSel.value = name
+  try { emContent.value = ((await getEvalMatrixReport(name)).data || {}).content || '' } catch (e) { /* 同上 */ }
+}
+
+async function loadABTest() { try { abConfig.value = (await getRoutingConfig()).data } catch (e) { toast('加载失败') } }
 onMounted(() => {
   loadLogs(); loadFeedbacks('dislike'); loadFbStats()
   if (can('alert:read')) { loadAlerts(); connectAlertsWs() }   // 审计员/管理员：告警实时推送

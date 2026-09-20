@@ -95,6 +95,7 @@
 
 <script setup>
 import { computed, onUnmounted, ref } from 'vue'
+import { useRoute } from 'vue-router'
 import MarkdownIt from 'markdown-it'
 import { useAuthStore } from '../stores/auth'
 import { hasPerm } from '../utils/perm'
@@ -104,6 +105,7 @@ import {
 } from '../api'
 
 const auth = useAuthStore()
+const route = useRoute()
 const canManage = computed(() => hasPerm(auth.role, 'report:manage'))
 const md = new MarkdownIt({ html: false, linkify: true, breaks: true })
 
@@ -213,6 +215,11 @@ function statusLabel(s) {
 function typeLabel(t) {
   return meta.value.find(m => m.type === t)?.label || t
 }
+
+// Chat「生成报告」入口预填：fault/device 类型 + 聚焦设备线索
+const q0 = route.query || {}
+if (q0.type) form.value.reportType = String(q0.type)
+if (q0.device) form.value.deviceId = String(q0.device)
 
 loadMeta()
 loadList()

@@ -80,6 +80,10 @@
       <div class="card-header"><h3 class="card-title">📄 票据详情</h3></div>
       <div class="ticket-detail">
         <div class="td-row"><b>状态：</b><span class="badge" :class="statusBadge(selected.status)">{{ statusLabel(selected.status) }}</span></div>
+        <div class="td-row" v-if="selected.sourceRef"><b>来源：</b>
+          <span class="chip">🔗 {{ sourceLabel(selected.sourceRef) }}</span>
+          <a style="color:var(--primary);cursor:pointer;margin-left:6px;font-size:12px" @click="goSource()">查看来源 ›</a>
+        </div>
         <div class="td-row"><b>类型：</b>{{ selected.ticketType }}</div>
         <div class="td-row"><b>任务：</b>{{ selected.task }}</div>
         <div class="td-row" v-if="selected.device"><b>设备：</b>{{ selected.device }}</div>
@@ -137,11 +141,14 @@
 
 <script setup>
 import { ref, onMounted } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { createTicket, listTickets, getTicket, submitTicket, reviewTicket, issueTicket, executeTicket, archiveTicket, deleteTicket, getTicketStats } from '../api'
 import { useAuthStore } from '../stores/auth'
 import { hasPerm } from '../utils/perm'
 
 const auth = useAuthStore()
+const route = useRoute()
+const router = useRouter()
 const can = (p) => hasPerm(auth.role, p)   // RBAC：两票审批/签发/执行/归档(ticket:manage)仅 admin/editor；起草/提交所有人
 
 const tab = ref('tickets')
@@ -157,6 +164,8 @@ async function loadStats() {
 
 // 新建
 const form = ref({ type: '操作票', task: '', device: '', location: '', stepsText: '', safetyText: '', risksText: '', notes: '' })
+// Chat「转两票」入口预填操作任务
+if (route.query?.task) form.value.task = String(route.query.task)
 const createLoading = ref(false)
 async function handleCreate() {
   if (!form.value.task.trim()) return
@@ -211,7 +220,13 @@ async function handleDelete(id) { if (!confirm('确认删除？')) return; try {
 function statusLabel(s) {
   return { draft: '草稿', pending_review: '待审核', reviewed: '已审核', issued: '已签发', in_execution: '执行中', completed: '已完成', archived: '已归档', rejected: '驳回' }[s] || s
 }
-function statusBadge(s) {
+function sourceLabel(ref) {
+    if (ref?.startsWith('proactive:')) return '主动运维建议'
+    if (ref?.startsWith('alert-disposal:')) return '告警处置'
+    return ref || ''
+  }
+  function goSource() { router.push('/operations') }
+  function statusBadge(s) {
   return { draft: 'badge badge-neutral', pending_review: 'badge badge-warning', reviewed: 'badge badge-info', issued: 'badge badge-primary', in_execution: 'badge badge-accent', completed: 'badge badge-success', archived: 'badge badge-neutral', rejected: 'badge badge-danger' }[s] || 'badge badge-neutral'
 }
 

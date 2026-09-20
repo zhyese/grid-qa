@@ -1,0 +1,13 @@
+{
+  "name": "电网运维 RAG 智能问答系统",
+  "short_name": "电网运维",
+  "description": "电网运维知识问答 / 故障诊断 / 两票 / 演练沙箱",
+  "start_url": "/chat",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#2563eb",
+  "lang": "zh-CN",
+  "icons": [
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}

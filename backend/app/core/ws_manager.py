@@ -73,3 +73,35 @@ async def broadcast_twin(message: dict) -> None:
 
 def twin_client_count() -> int:
     return len(_twin_clients)
+
+
+# ===== 定向通知通道（通知中心：待签/报告完成/演练复盘，按 username 点对点） =====
+
+_notify_clients: dict[WebSocket, str] = {}  # ws → 鉴权用户名
+
+
+async def connect_notify(ws: WebSocket, username: str) -> None:
+    """接受通知订阅连接，按用户名登记（同一用户多端在线各自收到）。"""
+    await ws.accept()
+    _notify_clients[ws] = username
+
+
+def disconnect_notify(ws: WebSocket) -> None:
+    _notify_clients.pop(ws, None)
+
+
+async def send_to_user(username: str, message: dict) -> int:
+    """定向推送给某用户的全部在线连接（断连剔除），返回送达数。"""
+    delivered = 0
+    dead = []
+    for ws, name in list(_notify_clients.items()):
+        if name != username:
+            continue
+        try:
+            await ws.send_json(message)
+            delivered += 1
+        except Exception:
+            dead.append(ws)
+    for ws in dead:
+        _notify_clients.pop(ws, None)
+    return delivered

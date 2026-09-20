@@ -62,3 +62,21 @@ async def memory_stats(
         agent_id=agentId, scope=scope,
     )
     return success(data=data)
+
+
+@router.post("/recall")
+async def recall_memory(
+    body: dict,
+    user: User = Depends(get_current_user),
+):
+    """召回当前用户与查询相关的记忆（显式沉淀域；外部服务不可用降级返回空）。"""
+    query = (body or {}).get("query", "")
+    if not query.strip():
+        raise BizError("query 不能为空", 400)
+    text = await agent_memory.recall(
+        query.strip(), user.username,
+        scope=(body or {}).get("scope", "user"),
+        tenant_id=getattr(user, "tenant_id", None) or "default",
+        agent_id=(body or {}).get("agentId", ""),
+    )
+    return success(data={"query": query.strip(), "memory": text or ""})

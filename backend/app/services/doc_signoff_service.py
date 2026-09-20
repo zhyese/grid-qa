@@ -127,7 +127,20 @@ async def submit_signoff(db: AsyncSession, signoff_id: str, tenant_id: str,
     await _log(db, s, "submit", username, 0, "提交会签，指纹已固化")
     await db.commit()
     await db.refresh(s)  # onupdate(updated_at) 后属性过期，async session 禁属性级懒 IO
+    await _notify_pending_signer(s)
     return _row(s)
+
+
+async def _notify_pending_signer(s: DocSignoff) -> None:
+    """通知当前待签人（通知失败不阻断签批主流程）。"""
+    from app.services import notification_service
+
+    node = next((n for n in (s.flow or []) if n["seq"] == s.current_seq), None)
+    if node:
+        await notification_service.notify_user(
+            node["signer"], "signoff_pending", f"轮到你签批：{s.title}",
+            body=f"会签单「{s.title}」当前节点 {node['seq']} 等你签批",
+            link=f"/doc-collab?doc={s.doc_id}", tenant=s.tenant)
 
 
 async def sign(db: AsyncSession, signoff_id: str, tenant_id: str, user: User,
@@ -162,6 +175,14 @@ async def sign(db: AsyncSession, signoff_id: str, tenant_id: str, user: User,
     await _log(db, s, "sign", user.username, node["seq"], f"节点 {node['seq']} 签批通过")
     await db.commit()
     await db.refresh(s)  # onupdate(updated_at) 后属性过期，async session 禁属性级懒 IO
+    if s.status == "signed":
+        from app.services import notification_service
+        await notification_service.notify_user(
+            s.created_by, "signoff_signed", f"会签完成：{s.title}",
+            body=f"「{s.title}」全部节点签批通过（{len(flow)} 节点）",
+            link=f"/doc-collab?doc={s.doc_id}", tenant=s.tenant)
+    else:
+        await _notify_pending_signer(s)
     return _row(s)
 
 
@@ -190,6 +211,11 @@ async def reject(db: AsyncSession, signoff_id: str, tenant_id: str, user: User,
                f"节点 {node['seq']} 驳回：{node['comment']}")
     await db.commit()
     await db.refresh(s)  # onupdate(updated_at) 后属性过期，async session 禁属性级懒 IO
+    from app.services import notification_service
+    await notification_service.notify_user(
+        s.created_by, "signoff_rejected", f"签批被驳回：{s.title}",
+        body=f"节点 {node['seq']}（{node['signer']}）驳回：{node['comment'] or '无理由'}",
+        link=f"/doc-collab?doc={s.doc_id}", tenant=s.tenant)
     return _row(s)
 
 

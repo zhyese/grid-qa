@@ -64,6 +64,8 @@
             </div>
           </div>
           <div v-else class="empty" style="padding:8px">暂无传播链数据</div>
+          <button class="btn btn-ghost btn-sm" style="margin-top:8px"
+                  @click="startDrill">🧯 以此故障链发起演练</button>
           <div class="src-head" style="margin-top:8px">知识图谱上下文</div>
           <div v-if="selectedDevice.kgContext?.length" style="max-height:120px;overflow-y:auto;font-size:13px">
             <div v-for="(ctx, i) in selectedDevice.kgContext" :key="i" class="muted" style="padding:2px 0">{{ ctx }}</div>
@@ -84,6 +86,7 @@
 
 <script setup>
 import { ref, onMounted, onUnmounted, nextTick, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import { getStationOverview, getDeviceDetail, getTwinStations } from '../api'
 import { useAuthStore } from '../stores/auth'
 import * as THREE from 'three'
@@ -102,6 +105,7 @@ import {
 } from '../three/sceneEnvironment'
 
 const auth = useAuthStore()
+const router = useRouter()
 const overview = ref({ devices: [], stationName: '' })
 const selectedDevice = ref(null)
 const stations = ref([])
@@ -471,6 +475,14 @@ function flyToDevice(deviceId) {
     requestAnimationFrame(fly)
   }
   fly()
+}
+function startDrill() {
+  const dev = selectedDevice.value || {}
+  const qs = new URLSearchParams()
+  if (dev.deviceId) qs.set('device', dev.deviceId)
+  if (dev.name) qs.set('name', dev.name)
+  if (currentStationId.value) qs.set('station', currentStationId.value)
+  router.push(`/drill?${qs.toString()}`)
 }
 function highlightFaultChain(deviceId) {
   clearHighlight()

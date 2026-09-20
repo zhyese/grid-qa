@@ -15,6 +15,8 @@ class Conversation(Base):
     title: Mapped[str] = mapped_column(String(128), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     is_deleted: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    # P4-⑭ 多轮摘要：LLM 压缩的累积摘要（prompt 组装时替代全量历史省 token；空=未摘要）
+    summary: Mapped[str] = mapped_column(Text, default="")
 
 
 class Message(Base):

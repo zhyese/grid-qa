@@ -4,6 +4,7 @@
       <button class="tab" :class="{ active: tab === 'run' }" @click="tab = 'run'">🎬 开始演练</button>
       <button class="tab" :class="{ active: tab === 'scenarios' }" @click="loadScenarios(); tab = 'scenarios'">📖 演练剧本</button>
       <button class="tab" :class="{ active: tab === 'history' }" @click="loadHistory(); tab = 'history'">🏅 演练历史</button>
+      <button class="tab" :class="{ active: tab === 'leaderboard' }" @click="loadLeaderboard(); tab = 'leaderboard'">🏆 排行榜</button>
     </div>
 
     <!-- 开始演练 -->
@@ -155,10 +156,34 @@
           <span class="hint" style="margin-left:auto">{{ s.updatedAt?.slice(0, 16).replace('T', ' ') }}</span>
         </div>
         <div class="tc-body"><span class="hint">{{ s.description }}</span></div>
-        <div class="td-actions" style="margin-top:8px" v-if="canManage">
+        <div class="td-actions" style="margin-top:8px">
+          <button v-if="s.stationId" class="btn btn-ghost btn-sm" @click="router.push('/twin')">🏭 去孪生现场</button>
+          <template v-if="canManage">
           <button class="btn btn-ghost btn-sm" @click="openEditor(s)">✏️ 编辑</button>
           <button class="btn btn-ghost btn-sm" @click="handleToggleEnabled(s)">{{ s.enabled ? '停用' : '启用' }}</button>
           <button class="btn btn-danger btn-sm" @click="handleDeleteScenario(s)">🗑</button>
+          </template>
+        </div>
+      </div>
+    </div>
+
+    <!-- 排行榜 -->
+    <div class="card" v-show="tab === 'leaderboard'">
+      <div class="card-header">
+        <h3 class="card-title">演练排行榜 <span class="hint">按平均覆盖率排序（近 {{ lbDays }} 天）</span></h3>
+        <div class="row">
+          <select class="select" v-model="lbDays" style="max-width:110px" @change="loadLeaderboard">
+            <option :value="7">近 7 天</option><option :value="30">近 30 天</option><option :value="90">近 90 天</option>
+          </select>
+          <button class="btn btn-ghost btn-sm" @click="loadLeaderboard">🔄 刷新</button>
+        </div>
+      </div>
+      <div v-if="!leaderboard.length" class="empty">暂无完赛记录</div>
+      <div v-for="(u, i) in leaderboard" :key="u.user" class="ticket-card" style="cursor:default">
+        <div class="tc-header">
+          <span class="badge" :class="['badge-danger', 'badge-warning', 'badge-info'][i] || 'badge-neutral'">{{ i + 1 }}</span>
+          <span class="tc-title">{{ u.user }}</span>
+          <span class="hint" style="margin-left:auto">{{ u.runs }} 场 · 覆盖率 {{ Math.round((u.avgCoverage || 0) * 100) }}% · 平均响应 {{ u.avgResponseSec ?? '—' }}s</span>
         </div>
       </div>
     </div>
@@ -194,16 +219,19 @@
 
 <script setup>
 import { computed, onUnmounted, ref } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import MarkdownIt from 'markdown-it'
 import { useAuthStore } from '../stores/auth'
 import { hasPerm } from '../utils/perm'
 import {
   abortDrillRun, createDrillScenario, deleteDrillScenario, finishDrillRun,
   genScenarioFromFaultChain, getDrillRuns, getDrillScenarios, getDrillRunState,
-  getDrillStats, recordDrillAction, startDrillRun, updateDrillScenario,
+  getDrillStats, getDrillLeaderboard, recordDrillAction, startDrillRun, updateDrillScenario,
 } from '../api'
 
 const auth = useAuthStore()
+const route = useRoute()
+const router = useRouter()
 const canManage = computed(() => hasPerm(auth.role, 'drill:manage'))
 const md = new MarkdownIt({ html: false, linkify: true, breaks: true })
 
@@ -217,6 +245,8 @@ const actionText = ref('')
 const chainGen = ref(false)
 const chainForm = ref({ stationId: '', deviceId: '' })
 const editor = ref(null)
+const leaderboard = ref([])
+const lbDays = ref(30)
 let pollTimer = null
 
 function renderMd(text) { return md.render(String(text || '')) }
@@ -227,6 +257,10 @@ async function loadScenarios() {
     scenarioPage.value = res.data || { total: 0, items: [] }
     scenarios.value = scenarioPage.value.items
   } catch (e) { /* 功能未开启时静默 */ }
+}
+
+async function loadLeaderboard() {
+  try { leaderboard.value = (await getDrillLeaderboard(lbDays.value)).data || [] } catch (e) { /* 功能未开启时静默 */ }
 }
 
 async function loadHistory() {
@@ -363,6 +397,13 @@ function diffBadge(d) {
 }
 function diffLabel(d) {
   return { easy: '简单', normal: '常规', hard: '困难' }[d] || d
+}
+
+// 孪生页"以此故障链发起演练"入口：query 预填生成面板
+const q = route.query || {}
+if (q.device) {
+  chainGen.value = true
+  chainForm.value = { stationId: String(q.station || ''), deviceId: String(q.device) }
 }
 
 loadScenarios()

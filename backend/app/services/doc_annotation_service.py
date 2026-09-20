@@ -117,3 +117,49 @@ async def annotation_stats(db: AsyncSession, doc_id: str, tenant_id: str) -> dic
     by_status = {st: n for st, n in rows}
     return {"total": sum(by_status.values()), "open": by_status.get("open", 0),
             "resolved": by_status.get("resolved", 0)}
+
+
+async def to_governance_issue(db: AsyncSession, ann_id: str, tenant_id: str,
+                              username: str) -> dict:
+    """批注转治理 issue（annotation_comment）：协作讨论沉淀为治理工单。
+
+    幂等：fingerprint 含批注 updated_at，内容变更后可再转（新的指纹）；
+    重复转同版本返回 existing。
+    """
+    import hashlib
+    import json
+    from datetime import datetime
+
+    from app.models.knowledge_governance import KnowledgeGovernanceIssue
+
+    a = await _get_annotation(db, ann_id, tenant_id)
+    fingerprint = hashlib.sha256(
+        f"annotation:{a.id}:{a.updated_at or ''}".encode()).hexdigest()
+    exists = (await db.execute(select(KnowledgeGovernanceIssue.id).where(
+        KnowledgeGovernanceIssue.fingerprint == fingerprint))).scalar_one_or_none()
+    if exists:
+        return {"issueId": exists, "existing": True}
+    issue = KnowledgeGovernanceIssue(
+        tenant_id=tenant_id,
+        fingerprint=fingerprint,
+        issue_type="annotation_comment",
+        severity="info",
+        status="open",
+        doc_id=a.doc_id,
+        title=f"批注待治理：{a.content[:60]}",
+        summary=(f"批注（{a.author}，chunk#{a.chunk_idx}）：{a.content}\n"
+                 f"锚点原文：{a.quote or '无'}\n"
+                 f"回复 {len(a.replies or [])} 条。由 {username} 转治理工单。"),
+        evidence_json=json.dumps({
+            "annotationId": a.id, "author": a.author, "chunkIdx": a.chunk_idx,
+            "quote": a.quote, "content": a.content,
+            "replies": (a.replies or [])[:5], "convertedBy": username,
+        }, ensure_ascii=False),
+        occurrence_count=1,
+        detected_at=datetime.now(),
+        last_seen_at=datetime.now(),
+    )
+    db.add(issue)
+    await db.commit()
+    await db.refresh(issue)  # server_default 列需 refresh 才可读
+    return {"issueId": issue.id, "existing": False}

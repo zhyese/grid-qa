@@ -282,7 +282,37 @@ async def lifespan(app: FastAPI):
             )
             print(f"[kg-reconcile] KG 对账后台任务已启动（每 {_settings.KG_RECONCILE_CRON_HOURS}h）")
     except Exception as e:
-        print(f"[kg-reconcile] KG 对账 loop 启动跳过：{e}")
+        print(f"[kg-reconcile] 对账 loop 启动跳过：{e}")
+    # N7 报告定时自动生成（OPS_REPORT_CRON_HOURS<=0 关闭；完成通知 admin+editor）
+    try:
+        from app.config import settings as _settings
+        _rc = float(getattr(_settings, "OPS_REPORT_CRON_HOURS", 0))
+        if getattr(_settings, "OPS_REPORT_ENABLE", False) and _rc > 0:
+            from app.services.ops_report_service import auto_report_loop
+            app.state.ops_report_cron_task = asyncio.create_task(auto_report_loop(_rc))
+            print(f"[ops-report] 定时报告后台任务已启动（每 {_rc}h）")
+    except Exception as e:
+        print(f"[ops-report] 定时报告 loop 启动跳过：{e}")
+    # N5 演练超时结算 sweep（无人轮询的 running 演练后台兜底 finish；<=0 关闭）
+    try:
+        from app.config import settings as _settings
+        _si = float(getattr(_settings, "DRILL_SWEEP_INTERVAL", 300))
+        if getattr(_settings, "DRILL_SANDBOX_ENABLE", False) and _si > 0:
+            from app.services.drill_service import sweep_loop
+            app.state.drill_sweep_task = asyncio.create_task(sweep_loop(_si))
+            print(f"[drill] 超时结算 sweep 已启动（每 {_si}s）")
+    except Exception as e:
+        print(f"[drill] sweep loop 启动跳过：{e}")
+    # eval_matrix 夜间定时评测（EVAL_MATRIX_CRON_HOURS<=0 关闭）
+    try:
+        from app.config import settings as _settings
+        _em = float(getattr(_settings, "EVAL_MATRIX_CRON_HOURS", 0))
+        if _em > 0:
+            from app.services.eval_matrix_service import eval_matrix_cron_loop
+            app.state.eval_matrix_cron_task = asyncio.create_task(eval_matrix_cron_loop(_em))
+            print(f"[eval-matrix] 定时评测后台任务已启动（每 {_em}h）")
+    except Exception as e:
+        print(f"[eval-matrix] 定时评测 loop 启动跳过：{e}")
     # ---- 关闭 ----
     yield
     try:
@@ -330,6 +360,11 @@ async def lifespan(app: FastAPI):
     _kg_reconcile = getattr(app.state, "kg_reconcile_task", None)
     if _kg_reconcile:
         _kg_reconcile.cancel()
+    # 报告 cron / 演练 sweep / eval_matrix cron 也需 cancel
+    for _attr in ("ops_report_cron_task", "drill_sweep_task", "eval_matrix_cron_task"):
+        _t = getattr(app.state, _attr, None)
+        if _t:
+            _t.cancel()
     try:
         from app.clients import neo4j_client
         await neo4j_client.close()
@@ -476,6 +511,7 @@ from app.routers import (  # noqa: E402
     knowledge_evolution,
     integrations,
     memory,
+    notification,
     qa,
     quality_event,
     realtime_event,
@@ -496,6 +532,7 @@ app.include_router(qa.router, prefix=settings.API_PREFIX)
 app.include_router(kg.router, prefix=settings.API_PREFIX)
 app.include_router(domain.router, prefix=settings.API_PREFIX)
 app.include_router(memory.router, prefix=settings.API_PREFIX)
+app.include_router(notification.router, prefix=settings.API_PREFIX)
 app.include_router(twin.router, prefix=settings.API_PREFIX)
 app.include_router(task_center.router, prefix=settings.API_PREFIX)
 app.include_router(quality_event.router, prefix=settings.API_PREFIX)

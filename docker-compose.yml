@@ -249,6 +249,8 @@ services:
       - "8001:8001"
     volumes:
       - grid-backend-data:/app/data   # 持久化 data/（运行日志 + 数据备份 .sql），容器重建不丢
+      - ./scripts:/app/scripts:ro     # eval_matrix API 触发的 CLI 工具（只读；工具目录非源码热载）
+      - ./reports:/app/reports        # 评测矩阵报告落宿主 reports/（系统管理-评测矩阵可浏览）
       - C:/Users/Administrator/.cache/huggingface/hub:/root/.cache/huggingface/hub:ro   # 宿主机 bge 缓存（离线加载，免下载）
 
   # ---------- Mock SCADA MCP Server（N2 MCP 总线外部 SCADA 数据源，侧车）----------

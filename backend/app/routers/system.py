@@ -2,11 +2,12 @@
 import hmac
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, WebSocket
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.limiter import limiter
-from app.core.permissions import ALERT_MANAGE, ALERT_READ, AUDIT_READ, METRIC_READ, USER_MANAGE
+from app.core.permissions import ALERT_MANAGE, ALERT_READ, AUDIT_READ, METRIC_READ, USER_MANAGE, SYSTEM_CONFIG
 from app.core.response import BizError, success
 from app.db.session import get_db
 from app.dependencies import get_current_user, require_admin, require_perm
@@ -1210,3 +1211,34 @@ async def governance_propagate_execute(
     executed = await execute_propagate(doc_id, reason)
     await write_log(db, admin.username, "治理联动清理", f"{doc_id[:60]} reason={reason}")
     return success({"docId": doc_id, "executed": executed}, "清理已执行")
+
+
+# ===== eval_matrix 产品化：触发/状态/报告浏览（admin）=====
+class EvalMatrixRun(BaseModel):
+    dims: list[str] = Field(default_factory=lambda: ["retrieval"])
+
+
+@router.post("/eval-matrix/run")
+async def eval_matrix_run_api(body: EvalMatrixRun,
+                              user: User = Depends(require_perm(SYSTEM_CONFIG))):
+    """触发评测矩阵（子进程后台跑；容器需挂载 ./scripts 与 ./reports）。"""
+    from app.services import eval_matrix_service
+    return success(await eval_matrix_service.run_matrix_async(body.dims))
+
+
+@router.get("/eval-matrix/status")
+async def eval_matrix_status_api(user: User = Depends(require_perm(SYSTEM_CONFIG))):
+    from app.services import eval_matrix_service
+    return success(eval_matrix_service.run_status())
+
+
+@router.get("/eval-matrix/reports")
+async def eval_matrix_reports_api(user: User = Depends(require_perm(SYSTEM_CONFIG))):
+    from app.services import eval_matrix_service
+    return success(eval_matrix_service.list_reports())
+
+
+@router.get("/eval-matrix/reports/{name}")
+async def eval_matrix_report_api(name: str, user: User = Depends(require_perm(SYSTEM_CONFIG))):
+    from app.services import eval_matrix_service
+    return success({"name": name, "content": eval_matrix_service.read_report(name)})

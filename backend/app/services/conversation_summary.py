@@ -7,6 +7,7 @@
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.core.obs import degraded
 from app.models.conversation import Conversation
 from app.providers.factory import get_llm_provider
@@ -74,3 +75,38 @@ async def _merge_summaries(old: str, new: str, model_type: str | None = None) ->
         return (merged or "").strip()
     except Exception:
         return None
+
+async def summarized_history_for_prompt(
+    db: AsyncSession, conversation_id: str, history: list[dict],
+) -> list[dict]:
+    """P4-⑭ 接线：CONV_SUMMARY_ENABLE 开时返回「摘要 + 最近 K 条」，关=原样返回。
+
+    - 历史未超阈值：原样返回（零开销）。
+    - 超阈值且已有摘要：返回 [{user: 此前对话摘要}] + 最近 CONV_SUMMARY_KEEP_LAST 条。
+    - 超阈值但无摘要：fire-and-forget 触发摘要（独立 session，防与请求 session 并发），
+      本次仍返回全量（下次请求生效），不阻塞首答。
+    """
+    if not getattr(settings, "CONV_SUMMARY_ENABLE", False) or not conversation_id:
+        return history
+    threshold = int(getattr(settings, "CONV_SUMMARY_THRESHOLD", 8))
+    keep = int(getattr(settings, "CONV_SUMMARY_KEEP_LAST", 4))
+    if len(history) <= threshold:
+        return history
+    conv = (await db.execute(
+        select(Conversation).where(Conversation.id == conversation_id)
+    )).scalar_one_or_none()
+    summary = ((conv.summary if conv else None) or "").strip()
+    if not summary:
+        async def _bg() -> None:
+            from app.db.session import AsyncSessionLocal
+            async with AsyncSessionLocal() as db2:
+                await summarize_conversation(db2, conversation_id, history)
+        try:
+            import asyncio
+            asyncio.create_task(_bg())
+        except Exception as e:  # noqa: BLE001 — 摘要失败不影响本次问答
+            degraded("conv_summary_kickoff", e)
+        return history
+    return ([{"role": "user",
+              "content": f"[此前对话摘要，供上下文参考]\n{summary[:600]}"}]
+            + history[-keep:])

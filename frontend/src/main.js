@@ -9,3 +9,10 @@ const app = createApp(App)
 app.use(createPinia())
 app.use(router)
 app.mount('#app')
+
+// PWA：生产构建注册 Service Worker（dev 不注册，避免 HMR 资源被缓存）
+if (import.meta.env.PROD && 'serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch(() => { /* SW 失败不影响功能 */ })
+  })
+}

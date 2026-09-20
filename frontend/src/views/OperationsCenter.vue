@@ -156,6 +156,7 @@
 <script setup>
 import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { useAuthStore } from '../stores/auth'
+import { useRouter } from 'vue-router'
 import { hasPerm } from '../utils/perm'
 import {
   confirmProactiveRun, getDeviceMappings, getDomainEvents, getPersistentTasks,
@@ -165,6 +166,7 @@ import {
 } from '../api'
 
 const auth = useAuthStore()
+const router = useRouter()
 const can = (p) => hasPerm(auth.role, p)
 const tab = ref('runs')
 const runs = ref({ total: 0, list: [] })
@@ -204,7 +206,7 @@ async function loadTasks() { if (!canAudit.value) return; try { const [list, eve
 async function refresh() { await Promise.all([loadRuns(), loadEvents(), canAudit.value ? loadTasks() : Promise.resolve()]) }
 async function confirmRun(r) { try { unwrapBiz(await confirmProactiveRun(r.id)); toast('建议已确认，尚未执行任何设备控制'); await loadRuns() } catch { toast('确认失败') } }
 async function rejectRun(r) { const note = prompt('请输入驳回原因：') ?? ''; if (!note) return; try { unwrapBiz(await rejectProactiveRun(r.id, note)); toast('已驳回'); await loadRuns() } catch { toast('驳回失败') } }
-async function toTicket(r) { if (!confirm('仅创建两票草稿，仍需后续审核、签发和执行。继续？')) return; try { unwrapBiz(await proactiveRunToTicket(r.id)); toast('两票草稿已创建'); await loadRuns() } catch { toast('创建两票草稿失败') } }
+async function toTicket(r) { if (!confirm('仅创建两票草稿，仍需后续审核、签发和执行。继续？')) return; try { unwrapBiz(await proactiveRunToTicket(r.id)); toast('两票草稿已创建，正在跳转…'); await loadRuns(); setTimeout(() => router.push('/ticket'), 600) } catch { toast('创建两票草稿失败') } }
 async function retryRun(r) { try { unwrapBiz(await retryProactiveRun(r.id)); toast('重试任务已入队'); await refresh() } catch { toast('重试失败') } }
 async function saveMapping() { if (!mappingForm.sourceDeviceId || !mappingForm.canonicalDeviceId) return toast('请填写源设备 ID 和规范设备 ID'); try { unwrapBiz(await saveDeviceMapping({ ...mappingForm })); toast('设备映射已保存'); mappingForm.sourceDeviceId=''; mappingForm.canonicalDeviceId=''; mappingForm.canonicalName=''; await loadMappings() } catch { toast('保存失败') } }
 async function retryTask(t) { try { unwrapBiz(await retryPersistentTask(t.id)); toast('任务已重新入队'); await loadTasks() } catch { toast('重试失败') } }

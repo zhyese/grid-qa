@@ -78,6 +78,17 @@ async def delete_annotation_api(
         db, ann_id, user.tenant_id, user.username, is_admin=user.role == "admin"))
 
 
+@router.post("/annotations/{ann_id}/to-issue")
+async def annotation_to_issue_api(
+    ann_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_perm(DOC_SIGNOFF)),
+):
+    """批注转治理 issue（协作讨论 → 治理工单，进知识治理页处置）。"""
+    return success(await ann.to_governance_issue(db, ann_id, user.tenant_id,
+                                                 user.username))
+
+
 @router.get("/documents/{doc_id}/annotation-stats")
 async def annotation_stats_api(
     doc_id: str,

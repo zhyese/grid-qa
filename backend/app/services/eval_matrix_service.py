@@ -213,3 +213,123 @@ def render_markdown(agg: dict, meta: dict) -> str:
         "> verdict 仅为建议：开关变更需人工评审后改 .env（关=现状语义见 config.py 注释）。", "",
     ]
     return "\n".join(lines) + "\n"
+
+
+# ===== 产品化：API 触发（子进程）+ 报告浏览 + 定时 cron =====
+# 容器内运行依赖 compose 挂载 ./scripts(只读) 与 ./reports(读写)——工具/数据目录，
+# 与"后端源码烘焙进镜像"的铁律无冲突（不挂 app 源码）。
+
+import asyncio
+import os
+import re
+import subprocess
+import sys
+
+_running = {"active": False, "dims": "", "pid": None, "startedAt": "", "lastError": ""}
+_NAME_RE = re.compile(r"^eval_matrix_[A-Za-z0-9_\-]+\.md$")
+
+
+def _reports_dir() -> str:
+    for cand in (os.path.join(os.getcwd(), "reports"), "/app/reports"):
+        if os.path.isdir(cand):
+            return cand
+    return os.path.join(os.getcwd(), "reports")
+
+
+def _script_path() -> str:
+    for cand in (os.path.join(os.getcwd(), "scripts", "eval_matrix.py"),
+                 "/app/scripts/eval_matrix.py"):
+        if os.path.isfile(cand):
+            return cand
+    return ""
+
+
+async def run_matrix_async(dims: list[str]) -> dict:
+    """后台子进程跑评测矩阵（防重入：active 时拒绝）。返回触发结果。"""
+    from app.core.response import BizError
+
+    if _running["active"]:
+        raise BizError("评测矩阵正在运行中，请等本轮完成", 400)
+    dims = [d for d in (dims or []) if d in ("retrieval", "generation")] or ["retrieval"]
+    script = _script_path()
+    if not script:
+        raise BizError("scripts/eval_matrix.py 不可达（容器需挂载 ./scripts）", 500)
+    _running.update(active=True, dims=",".join(dims), pid=None,
+                    startedAt=time.strftime("%Y-%m-%d %H:%M:%S"), lastError="")
+
+    async def _bg() -> None:
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                sys.executable, script, "--dims", ",".join(dims),
+                cwd=os.path.dirname(os.path.dirname(script)),  # 仓库根（reports/ 相对它落地）
+                stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+            )
+            _running["pid"] = proc.pid
+            _, err = await proc.communicate()
+            if proc.returncode != 0:
+                _running["lastError"] = (err or b"").decode("utf-8", "ignore")[:500]
+        except Exception as e:  # noqa: BLE001 — 子进程异常落状态可见
+            from app.core.obs import degraded
+            degraded("eval_matrix_run", e)
+            _running["lastError"] = str(e)[:500]
+        finally:
+            _running["active"] = False
+            await _notify_done()
+
+    asyncio.create_task(_bg())
+    return {"started": True, "dims": dims}
+
+
+async def _notify_done() -> None:
+    from app.db.session import AsyncSessionLocal
+    from app.services import notification_service
+
+    err = _running["lastError"]
+    async with AsyncSessionLocal() as db:
+        await notification_service.notify_role(
+            db, ["admin"], "eval_matrix_done" if not err else "system",
+            f"评测矩阵{'完成' if not err else '运行失败'}（{_running['dims'] or 'retrieval'}）",
+            body=err or "报告已落 reports/eval_matrix_*.md，可在系统管理-评测矩阵查看",
+            link="/admin", tenant="default")
+
+
+def run_status() -> dict:
+    return {**_running, "pid": _running["pid"]}
+
+
+def list_reports(limit: int = 30) -> list[dict]:
+    d = _reports_dir()
+    if not os.path.isdir(d):
+        return []
+    out = []
+    for name in os.listdir(d):
+        if not _NAME_RE.match(name):
+            continue
+        p = os.path.join(d, name)
+        st = os.stat(p)
+        out.append({"name": name, "size": st.st_size,
+                    "mtime": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(st.st_mtime))})
+    return sorted(out, key=lambda x: x["mtime"], reverse=True)[:limit]
+
+
+def read_report(name: str) -> str:
+    """读报告内容（文件名白名单校验防路径穿越）。"""
+    from app.core.response import BizError
+
+    if not _NAME_RE.match(name):
+        raise BizError("非法报告名", 400)
+    p = os.path.join(_reports_dir(), name)
+    if not os.path.isfile(p):
+        raise BizError("报告不存在", 404)
+    with open(p, encoding="utf-8", errors="ignore") as f:
+        return f.read(200_000)
+
+
+async def eval_matrix_cron_loop(hours: float) -> None:
+    """夜间定时评测（EVAL_MATRIX_CRON_HOURS>0 时由 main.py 挂载）。"""
+    while True:
+        await asyncio.sleep(hours * 3600)
+        try:
+            await run_matrix_async(["retrieval"])  # cron 默认只跑检索维（生成维耗 LLM 额度）
+        except Exception:  # noqa: BLE001 — 重入拒绝等不终止 loop
+            pass
