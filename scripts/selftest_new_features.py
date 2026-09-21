@@ -88,7 +88,8 @@ def main():
     c.post(f"/doc-collab/annotations/{ann_id}/resolve", headers=auth, json={"resolved": True})
     r = c.get(f"/doc-collab/documents/{doc_id}/annotation-stats", headers=auth)
     stats = r.json().get("data") or {}
-    check("批注解决+统计", stats.get("total") == 1 and stats.get("resolved") == 1, str(stats))
+    # 同名换版会复用 doc_id，含历史自测批注 → 断言"无未处理且本次已解决"即可
+    check("批注解决+统计", stats.get("open", 1) == 0 and stats.get("resolved", 0) >= 1, str(stats))
 
     r = c.get("/doc-collab/signers", headers=auth)
     signers = r.json().get("data") or []

@@ -259,9 +259,15 @@ async def run_matrix_async(dims: list[str]) -> dict:
 
     async def _bg() -> None:
         try:
+            root = os.path.dirname(os.path.dirname(script))  # 仓库根（reports/ 相对它落地）
+            # 容器内 app 包在 /app/app（镜像 COPY backend→/app），而 CLI 脚本把
+            # sys.path 指到 <root>/backend（本地布局）→ 显式补 PYTHONPATH 兼容两种布局
+            env = {**os.environ,
+                   "PYTHONPATH": os.pathsep.join(filter(None, [root,
+                                                               os.environ.get("PYTHONPATH", "")]))}
             proc = await asyncio.create_subprocess_exec(
                 sys.executable, script, "--dims", ",".join(dims),
-                cwd=os.path.dirname(os.path.dirname(script)),  # 仓库根（reports/ 相对它落地）
+                cwd=root, env=env,
                 stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
             )
             _running["pid"] = proc.pid
