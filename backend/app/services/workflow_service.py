@@ -66,6 +66,9 @@ async def create_workflow(db: AsyncSession, name: str, description: str,
                   graph=graph, tenant=tenant_id, created_by=username)
     db.add(wf)
     await db.commit()
+    # MySQL 无 RETURNING：server_default(created_at/updated_at) 需 refresh，
+    # 否则 _row 访问触发属性级懒 IO → MissingGreenlet 500（首次容器开启 WORKFLOW_ENABLE 暴露）
+    await db.refresh(wf)
     return _row(wf)
 
 

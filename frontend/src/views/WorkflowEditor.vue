@@ -65,8 +65,10 @@
             <path v-for="e in draft.edges" :key="e.id"
                   :d="edgePath(e)" :class="{ 'wf-edge-sel': selEdge === e.id }"
                   @mousedown.stop="selEdge = e.id; selNode = null" />
-            <text v-for="e in draft.edges" :key="'t' + e.id" :x="edgeMid(e).x" :y="edgeMid(e).y"
-                  class="wf-edge-label" v-if="e.branch">{{ e.branch }}</text>
+            <template v-for="e in draft.edges" :key="'t' + e.id">
+              <text v-if="e.branch" :x="edgeMid(e).x" :y="edgeMid(e).y"
+                    class="wf-edge-label">{{ e.branch }}</text>
+            </template>
           </svg>
           <div v-for="n in draft.nodes" :key="n.id" class="wf-node" :class="[`wf-${n.type}`, { sel: selNode === n.id }]"
                :style="{ left: n.x + 'px', top: n.y + 'px' }"
@@ -243,7 +245,7 @@ async function toggleEnabled(w) {
 // ---- 画布交互 ----
 let dragging = null
 function addNode(type) {
-  if (!canManage.value) return
+  if (!canManage.value || linkMode.value) return  // 连线模式下点面板不加节点（防误触）
   const id = `n${Date.now().toString(36)}${Math.floor(Math.random() * 100)}`
   const t = nodeTypes.value.find(x => x.type === type) || {}
   draft.value.nodes.push({
