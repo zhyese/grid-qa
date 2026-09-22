@@ -89,6 +89,10 @@ class Settings(BaseSettings):
     DEEPSEEK_API_KEY: str = ""
     DEEPSEEK_BASE_URL: str = "https://api.deepseek.com"
     DEEPSEEK_MODEL: str = "deepseek-chat"
+    # 推理预算（deepseek-flash/v4-pro 均为推理型）：none=关推理直接出答案（运维问答
+    # 检索增强+verifier 兜底，无需长链推理；实测 low 在结构化输出场景仍耗尽预算）；
+    # 可调 low/medium 换推理质量；空串=不下发参数（模型默认重推理）
+    DEEPSEEK_REASONING_EFFORT: str = "none"
 
     # --- 阿里百炼 DashScope ---
     DASHSCOPE_API_KEY: str = ""
