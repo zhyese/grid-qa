@@ -730,6 +730,7 @@ async def answer(
     db: AsyncSession, query: str, model_type: str | None = None,
     topk: int = 5, conversation_id: str | None = None, username: str = "",
     tenant: str = "default", user_dept: str | None = None, user_role: str | None = None,
+    regen: bool = False,
 ) -> dict:
     t0 = time.time()
     with _trace_span("normalize"):
@@ -758,8 +759,11 @@ async def answer(
 
     # hotqa：用户 like 写入的高频问答对（永久缓存）——最高优先级，命中直接返回，跳检索/CRAG/生成。
     # 多轮也命中（用户认可的高频答案与上下文无关）；HOTQA_ENABLE opt-out；异常吞掉走正常链路。
-    with _trace_span("hotqa"):
-        hot = await _hit_hotqa(nq, conversation_id or "", t0)
+    # regen=True 跳过 hotqa（与流式链路对齐，强制重新生成）。
+    hot = None
+    if not regen:
+        with _trace_span("hotqa"):
+            hot = await _hit_hotqa(nq, conversation_id or "", t0)
     _tc = _get_trace()
     if _tc and getattr(settings, "QA_TRACE_DETAIL_ENABLE", False):
         _tc.attach("hotqa", hit=bool(hot))
@@ -773,8 +777,8 @@ async def answer(
         return hot
 
     # 多轮不走缓存（上下文变化）；单轮走三级缓存：Redis(L1) → 语义缓存(L1.5) → MySQL(L2) → LLM(L3)
-    if is_single and not await _is_blacklisted(nq):
-        # L1: Redis 热点缓存（精确 key 匹配）
+    if is_single and not regen and not await _is_blacklisted(nq):
+        # regen=True（重新生成）跳过缓存读，强制重走 LLM；L1: Redis 热点缓存（精确 key 匹配）
         try:
             cached = await redis_client.cache_get_json(_cache_key(model_type, nq, tenant))
         except Exception as e:

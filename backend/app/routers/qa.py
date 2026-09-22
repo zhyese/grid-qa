@@ -39,6 +39,7 @@ async def answer(
     body: QaAnswerRequest,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_perm(QA_ANSWER)),
+    regen: bool = False,   # 与 /answer/stream 对齐：跳过缓存读强制重生成（此前仅流式支持）
 ):
     from app.config import settings
     from app.services import plugin_registry
@@ -77,7 +78,7 @@ async def answer(
         data = await qa_service.answer(
             db, q, body.modelType, conversation_id=body.conversationId,
             username=user.username, tenant=user.tenant_id,
-            user_dept=user.dept, user_role=user.role,
+            user_dept=user.dept, user_role=user.role, regen=regen,
         )
     # 插件 · 答案后处理（扩展点）
     if isinstance(data, dict) and data.get("answer"):
