@@ -230,7 +230,7 @@ async def _bump_gov_generation() -> None:
 
 
 def _inc_metric(_action: str) -> None:
-    """C3 度量埋点占位（C3 task 补全指标注册）。"""
+    """C3 度量：按清理路径计数（专用计数器 GOVERNANCE_PROPAGATED 见 core/metrics.py，execute 里按 reason 计）。"""
     try:
         from app.core import metrics
         metrics.QUALITY_EVENT_TOTAL.labels("governance_propagate", _action).inc()
