@@ -79,9 +79,10 @@ class Settings(BaseSettings):
     LLM_CIRCUIT_COOLDOWN: int = 60                     # 熔断冷却秒数
     LLM_PROBE_INTERVAL: int = 30                       # 健康探活周期秒
     LLM_TIER_ENABLE: bool = False                      # L2 query 特征分档(turbo/plus) opt-in 默认关
-    # 关=现状(事实型短问也走 plus)；开=natural 类低推理短问(≤20字、术语密度≥0.15、非故障)走 turbo——
-    # 实测 2026-09-17：典型巡视类问题 turbo 7.4s vs plus 15.2s，CRAG grade 同为 correct
-    LLM_TIER_FACT_FAST_ENABLE: bool = False
+    # 关=事实型短问也走 plus；开=natural 类低推理短问(≤20字、术语密度≥0.15、非故障)走 turbo——
+    # 实测 2026-09-17：典型巡视类问题 turbo 7.4s vs plus 15.2s，CRAG grade 同为 correct。
+    # 2026-09-26 调研：能力收益矩阵背书常开，已纳入默认新常态；故障/含数值参数/无领域词场景仍留 plus。
+    LLM_TIER_FACT_FAST_ENABLE: bool = True
     RERANK_TIMEOUT: float = 2.0                        # rerank 单次超时（超时降级用 RRF 原序稳 p99；云 API 偶发 891ms+）
     LLM_LOCAL_TIMEOUT: float = 60.0                    # 本地 Ollama 兜底超时（CPU 推理慢于云端 API）
 
@@ -232,9 +233,12 @@ class Settings(BaseSettings):
     PARENT_SIZE: int = 2000      # 父块（大块，生成上下文）目标字数
     PARENT_OVERLAP: int = 200    # 子块尺寸复用 CHUNK_SIZE/CHUNK_OVERLAP
 
+
     # ---------- 检索增强（2026 RAG 趋势，默认关，按需开）----------
     HYDE_ENABLE: bool = False        # HyDE：LLM 生成假设答案再做向量检索（短/口语问题提升召回）
-    MULTI_QUERY_ENABLE: bool = False # 多查询分解：复杂问题拆子问题并行检索
+    MULTI_QUERY_ENABLE: bool = False # 多查询分解：复杂问题拆子问题并行检索。
+    # 2026-09 能力收益矩阵：检索维度稳定退化 -7.3pp / -3.1pp recall，已确认为回收候选；
+    # 保留开关作 routing-aware 子能力分支（rrf_route_aware 命中再开），不在主路径默认启用。
     SELF_RAG_ENABLE: bool = False    # Self-RAG：LLM 判断是否需检索/证据是否足够
     STANDALONE_REWRITE_ENABLE: bool = True  # 多轮指代消解：把追问改写成带上下文的独立查询
     ROUTING_ENABLE: bool = True      # ★ 智能路由：查询特征→自动选择检索路径(sparse/dense/hybrid)
@@ -264,7 +268,9 @@ class Settings(BaseSettings):
     CITATION_AUTO_ENABLE: bool = True       # 无角标句子是否向量相似度自动补标
     CITATION_SIM_THRESHOLD: float = 0.6     # 自动补标 cosine 阈值（低于则不补，保留"无引用"）
     # ===== 可核验引用引擎（五层闭环，全 opt-in，默认=现状）=====
-    CITATION_VERIFIER_ENABLE: bool = False   # 第四层校验引擎总开关（格式+向量+NLI）
+    CITATION_VERIFIER_ENABLE: bool = True   # 第四层校验引擎总开关（格式+向量+NLI）。
+    # 2026-09-26 调研：能力收益矩阵显示 +16.7pp 支撑率 / -49s，已纳入默认新常态；
+    # NLI 子层 CITATION_NLI_ENABLE 仍默认关（最重，独立开关）。
     CITATION_NLI_ENABLE: bool = False        # 校验3 NLI 精准核验（最重，独立开关）
     CITATION_NLI_TIMEOUT: int = 5            # 校验3 NLI 超时秒（超时降级仅走校验1+2）
     CITATION_NLI_ASYNC_ENABLE: bool = False  # C1 校验3 NLI 异步后置（done 后后台跑,不阻塞首答;关=verify 内同步现状）
@@ -368,6 +374,7 @@ class Settings(BaseSettings):
     # 问答→行动闭环：Agent 工具 create_ticket/submit_ticket + ops_planner persona + 工单流转事件（关=现状/开=工单闭环打通）
     TICKET_ACTION_LOOP_ENABLE: bool = False
 
+
     # ---------- 主动运维闭环补全（结构化根因 + 遥测证据 + 闭环回填，全部默认关=现状）----------
     # 结构化根因：开=proactive_diagnosis persona 输出 schema v2（根因列表/证据/置信度）；关=现状用 alert persona 自由 JSON
     PROACTIVE_SCHEMA_V2_ENABLE: bool = False
@@ -414,6 +421,7 @@ class Settings(BaseSettings):
     CONV_SUMMARY_THRESHOLD: int = 8   # 超过多少条消息触发摘要
     CONV_SUMMARY_KEEP_LAST: int = 4   # 摘要模式保留的最近消息条数
 
+
     # ---------- eval_matrix 产品化（夜间定时评测）----------
     # 每 N 小时自动跑一次评测矩阵（<=0 关）；报告落 reports/eval_matrix_*.md 并通知 admin
     EVAL_MATRIX_CRON_HOURS: float = 0.0
@@ -445,9 +453,15 @@ def citation_cache_version() -> str:
     避免 rebuild + 改开关后旧 query 命中改前行为的缓存（citation_extras 进了缓存）；
     A5 数据飞轮加 G 段：治理态变（withdraw/supersede/expire）→ governance_propagate_service
     bump Redis qa:gov_gen + 进程内存镜像 → G 变 → 所有 qa 缓存 key 变 → 自动失效。
+
+    2026-09-26 新常态扩段：CRAG_PERDOC（P=v2 逐条评估）、LLM_TIER_FACT_FAST（F=事实短问 turbo）
+    两个开关也会改变答案语义/置信，加入版本串避免旧缓存污染新行为。
+
     """
     s = settings
     return (f"cv{int(s.CITATION_VERIFIER_ENABLE)}{int(s.CITATION_STRUCTURED_OUTPUT)}"
             f"{int(s.CITATION_NLI_ENABLE)}{_gov_generation}"
             f"R{int(getattr(s, 'CRAG_V3_ENABLE', False))}"
+            f"P{int(getattr(s, 'CRAG_PERDOC_ENABLE', False))}"
+            f"F{int(getattr(s, 'LLM_TIER_FACT_FAST_ENABLE', False))}"
             f"S{int(getattr(s, 'INJECTION_GUARD_STRICT_ENABLE', False))}")  # S: 注入拦截档(红队#2)/QA persona 防线语义代际

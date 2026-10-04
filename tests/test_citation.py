@@ -28,9 +28,9 @@ def test_citation_settings_defaults(monkeypatch):
     s = Settings(_env_file=None)
     assert s.CITATION_AUTO_ENABLE is True
     assert s.CITATION_SIM_THRESHOLD == 0.6
-    # 新开关默认全 opt-in（关闭=现状）
-    assert s.CITATION_VERIFIER_ENABLE is False
-    assert s.CITATION_NLI_ENABLE is False
+    # 2026-09-26 起新常态：CRAG/Citation 主力能力默认开（能力收益矩阵背书）
+    assert s.CITATION_VERIFIER_ENABLE is True
+    assert s.CITATION_NLI_ENABLE is False  # NLI 子层仍 opt-in（最重，独立开关）
     assert s.CITATION_NLI_TIMEOUT == 5
     assert s.CITATION_STRUCTURED_OUTPUT is False
     assert s.CITATION_REWRITE_ON_FAIL is True

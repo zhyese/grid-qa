@@ -38,9 +38,9 @@ def test_numeric_param_stays_plus(monkeypatch):
     assert tier == "plus"
 
 
-def test_default_off_in_config():
-    """仓库铁律：新开关默认 False = 现状行为。"""
-    assert settings.LLM_TIER_FACT_FAST_ENABLE is False
+def test_default_on_in_config():
+    """2026-09-26 起新常态：能力收益矩阵背书常开（实测 7.4s vs 15.2s 同 grade）。"""
+    assert settings.LLM_TIER_FACT_FAST_ENABLE is True
 
 
 def test_no_domain_term_stays_plus(monkeypatch):
