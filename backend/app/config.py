@@ -1,7 +1,9 @@
 """全局配置：pydantic-settings 读取根目录 .env，导出 settings 单例。
 
-预留 ConfigSource 抽象（EnvConfigSource 现实现 / NacosConfigSource 占位），
-后续接 nacos 时只实现 NacosConfigSource，业务代码零改动。
+ConfigSource 抽象（P1-12 收口决策）：EnvConfigSource 为唯一实现；NacosConfigSource 为
+**opt-in 预留**（CONFIG_SOURCE=nacos 时才走 clients/nacos_client，启动时一次性读取），
+明确不做 watch/热更新——运行时热配置统一走 Redis config_service.rt_*（/api/system/config/*，
+改了即生效）。compose 里的 nacos 容器仅为演示可选项，默认栈不依赖。
 """
 from functools import lru_cache
 
@@ -203,9 +205,11 @@ class Settings(BaseSettings):
     CRAG_NEIGHBOR_WINDOW: int = 1              # 邻域窗口（±N 个 chunk_idx）
     CRAG_HIGH: float = 0.72      # top1 rerank分>=此值=correct(证据充分; 原0.6太松致燃料少,0.72让更多medium进gap)
     CRAG_LOW: float = 0.3        # top1 rerank分<此值=incorrect(触发纠错)
-    CRAG_PERDOC_ENABLE: bool = False  # CRAG v2：LLM 逐条评估证据相关性（非仅 top1，增延迟，默认关）
+    # 2026-09-26 起新常态（能力收益矩阵背书 +16.7pp 支撑率 / -50s）：CRAG_TIMEOUT=5s 防拖垮主链路
+    CRAG_PERDOC_ENABLE: bool = True
     CRAG_TIMEOUT: float = 5.0         # CRAG v2：LLM 评估单次超时限制（秒）
-    CRAG_V3_ENABLE: bool = False  # confidence refinement 总开关: 连续置信度+归因+矩阵(关=现状3档,前端零改动)
+    # 2026-09-26 起新常态（能力收益矩阵背书 +16.7pp 支撑率 / -16.7pp 幻觉率）：连续置信度+归因+矩阵，前端零改动
+    CRAG_V3_ENABLE: bool = True
     # ----- QA 主链路增强：接通旁支能力（opt-in，默认关=现状零破坏）-----
     DEBATE_ON_LOW_CONFIDENCE_ENABLE: bool = False  # 低置信(medium_low/low/refused)→debate_agent 三专家裁决共识注入答案+升置信
     SUFFICIENCY_GATE_ENABLE: bool = False           # judge.answerability 判证据不足→置信降一档(接通旁支 answerability)
