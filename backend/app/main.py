@@ -568,6 +568,9 @@ if settings.DOC_COLLAB_ENABLE:  # 文档协作批注+电子签批（关=现状�
 if settings.DRILL_SANDBOX_ENABLE:  # N5 故障仿真演练沙箱（关=现状不注册）
     from app.routers import drill  # noqa: E402
     app.include_router(drill.router, prefix=settings.API_PREFIX)
+if settings.GOLDEN_SET_ENABLE:  # F1 数据资产与标注工作台（关=现状不注册）
+    from app.routers import golden_set  # noqa: E402
+    app.include_router(golden_set.router, prefix=settings.API_PREFIX)
 
 
 # ---- 全局异常：BizError -> 统一 {code, message, data}（HTTP 恒 200，业务码放 body）----

@@ -440,6 +440,12 @@ class Settings(BaseSettings):
     CONV_SUMMARY_THRESHOLD: int = 8   # 超过多少条消息触发摘要
     CONV_SUMMARY_KEEP_LAST: int = 4   # 摘要模式保留的最近消息条数
 
+    # ---------- F1 数据资产与标注工作台 ----------
+    # 关=现状（golden 只有一个 JSON 文件 + 反馈页一个回流按钮）。
+    # 开=/api/golden-set 全套 API：用例 CRUD + 标签/难度/设备标签 + CSV/Excel 批量导入 +
+    #   质量事件坏 case 拉成待标注草稿 + 版本发布（sha256 哈希链）写回 golden_qa.json +
+    #   Laya 三问题原语冷启动导出。运行时评测链路零改动（仍读 golden_qa.json）。
+    GOLDEN_SET_ENABLE: bool = False
 
     # ---------- eval_matrix 产品化（夜间定时评测）----------
     # 每 N 小时自动跑一次评测矩阵（<=0 关）；报告落 reports/eval_matrix_*.md 并通知 admin

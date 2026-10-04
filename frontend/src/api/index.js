@@ -396,3 +396,23 @@ export const getWorkflowRun = (runId) => request.get(`/workflows/runs/${runId}`)
 // 覆盖率看板：开关状态 + 已生成定位语条数/占比
 export const getContextualChunkStats = () => request.get('/system/knowledge/contextual-chunks')
 
+// ===== F1 数据资产与标注工作台（golden 集全生命周期）=====
+const GS = '/golden-set'
+export const getGoldenStats = () => request.get(`${GS}/stats`)
+export const getGoldenCategories = () => request.get(`${GS}/categories`)
+export const listGoldenCases = (params = {}) => request.get(`${GS}/cases`, { params })
+export const createGoldenCase = (data) => request.post(`${GS}/cases`, data)
+export const updateGoldenCase = (id, data) => request.put(`${GS}/cases/${id}`, data)
+export const deleteGoldenCase = (id) => request.delete(`${GS}/cases/${id}`)
+export const ingestGoldenQualityEvents = (limit = 200) =>
+  request.post(`${GS}/ingest-quality-events`, { limit })
+export const publishGoldenSet = (note = '') => request.post(`${GS}/publish`, { note })
+export const listGoldenVersions = (limit = 50) => request.get(`${GS}/versions`, { params: { limit } })
+export const diffGoldenVersions = (v1, v2) => request.get(`${GS}/versions/diff`, { params: { v1, v2 } })
+export const exportLayaFormat = (labelStatus = '') =>
+  request.get(`${GS}/export/laya`, { params: { labelStatus } })
+export const importGoldenCases = (file) => {
+  const fd = new FormData()
+  fd.append('file', file)
+  return request.post(`${GS}/import`, fd, { headers: { 'Content-Type': 'multipart/form-data' } })
+}

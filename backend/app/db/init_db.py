@@ -46,6 +46,7 @@ from app.models.doc_collab import (  # noqa: F401  文档协作批注+电子签�
 )
 from app.models.drill import DrillRun, DrillScenario  # noqa: F401  （N5）故障演练沙箱
 from app.models.notification import Notification  # noqa: F401  通知中心（缺此行→表不建→notify 撞 Table doesn't exist）
+from app.models.golden_set import GoldenCase, GoldenSetVersion  # noqa: F401  数据资产与标注工作台（F1）
 
 
 # 现有表加列的幂等迁移（create_all 只建不 ALTER；老库靠这里补列，列已存在则忽略 1060 错误）。

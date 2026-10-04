@@ -48,6 +48,9 @@ DOC_SIGNOFF = "doc:signoff"          # 发起/管理签批流（admin+editor）�
 # N5 故障仿真演练沙箱
 DRILL_READ = "drill:read"            # 查看剧本/演练历史/复盘（全角色）
 DRILL_MANAGE = "drill:manage"        # 建/改/删剧本 + 发起/终止演练（admin+editor+operator 一线可练）
+# F1 数据资产与标注工作台（golden 集全生命周期）
+GOLDEN_READ = "golden:read"          # 查看用例/版本/统计（admin+editor+auditor）
+GOLDEN_MANAGE = "golden:manage"      # 建/改/删用例、批量导入、发布版本（admin+editor）
 
 # admin 全权限标记（require_perm 见 "*" 直接放行）
 ADMIN_ALL = "*"
@@ -73,6 +76,7 @@ ROLE_PERMISSIONS: dict[str, set[str]] = {
         REPORT_READ, REPORT_MANAGE,
         DOC_ANNOTATE, DOC_SIGNOFF,
         DRILL_READ, DRILL_MANAGE,
+        GOLDEN_READ, GOLDEN_MANAGE,
     },
     "operator": {
         OPS_READ, OPS_WRITE,
@@ -80,6 +84,7 @@ ROLE_PERMISSIONS: dict[str, set[str]] = {
         KG_READ, DOMAIN_USE,
         REPORT_READ, DOC_ANNOTATE,
         DRILL_READ, DRILL_MANAGE,
+        GOLDEN_READ,
     },
     "auditor": {
         OPS_READ,
@@ -88,6 +93,7 @@ ROLE_PERMISSIONS: dict[str, set[str]] = {
         ALERT_READ, AUDIT_READ, METRIC_READ,
         WORKFLOW_READ,
         REPORT_READ, DRILL_READ,
+        GOLDEN_READ,
     },
 }
 

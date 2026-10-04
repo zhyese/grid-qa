@@ -124,6 +124,10 @@ const navItems = computed(() => {
   if (hasPerm(auth.role, 'drill:read')) {
     items.push({ to: '/drill', icon: '🧯', label: '演练沙箱' })
   }
+  // F1 数据资产与标注工作台（golden 集全生命周期）
+  if (hasPerm(auth.role, 'golden:read')) {
+    items.push({ to: '/golden-set', icon: '🎯', label: '数据资产' })
+  }
   if (hasPerm(auth.role, 'metric:read')) {
     items.push({ to: '/prediction', icon: '🔮', label: '故障预测' })
     items.push({ to: '/trace', icon: '⏱', label: '链路诊断' })

@@ -31,6 +31,7 @@ const routes = [
       { path: 'ops-report', component: () => import('../views/OpsReport.vue'), meta: { auth: true, title: '运维报告', sub: '数据聚合 · LLM 生成 · Word 导出' } },
       { path: 'doc-collab', component: () => import('../views/DocCollab.vue'), meta: { auth: true, title: '文档协作', sub: '锚点批注 · 多人会签 · 电子签批' } },
       { path: 'drill', component: () => import('../views/DrillSandbox.vue'), meta: { auth: true, title: '演练沙箱', sub: '故障剧本 · 时间轴推演 · 评分复盘' } },
+      { path: 'golden-set', component: () => import('../views/GoldenSet.vue'), meta: { auth: true, title: '数据资产', sub: 'Golden 集 · 标注 · 版本发布 · Laya 导出' } },
     ],
   },
 ]
