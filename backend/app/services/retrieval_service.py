@@ -300,6 +300,35 @@ def _acl_ok(doc_dept: str, doc_allowed_roles: str,
     return (not allowed) or (user_role in allowed)
 
 
+async def _apply_governance_gate(db, pool: list[dict], tenant: str | None) -> list[dict]:
+    """7.5 知识治理硬门禁（从 mixed_search 内联抽出，可单测）。
+
+    撤回/被替代/未生效/过期文档不进 LLM 上下文；治理存储异常时：
+    - 生产租户查询（tenant 非空）默认 fail-closed（清空），避免失效知识送入 LLM；
+    - 未传 tenant 的离线评测/兼容调用维持原行为；
+    - C5: KNOWLEDGE_GOVERNANCE_FAIL_OPEN 开时改 fail-open（放行+告警）。
+    """
+    governed_ids = {h.get("doc_id") or h.get("docId") for h in pool}
+    governed_ids.discard(None)
+    governed_ids.discard("")
+    if not governed_ids:
+        return pool
+    try:
+        from app.services import knowledge_governance_service
+
+        blocked_ids = await knowledge_governance_service.blocked_document_ids(
+            db, governed_ids, tenant_id=tenant,
+        )
+        if blocked_ids:
+            pool = [h for h in pool if (h.get("doc_id") or h.get("docId")) not in blocked_ids]
+        return pool
+    except Exception as e:
+        degraded("knowledge_governance_filter", e)
+        if tenant and not getattr(settings, "KNOWLEDGE_GOVERNANCE_FAIL_OPEN", False):
+            return []
+        return pool
+
+
 async def mixed_search(
     db: AsyncSession, query: str, topk: int = 10,
     doc_type: str | None = None, model_type: str | None = None,
@@ -553,28 +582,7 @@ async def mixed_search(
 
     # 7.5) 知识治理硬门禁：明确撤回、被替代、未生效或已过期的文档不得进入 LLM 上下文。
     # 没有治理元数据的历史文档暂时保持兼容，由治理扫描持续生成补录问题。
-    _governed_ids = {h.get("doc_id") or h.get("docId") for h in pool}
-    _governed_ids.discard(None)
-    _governed_ids.discard("")
-    if _governed_ids:
-        try:
-            from app.services import knowledge_governance_service
-
-            _blocked_ids = await knowledge_governance_service.blocked_document_ids(
-                db, _governed_ids, tenant_id=tenant,
-            )
-            if _blocked_ids:
-                pool = [
-                    h for h in pool
-                    if (h.get("doc_id") or h.get("docId")) not in _blocked_ids
-                ]
-        except Exception as e:
-            # 生产租户查询采用 fail-closed，避免治理存储异常时把失效知识送入 LLM；
-            # 未传 tenant 的离线评测/兼容调用维持原行为。
-            # C5: KNOWLEDGE_GOVERNANCE_FAIL_OPEN 开时改 fail-open（放行+告警，生产可按需开）
-            degraded("knowledge_governance_filter", e)
-            if tenant and not getattr(settings, "KNOWLEDGE_GOVERNANCE_FAIL_OPEN", False):
-                pool = []
+    pool = await _apply_governance_gate(db, pool, tenant)
 
     try:
         from app.core import metrics

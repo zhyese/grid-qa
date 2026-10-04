@@ -362,7 +362,8 @@ async def write_hotqa(query: str, answer: str, sources: str = "",
 
     key=hotqa:{nq}, value=JSON{query,answer,sources,count,lastLikedAt,tenant}。
     count 读改写累加（同 query 再 like +1），answer/sources 覆盖更新最新。
-    后续 qa_service 可按 nq 精确命中复用（跳检索/生成）。无 TTL=永不过期。
+    qa_service._hit_hotqa 已按 nq 精确命中复用（最高优先级，跳检索/CRAG/生成；
+    HOTQA_ENABLE 默认开，regen 跳过）。无 TTL=永不过期。
     用独立 Redis 操作，供后台 task 安全调用。
     """
     try:
