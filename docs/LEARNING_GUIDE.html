@@ -1,0 +1,2379 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>电网运维 RAG 项目 · 超详细循序渐进学习指南</title>
+    <style>
+        :root {
+            --bg: #ffffff;
+            --fg: #1f2328;
+            --muted: #656d76;
+            --border: #d0d7de;
+            --code-bg: #f6f8fa;
+            --accent: #0969da;
+            --accent-soft: #ddf4ff;
+            --accent-hover: #0550ae;
+            --table-stripe: #f6f8fa;
+            --sidebar-bg: #f6f8fa;
+            --sidebar-width: 320px;
+            --topbar-height: 56px;
+            --shadow: 0 1px 2px rgba(31, 35, 40, 0.04), 0 1px 3px rgba(31, 35, 40, 0.08);
+            --task-bg: #fff8c5;
+            --task-border: #d4a72c;
+            --tip-bg: #e6f3ff;
+            --tip-border: #84b8ff;
+        }
+        [data-theme="dark"] {
+            --bg: #0d1117;
+            --fg: #c9d1d9;
+            --muted: #8b949e;
+            --border: #30363d;
+            --code-bg: #161b22;
+            --accent: #58a6ff;
+            --accent-soft: #388bfd26;
+            --accent-hover: #79c0ff;
+            --table-stripe: #161b22;
+            --sidebar-bg: #161b22;
+            --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 1px 3px rgba(0, 0, 0, 0.4);
+            --task-bg: #3d2802;
+            --task-border: #9e6a03;
+            --tip-bg: #0d2244;
+            --tip-border: #1f6feb;
+        }
+        * { box-sizing: border-box; }
+        html { scroll-behavior: smooth; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+            line-height: 1.8;
+            color: var(--fg);
+            background: var(--bg);
+            margin: 0;
+            padding: 0;
+            transition: background 0.2s, color 0.2s;
+        }
+        .topbar {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: var(--topbar-height);
+            background: var(--bg);
+            border-bottom: 1px solid var(--border);
+            box-shadow: var(--shadow);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 20px;
+            z-index: 1000;
+        }
+        .topbar-left { display: flex; align-items: center; gap: 16px; }
+        .menu-toggle {
+            display: none;
+            background: none;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 6px 10px;
+            cursor: pointer;
+            color: var(--fg);
+        }
+        .topbar-title { font-weight: 600; font-size: 1.05em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .topbar-actions { display: flex; align-items: center; gap: 10px; }
+        .btn {
+            background: var(--code-bg);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 6px 12px;
+            cursor: pointer;
+            color: var(--fg);
+            font-size: 0.9em;
+            transition: background 0.15s;
+        }
+        .btn:hover { background: var(--accent-soft); border-color: var(--accent); }
+        .search-box { position: relative; width: 260px; }
+        .search-box input {
+            width: 100%;
+            padding: 7px 12px 7px 34px;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            background: var(--code-bg);
+            color: var(--fg);
+            font-size: 0.9em;
+        }
+        .search-box input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+        .search-icon { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: var(--muted); font-size: 0.9em; }
+        .sidebar {
+            position: fixed;
+            top: var(--topbar-height);
+            left: 0;
+            width: var(--sidebar-width);
+            bottom: 0;
+            background: var(--sidebar-bg);
+            border-right: 1px solid var(--border);
+            overflow-y: auto;
+            padding: 16px 0;
+            z-index: 900;
+            transition: transform 0.25s;
+        }
+        .toc-title { padding: 0 20px 10px; font-weight: 600; color: var(--muted); font-size: 0.85em; text-transform: uppercase; letter-spacing: 0.5px; }
+        .toc ul { list-style: none; padding: 0; margin: 0; }
+        .toc li { margin: 0; }
+        .toc a {
+            display: block;
+            padding: 5px 20px;
+            color: var(--fg);
+            text-decoration: none;
+            font-size: 0.88em;
+            border-left: 3px solid transparent;
+            transition: background 0.15s, border-color 0.15s;
+        }
+        .toc a:hover { background: var(--accent-soft); color: var(--accent-hover); }
+        .toc a.active { border-left-color: var(--accent); background: var(--accent-soft); color: var(--accent-hover); font-weight: 500; }
+        .toc a.hidden-match { display: none; }
+        .toc-l1 { padding-left: 0; font-weight: 600; }
+        .toc-l2 { padding-left: 14px !important; font-size: 0.85em !important; }
+        .toc-l3 { padding-left: 28px !important; font-size: 0.82em !important; color: var(--muted); }
+        .main { margin-left: var(--sidebar-width); margin-top: var(--topbar-height); min-height: calc(100vh - var(--topbar-height)); }
+        .container { max-width: 860px; margin: 0 auto; padding: 32px 28px 120px; }
+        h1, h2, h3, h4 {
+            font-weight: 600;
+            line-height: 1.35;
+            margin-top: 2.4em;
+            margin-bottom: 0.9em;
+            scroll-margin-top: calc(var(--topbar-height) + 20px);
+        }
+        h1 { font-size: 1.9em; border-bottom: 1px solid var(--border); padding-bottom: 0.3em; margin-top: 0; }
+        h2 { font-size: 1.45em; border-bottom: 1px solid var(--border); padding-bottom: 0.3em; }
+        h3 { font-size: 1.22em; }
+        h4 { font-size: 1.05em; }
+        p { margin: 1em 0; }
+        a { color: var(--accent); text-decoration: none; }
+        a:hover { text-decoration: underline; }
+        code {
+            font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+            background: var(--code-bg);
+            padding: 0.15em 0.4em;
+            border-radius: 4px;
+            font-size: 0.88em;
+            border: 1px solid var(--border);
+        }
+        pre {
+            background: var(--code-bg);
+            padding: 16px;
+            border-radius: 8px;
+            overflow-x: auto;
+            border: 1px solid var(--border);
+            position: relative;
+            margin: 1.1em 0;
+        }
+        pre code { background: none; padding: 0; border: none; font-size: 0.9em; }
+        .copy-btn {
+            position: absolute;
+            top: 8px;
+            right: 8px;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 5px;
+            padding: 4px 10px;
+            font-size: 0.78em;
+            cursor: pointer;
+            color: var(--muted);
+            opacity: 0.7;
+            transition: opacity 0.15s;
+        }
+        pre:hover .copy-btn { opacity: 1; }
+        .copy-btn:hover { color: var(--accent); border-color: var(--accent); }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 1.1em 0;
+            border: 1px solid var(--border);
+            display: block;
+            overflow-x: auto;
+            border-radius: 8px;
+        }
+        th, td { border: 1px solid var(--border); padding: 8px 12px; text-align: left; vertical-align: top; }
+        th { background: var(--accent-soft); font-weight: 600; }
+        tr:nth-child(even) { background: var(--table-stripe); }
+        ul, ol { padding-left: 1.8em; }
+        li { margin: 0.35em 0; }
+        blockquote {
+            border-left: 4px solid var(--accent);
+            background: var(--accent-soft);
+            margin: 1.2em 0;
+            padding: 0.6em 1.2em;
+            border-radius: 0 8px 8px 0;
+        }
+        hr { border: 0; border-top: 1px solid var(--border); margin: 2.5em 0; }
+        details {
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 12px 16px;
+            margin: 1em 0;
+            background: var(--code-bg);
+        }
+        summary { cursor: pointer; font-weight: 600; outline: none; }
+        details[open] summary { margin-bottom: 10px; }
+        .back-to-top {
+            position: fixed;
+            right: 24px;
+            bottom: 24px;
+            width: 44px;
+            height: 44px;
+            border-radius: 50%;
+            background: var(--accent);
+            color: #fff;
+            border: none;
+            cursor: pointer;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            box-shadow: var(--shadow);
+            z-index: 1100;
+        }
+        .back-to-top.visible { display: flex; }
+        .back-to-top:hover { background: var(--accent-hover); }
+        .highlight { background: yellow; color: black; border-radius: 2px; padding: 0 2px; }
+        [data-theme="dark"] .highlight { background: #f9c513; color: #000; }
+        .task-box {
+            background: var(--task-bg);
+            border: 1px solid var(--task-border);
+            border-radius: 8px;
+            padding: 14px 18px;
+            margin: 1.2em 0;
+        }
+        .task-box strong { color: var(--fg); }
+        .task-box::before { content: "📝 动手任务："; font-weight: 700; }
+        .tip-box {
+            background: var(--tip-bg);
+            border: 1px solid var(--tip-border);
+            border-radius: 8px;
+            padding: 14px 18px;
+            margin: 1.2em 0;
+        }
+        .tip-box::before { content: "💡 提示："; font-weight: 700; }
+        footer { margin-top: 4em; padding-top: 1.5em; border-top: 1px solid var(--border); color: var(--muted); font-size: 0.9em; }
+        @media (max-width: 1100px) { .search-box { width: 180px; } }
+        @media (max-width: 900px) {
+            .menu-toggle { display: block; }
+            .sidebar { transform: translateX(-100%); }
+            .sidebar.open { transform: translateX(0); }
+            .main { margin-left: 0; }
+            .search-box { display: none; }
+        }
+        @media (max-width: 600px) {
+            .container { padding: 24px 16px 80px; }
+            h1 { font-size: 1.55em; }
+            h2 { font-size: 1.25em; }
+        }
+    </style>
+</head>
+<body>
+    <div class="topbar">
+        <div class="topbar-left">
+            <button class="menu-toggle" id="menuToggle" aria-label="切换目录">☰</button>
+            <div class="topbar-title">电网运维 RAG · 超详细学习指南</div>
+        </div>
+        <div class="topbar-actions">
+            <div class="search-box">
+                <span class="search-icon">🔍</span>
+                <input type="text" id="searchInput" placeholder="搜索标题或内容..." autocomplete="off">
+            </div>
+            <button class="btn" id="collapseBtn" title="展开/折叠详情">⛶</button>
+            <button class="btn" id="themeBtn" title="切换主题">🌙</button>
+        </div>
+    </div>
+
+    <aside class="sidebar" id="sidebar">
+        <div class="toc" id="toc">
+            <div class="toc-title">目录</div>
+        </div>
+    </aside>
+
+    <main class="main">
+        <div class="container" id="content">
+<h1 id="rag">电网运维 RAG 项目 · 超详细循序渐进学习指南</h1>
+<blockquote>
+<p>本指南把每个技术点都拆成独立章节，从零开始、循序渐进地教会你读懂、运行、修改这个项目。建议按顺序阅读，每读完一章完成文末的动手任务。</p>
+</blockquote>
+<hr />
+<h2 id="1">第 1 章：写在前面——如何高效学习这个项目</h2>
+<h3 id="11">1.1 学习心态</h3>
+<p>学习一个复杂的工业级 RAG 项目，最怕"一口吃成胖子"。这个项目涉及后端、前端、数据库、向量检索、大模型、知识图谱、Agent、可观测等多个领域。如果你一开始就扎进 <code>qa_service.answer()</code> 的每一行代码，很容易被细节淹没。</p>
+<p>正确的学习路径是：</p>
+<ol>
+<li><strong>先知道系统在做什么</strong>（业务视角）。</li>
+<li><strong>再把它跑起来</strong>（工程视角）。</li>
+<li><strong>接着学基础技术栈</strong>（FastAPI、Vue、Docker 等）。</li>
+<li><strong>然后理解 RAG 核心概念</strong>（Embedding、检索、生成、CRAG、引用）。</li>
+<li><strong>再跟踪一次完整请求</strong>（主链路视角）。</li>
+<li><strong>最后逐个模块深入</strong>（模块视角）。</li>
+</ol>
+<h3 id="12">1.2 本指南的使用方法</h3>
+<ul>
+<li><strong>每章开头有目标</strong>，读完要能做文末的"动手任务"。</li>
+<li><strong>代码片段都是项目真实路径</strong>，建议你边读边打开对应文件。</li>
+<li><strong>不要跳过动手任务</strong>，即使你觉得简单，也要执行一遍。</li>
+<li><strong>善用 Swagger</strong>：<code>http://localhost:8001/docs</code> 是理解后端 API 的最好工具。</li>
+<li><strong>善用日志和 trace</strong>：<code>tail -f</code> 后端日志，配合 Langfuse 看 waterfall。</li>
+</ul>
+<h3 id="13">1.3 学习阶段总览</h3>
+<table>
+<thead>
+<tr>
+<th>阶段</th>
+<th>章节</th>
+<th>目标</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>入门</td>
+<td>1~3</td>
+<td>理解项目、跑通全栈</td>
+</tr>
+<tr>
+<td>基础</td>
+<td>4~10</td>
+<td>掌握 FastAPI、Pydantic、SQLAlchemy、Vue、Docker</td>
+</tr>
+<tr>
+<td>RAG 核心</td>
+<td>11~17</td>
+<td>掌握 Embedding、BM25、RRF、rerank、MMR、CRAG、引用、缓存</td>
+</tr>
+<tr>
+<td>主链路</td>
+<td>18~20</td>
+<td>能跟踪一次问答请求的完整生命周期</td>
+</tr>
+<tr>
+<td>模块深入</td>
+<td>21~27</td>
+<td>掌握 Provider、路由、检索、图谱、Agent、MCP、任务中心</td>
+</tr>
+<tr>
+<td>工程化</td>
+<td>28~30</td>
+<td>掌握测试、可观测、部署、治理</td>
+</tr>
+<tr>
+<td>实战</td>
+<td>31</td>
+<td>能独立改代码、修 bug、加功能</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="2">第 2 章：项目概览——这个项目到底在做什么</h2>
+<h3 id="21">2.1 一句话定位</h3>
+<p><strong>电网运维 RAG 智能问答系统</strong>是一个让电力运维人员用自然语言查询专业知识、并获得带引用来源的可信答案的智能系统。</p>
+<h3 id="22">2.2 典型业务场景</h3>
+<table>
+<thead>
+<tr>
+<th>场景</th>
+<th>用户问题</th>
+<th>系统行为</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>故障处理</td>
+<td>"110kV 主变重瓦斯动作后怎么处理？"</td>
+<td>检索规程 → CRAG → 图谱 → 生成带引用答案</td>
+</tr>
+<tr>
+<td>规程查询</td>
+<td>"DL/T 596 对变压器油色谱的要求是什么？"</td>
+<td>BM25 精确匹配标准号 → 生成答案</td>
+</tr>
+<tr>
+<td>设备状态</td>
+<td>"#1 主变近一周油温趋势？"</td>
+<td>调用 MCP 遥测工具 → Agent 诊断</td>
+</tr>
+<tr>
+<td>案例复盘</td>
+<td>"去年类似接地故障的处理记录？"</td>
+<td>图谱时间范围过滤 → 多跳检索</td>
+</tr>
+<tr>
+<td>知识治理</td>
+<td>"这条规程已过期，如何撤回？"</td>
+<td>治理传播 → 更新 MySQL/Milvus/Neo4j/缓存</td>
+</tr>
+</tbody>
+</table>
+<h3 id="23">2.3 系统核心能力</h3>
+<ol>
+<li><strong>多路混合检索</strong>：稠密向量 + 稀疏 BM25 + 本地 bge。</li>
+<li><strong>CRAG 自纠错</strong>：检索结果不够可信时自动改写重试或拒答。</li>
+<li><strong>引用校验</strong>：自动补标 + 格式/向量/NLI 校验。</li>
+<li><strong>知识图谱</strong>：Neo4j 存储设备-故障-处置关系，支持多跳推理。</li>
+<li><strong>Agent 与 MCP</strong>：支持工具调用和外部系统集成。</li>
+<li><strong>三级缓存</strong>：Redis + MySQL + Semantic，加速高频问答。</li>
+<li><strong>可观测</strong>：Prometheus + Grafana + Langfuse。</li>
+<li><strong>RBAC 与多租户</strong>：细粒度权限与租户隔离。</li>
+</ol>
+<h3 id="24">2.4 技术栈全景</h3>
+<table>
+<thead>
+<tr>
+<th>层级</th>
+<th>技术</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>前端</td>
+<td>Vue 3 + Vite + Pinia + Vue Router + axios + echarts + three.js</td>
+</tr>
+<tr>
+<td>后端</td>
+<td>FastAPI + Pydantic + SQLAlchemy 2 async + uvicorn</td>
+</tr>
+<tr>
+<td>数据库</td>
+<td>MySQL 8 + Milvus 2.4 + Neo4j 5 + Redis 7</td>
+</tr>
+<tr>
+<td>对象存储</td>
+<td>MinIO</td>
+</tr>
+<tr>
+<td>大模型</td>
+<td>DeepSeek / 阿里百炼 / 火山方舟 / Ollama 本地</td>
+</tr>
+<tr>
+<td>Embedding</td>
+<td>Qwen / Doubao 云 embedding + BAAI bge 本地</td>
+</tr>
+<tr>
+<td>可观测</td>
+<td>Prometheus + Grafana + Langfuse + OpenTelemetry</td>
+</tr>
+<tr>
+<td>部署</td>
+<td>Docker Compose + K8s 单 Pod 演示</td>
+</tr>
+</tbody>
+</table>
+<h3 id="25">2.5 动手任务</h3>
+<p><strong>任务 2-1</strong>：打开 <code>README.md</code> 和 <code>AGENTS.md</code>，记录下你认为最重要的 3 条项目约定。</p>
+<p><strong>任务 2-2</strong>：画出你理解的系统架构草图（哪怕只是文字版），包括前端、后端、数据库、外部服务。</p>
+<hr />
+<h2 id="3">第 3 章：把项目跑起来——环境准备与全栈启动</h2>
+<h3 id="31">3.1 硬件与软件要求</h3>
+<table>
+<thead>
+<tr>
+<th>项</th>
+<th>要求</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>操作系统</td>
+<td>Windows 10/11（Docker Desktop）、Linux、macOS</td>
+</tr>
+<tr>
+<td>内存</td>
+<td>建议 16GB+，Milvus + Langfuse 较吃资源</td>
+</tr>
+<tr>
+<td>磁盘</td>
+<td>至少 30GB 可用空间</td>
+</tr>
+<tr>
+<td>Docker</td>
+<td>Docker Desktop 最新版或 Docker Engine + Compose plugin</td>
+</tr>
+<tr>
+<td>网络</td>
+<td>首次启动需拉取多个镜像，建议稳定网络</td>
+</tr>
+</tbody>
+</table>
+<h3 id="32">3.2 克隆与配置</h3>
+<pre><code class="language-bash">git clone &lt;repo-url&gt;
+cd &quot;RAG：电网运维：问答&quot;
+cp .env.example .env
+</code></pre>
+<p>编辑 <code>.env</code>，至少填一个 LLM key：</p>
+<pre><code class="language-text">DEEPSEEK_API_KEY=sk-xxxxxxxx
+DASHSCOPE_API_KEY=sk-xxxxxxxx
+ARK_API_KEY=xxxxxxxx
+</code></pre>
+<blockquote>
+<p>如果暂时没有云 key，可以只启用 Ollama（会很慢，但能跑）。</p>
+</blockquote>
+<h3 id="33">3.3 启动全栈</h3>
+<pre><code class="language-bash">docker compose up -d --build
+</code></pre>
+<p>第一次启动需要拉取镜像和构建 backend/frontend 镜像，可能需要 10~20 分钟。</p>
+<h3 id="34">3.4 检查服务状态</h3>
+<pre><code class="language-bash">bash start.sh status
+</code></pre>
+<p>预期看到：</p>
+<pre><code class="language-text">Name           Status
+grid-mysql     healthy
+grid-redis     healthy
+grid-milvus    healthy
+grid-neo4j     healthy
+grid-backend   healthy
+grid-frontend  healthy
+</code></pre>
+<p>如果某个服务 unhealthy，看日志：</p>
+<pre><code class="language-bash">bash start.sh logs &lt;服务名&gt;
+</code></pre>
+<h3 id="35">3.5 验证访问</h3>
+<table>
+<thead>
+<tr>
+<th>地址</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>http://localhost:5173</code></td>
+<td>前端界面</td>
+</tr>
+<tr>
+<td><code>http://localhost:8001/docs</code></td>
+<td>FastAPI Swagger</td>
+</tr>
+<tr>
+<td><code>http://localhost:8001/api/system/runtime-info</code></td>
+<td>运行时信息</td>
+</tr>
+<tr>
+<td><code>http://localhost:3000</code></td>
+<td>Grafana（admin/admin）</td>
+</tr>
+<tr>
+<td><code>http://localhost:3001</code></td>
+<td>Langfuse</td>
+</tr>
+</tbody>
+</table>
+<p>默认管理员：<code>admin / admin123</code></p>
+<h3 id="36">3.6 常见启动问题</h3>
+<p><strong>问题 1：Milvus 起不来</strong></p>
+<p>可能是 etcd 或 milvus-minio 没启动。检查：</p>
+<pre><code class="language-bash">docker compose logs milvus-etcd milvus-minio milvus-standalone
+</code></pre>
+<p><strong>问题 2：backend 健康检查失败</strong></p>
+<p>可能是 bge 模型预热慢。等 1~2 分钟再试：</p>
+<pre><code class="language-bash">bash start.sh logs backend
+</code></pre>
+<p><strong>问题 3：前端空白</strong></p>
+<p>可能是 backend 还没 ready，frontend 调 API 失败。等 backend healthy 后刷新。</p>
+<h3 id="37">3.7 动手任务</h3>
+<p><strong>任务 3-1</strong>：成功启动全栈后，截一张 <code>start.sh status</code> 的输出图。</p>
+<p><strong>任务 3-2</strong>：在 Swagger 上调用 <code>POST /api/qa/answer</code>，问"什么是倒闸操作？"，记录返回的 JSON 结构。</p>
+<p><strong>任务 3-3</strong>：访问 <code>GET /api/system/runtime-info</code>，记录当前 <code>citation_cache_version</code> 和已启用的 feature flags。</p>
+<hr />
+<h2 id="4-fastapi">第 4 章：FastAPI 基础与项目应用</h2>
+<h3 id="41-fastapi">4.1 什么是 FastAPI</h3>
+<p>FastAPI 是一个现代、高性能的 Python Web 框架，基于：</p>
+<ul>
+<li><strong>Starlette</strong>：提供 ASGI 支持和请求生命周期。</li>
+<li><strong>Pydantic</strong>：提供数据校验和序列化。</li>
+<li><strong>类型注解</strong>：自动生成 API 文档。</li>
+</ul>
+<p>它的核心优势：</p>
+<ol>
+<li><strong>异步原生</strong>：所有路由可以是 <code>async def</code>。</li>
+<li><strong>自动文档</strong>：访问 <code>/docs</code> 得 Swagger UI。</li>
+<li><strong>依赖注入</strong>：通过 <code>Depends</code> 管理权限、数据库 session 等。</li>
+<li><strong>高性能</strong>：基于 Starlette 和 uvicorn，性能接近 Node.js/Go。</li>
+</ol>
+<h3 id="42-fastapi">4.2 最小 FastAPI 示例</h3>
+<pre><code class="language-python">from fastapi import FastAPI
+
+app = FastAPI()
+
+@app.get(&quot;/&quot;)
+async def root():
+    return {&quot;message&quot;: &quot;Hello World&quot;}
+</code></pre>
+<p>运行：</p>
+<pre><code class="language-bash">uvicorn main:app --reload
+</code></pre>
+<p>访问 <code>http://127.0.0.1:8000/docs</code> 即可看到 API 文档。</p>
+<h3 id="43-mainpy">4.3 项目入口 main.py</h3>
+<p>打开 <code>backend/app/main.py</code>，核心是创建 FastAPI 实例和 lifespan：</p>
+<pre><code class="language-python">app = FastAPI(
+    title=settings.APP_NAME,
+    version=settings.APP_VERSION,
+)
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # 启动时：初始化日志、数据库、Milvus、Redis、Neo4j 等
+    setup_logging()
+    await init_db()
+    await ensure_collections()
+    start_background_loops()
+    yield
+    # 关闭时：清理资源
+</code></pre>
+<p><code>lifespan</code> 是 FastAPI 提供的应用生命周期钩子。<code>yield</code> 之前的代码在启动时执行，之后的代码在关闭时执行。</p>
+<h3 id="44-router">4.4 Router 模式</h3>
+<p>项目没有把所有路由写在一个文件，而是拆成多个 router：</p>
+<pre><code class="language-python"># backend/app/routers/qa.py
+from fastapi import APIRouter
+
+router = APIRouter(prefix=&quot;/qa&quot;, tags=[&quot;问答&quot;])
+
+@router.post(&quot;/answer&quot;)
+async def answer(req: QuestionRequest):
+    ...
+</code></pre>
+<p>注册 router：</p>
+<pre><code class="language-python"># backend/app/main.py
+from app.routers import qa, document, system
+
+app.include_router(qa.router, prefix=&quot;/api&quot;)
+app.include_router(document.router, prefix=&quot;/api&quot;)
+app.include_router(system.router, prefix=&quot;/api&quot;)
+</code></pre>
+<p>最终 <code>/qa/answer</code> 的实际路径是 <code>/api/qa/answer</code>。</p>
+<h3 id="45">4.5 请求与响应模型</h3>
+<pre><code class="language-python">from pydantic import BaseModel
+
+class QuestionRequest(BaseModel):
+    question: str
+    stream: bool = False
+
+@router.post(&quot;/answer&quot;)
+async def answer(req: QuestionRequest):
+    return {&quot;question&quot;: req.question}
+</code></pre>
+<p>FastAPI 会自动：</p>
+<ol>
+<li>把 JSON body 转成 <code>QuestionRequest</code>。</li>
+<li>校验字段类型（缺少 <code>question</code> 会返回 422）。</li>
+<li>把返回值转成 JSON。</li>
+<li>在 Swagger 上显示参数说明。</li>
+</ol>
+<h3 id="46-depends">4.6 依赖注入 Depends</h3>
+<p><code>Depends</code> 让代码更干净。例如获取当前用户：</p>
+<pre><code class="language-python">from fastapi import Depends
+
+async def get_current_user(token: str = Depends(oauth2_scheme)):
+    ...
+
+@router.get(&quot;/me&quot;)
+async def me(user: User = Depends(get_current_user)):
+    return user
+</code></pre>
+<p>项目中的权限依赖：</p>
+<pre><code class="language-python">@router.post(&quot;/answer&quot;)
+async def answer(user=Depends(require_perm(&quot;qa:answer&quot;))):
+    ...
+</code></pre>
+<p><code>require_perm("qa:answer")</code> 返回一个依赖函数，检查用户是否有"qa:answer"权限。</p>
+<h3 id="47-vs">4.7 同步 vs 异步路由</h3>
+<p>FastAPI 支持两种写法：</p>
+<pre><code class="language-python"># 同步：会用线程池执行
+def sync_route():
+    return {&quot;msg&quot;: &quot;sync&quot;}
+
+# 异步：事件循环直接调度
+async def async_route():
+    await asyncio.sleep(1)
+    return {&quot;msg&quot;: &quot;async&quot;}
+</code></pre>
+<p>项目中大量使用异步，因为数据库、缓存、外部 API 调用都是 IO 密集型。</p>
+<h3 id="48">4.8 项目中的特殊路由</h3>
+<table>
+<thead>
+<tr>
+<th>文件</th>
+<th>职责</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>routers/qa.py</code></td>
+<td>问答、反馈、历史、收藏、导出</td>
+</tr>
+<tr>
+<td><code>routers/document.py</code></td>
+<td>文档上传、解析、向量化、权限</td>
+</tr>
+<tr>
+<td><code>routers/system.py</code></td>
+<td>用户、配置、备份、运行时信息</td>
+</tr>
+<tr>
+<td><code>routers/retrieval.py</code></td>
+<td>检索调试、来源、trace</td>
+</tr>
+<tr>
+<td><code>routers/kg.py</code></td>
+<td>知识图谱查询与重建</td>
+</tr>
+</tbody>
+</table>
+<h3 id="49">4.9 动手任务</h3>
+<p><strong>任务 4-1</strong>：在 <code>backend/app/routers/system.py</code> 末尾新增一个路由：</p>
+<pre><code class="language-python">@router.get(&quot;/ping&quot;)
+async def ping(user=Depends(require_perm(&quot;system:admin&quot;))):
+    return success({&quot;pong&quot;: True, &quot;user&quot;: user.username})
+</code></pre>
+<p>用 curl 分别测试有权限和无权限时的返回。</p>
+<p><strong>任务 4-2</strong>：在 <code>main.py</code> 的 lifespan 里加一行 <code>logger.info("Backend startup complete")</code>，重启后确认日志出现。</p>
+<p><strong>任务 4-3</strong>：解释 <code>APIRouter(prefix="/qa", tags=["问答"])</code> 中 <code>prefix</code> 和 <code>tags</code> 的作用。</p>
+<hr />
+<h2 id="5-pydantic">第 5 章：Pydantic——配置与数据校验</h2>
+<h3 id="51-pydantic">5.1 什么是 Pydantic</h3>
+<p>Pydantic 是 Python 的类型校验库。你定义一个类，它自动帮你：</p>
+<ul>
+<li>校验输入数据类型。</li>
+<li>提供自动补全和 IDE 支持。</li>
+<li>把对象序列化成 JSON。</li>
+</ul>
+<p>例如：</p>
+<pre><code class="language-python">from pydantic import BaseModel
+
+class User(BaseModel):
+    name: str
+    age: int
+
+u = User(name=&quot;Alice&quot;, age=&quot;30&quot;)  # 自动把 &quot;30&quot; 转成 int
+print(u.model_dump())  # {'name': 'Alice', 'age': 30}
+</code></pre>
+<h3 id="52-fastapi">5.2 FastAPI 中的请求校验</h3>
+<p>项目里的 schema 都用 Pydantic：</p>
+<pre><code class="language-python"># backend/app/schemas/qa.py
+class QuestionRequest(BaseModel):
+    question: str
+    conversation_id: Optional[str] = None
+    stream: bool = False
+    regen: bool = False
+</code></pre>
+<p>当前端发送：</p>
+<pre><code class="language-json">{&quot;question&quot;: &quot;倒闸操作是什么？&quot;, &quot;stream&quot;: true}
+</code></pre>
+<p>FastAPI 自动校验并转成 Python 对象。如果 <code>question</code> 缺失，返回：</p>
+<pre><code class="language-json">{&quot;detail&quot;: [{&quot;loc&quot;: [&quot;body&quot;, &quot;question&quot;], &quot;msg&quot;: &quot;field required&quot;, &quot;type&quot;: &quot;value_error.missing&quot;}]}
+</code></pre>
+<h3 id="53-settings">5.3 项目配置 Settings</h3>
+<p><code>backend/app/config.py</code> 用 <code>pydantic-settings</code> 管理配置：</p>
+<pre><code class="language-python">from pydantic_settings import BaseSettings, SettingsConfigDict
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_file=&quot;.env&quot;,
+        env_file_encoding=&quot;utf-8&quot;,
+        extra=&quot;ignore&quot;,
+        case_sensitive=False,
+    )
+
+    APP_NAME: str = &quot;电网运维 RAG&quot;
+    BACKEND_PORT: int = 8001
+    LLM_PROVIDER: str = &quot;deepseek&quot;
+    CRAG_ENABLE: bool = True
+</code></pre>
+<p>读取顺序：</p>
+<ol>
+<li>环境变量</li>
+<li><code>.env</code> 文件</li>
+<li>字段默认值</li>
+</ol>
+<p>例如 <code>.env</code> 中 <code>BACKEND_PORT=8001</code>，<code>settings.BACKEND_PORT</code> 就是整数 8001。</p>
+<h3 id="54">5.4 字段类型与校验</h3>
+<p>Pydantic 支持丰富的类型：</p>
+<pre><code class="language-python">from pydantic import Field
+from typing import List, Optional
+
+class DocumentUploadRequest(BaseModel):
+    title: str = Field(..., min_length=1, max_length=200)
+    doc_type: str = Field(default=&quot;manual&quot;)
+    dept: Optional[str] = None
+    tags: List[str] = Field(default_factory=list)
+</code></pre>
+<p><code>Field(...)</code> 中的 <code>...</code> 表示必填项。<code>min_length</code>、<code>max_length</code> 等会自动校验。</p>
+<h3 id="55">5.5 响应模型</h3>
+<p>FastAPI 可以给路由指定 <code>response_model</code>：</p>
+<pre><code class="language-python">class AnswerResponse(BaseModel):
+    code: int
+    message: str
+    data: Optional[dict] = None
+
+@router.post(&quot;/answer&quot;, response_model=AnswerResponse)
+async def answer(req: QuestionRequest):
+    return success({&quot;answer&quot;: &quot;...&quot;})
+</code></pre>
+<p>这样 Swagger 会自动显示响应结构。</p>
+<h3 id="56-schemas">5.6 项目中的 schemas 目录</h3>
+<pre><code class="language-text">backend/app/schemas/
+├── qa.py
+├── document.py
+├── auth.py
+├── retrieval.py
+├── kg.py
+├── system.py
+└── ...
+</code></pre>
+<p>每个 schema 文件对应一个业务域的输入/输出模型。</p>
+<h3 id="57-feature-flag">5.7 Feature Flag 也是配置</h3>
+<p>项目大量使用 feature flag，例如：</p>
+<pre><code class="language-python">CRAG_ENABLE: bool = True
+CRAG_V3_ENABLE: bool = False
+CITATION_VERIFIER_ENABLE: bool = True
+SEMANTIC_CACHE_ENABLE: bool = False
+</code></pre>
+<p>这些 flag 的默认值会同步到 <code>.env.example</code>。修改默认值后需要重建 backend 镜像。</p>
+<h3 id="58">5.8 动手任务</h3>
+<p><strong>任务 5-1</strong>：在 <code>backend/app/schemas/qa.py</code> 的 <code>QuestionRequest</code> 里增加字段：</p>
+<pre><code class="language-python">debug: bool = False
+</code></pre>
+<p>然后修改 <code>routers/qa.py</code> 的 <code>answer</code> 路由，当 <code>debug=True</code> 时在响应里加上 <code>trace_id</code>。</p>
+<p><strong>任务 5-2</strong>：解释 <code>SettingsConfigDict</code> 中 <code>extra="ignore"</code> 的作用。如果不设置会怎样？</p>
+<hr />
+<h2 id="6-sqlalchemy-20">第 6 章：SQLAlchemy 2.0 异步数据库</h2>
+<h3 id="61-orm">6.1 什么是 ORM</h3>
+<p>ORM（Object-Relational Mapping）让你用 Python 类来操作数据库表，不用手写 SQL。</p>
+<p>例如：</p>
+<pre><code class="language-python">class User(Base):
+    __tablename__ = &quot;user&quot;
+    id = Column(Integer, primary_key=True)
+    username = Column(String(255))
+</code></pre>
+<p>对应 SQL：</p>
+<pre><code class="language-sql">CREATE TABLE user (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    username VARCHAR(255)
+);
+</code></pre>
+<h3 id="62-sqlalchemy-20">6.2 SQLAlchemy 2.0 新语法</h3>
+<p>项目使用 SQLAlchemy 2.0 的 <code>Mapped</code> 语法，更类型安全：</p>
+<pre><code class="language-python">from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from sqlalchemy import String
+
+class Base(DeclarativeBase):
+    pass
+
+class Document(Base):
+    __tablename__ = &quot;document&quot;
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    title: Mapped[str] = mapped_column(String(255))
+    status: Mapped[str] = mapped_column(String(50), default=&quot;active&quot;)
+    tenant: Mapped[str] = mapped_column(String(64), index=True)
+</code></pre>
+<h3 id="63">6.3 模型关系</h3>
+<p>一对多关系：</p>
+<pre><code class="language-python">class Document(Base):
+    id: Mapped[int] = mapped_column(primary_key=True)
+    chunks: Mapped[List[&quot;Chunk&quot;]] = relationship(&quot;Chunk&quot;, back_populates=&quot;document&quot;)
+
+class Chunk(Base):
+    id: Mapped[int] = mapped_column(primary_key=True)
+    document_id: Mapped[int] = mapped_column(ForeignKey(&quot;document.id&quot;))
+    document: Mapped[&quot;Document&quot;] = relationship(&quot;Document&quot;, back_populates=&quot;chunks&quot;)
+</code></pre>
+<h3 id="64-session">6.4 异步 Session</h3>
+<p>项目使用 <code>aiomysql</code> + SQLAlchemy 异步：</p>
+<pre><code class="language-python"># backend/app/db/session.py
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
+
+DATABASE_URL = &quot;mysql+aiomysql://grid:grid123456@mysql:3306/grid_qa?charset=utf8mb4&quot;
+engine = create_async_engine(DATABASE_URL)
+
+async_session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+
+async def get_session() -&gt; AsyncGenerator[AsyncSession, None]:
+    async with async_session() as session:
+        yield session
+</code></pre>
+<p>在 router 中使用：</p>
+<pre><code class="language-python">@router.get(&quot;/documents&quot;)
+async def list_docs(session: AsyncSession = Depends(get_session)):
+    result = await session.execute(select(Document))
+    return result.scalars().all()
+</code></pre>
+<h3 id="65-crud">6.5 CRUD 基本操作</h3>
+<pre><code class="language-python"># 查询
+result = await session.execute(select(Document).where(Document.id == 1))
+doc = result.scalar_one_or_none()
+
+# 新增
+new_doc = Document(title=&quot;规程.pdf&quot;, tenant=&quot;grid&quot;)
+session.add(new_doc)
+await session.commit()
+
+# 更新
+doc.status = &quot;withdrawn&quot;
+await session.commit()
+
+# 删除
+await session.delete(doc)
+await session.commit()
+</code></pre>
+<h3 id="66-alembic">6.6 数据库迁移 Alembic</h3>
+<p>Alembic 是 SQLAlchemy 的迁移工具。配置在 <code>backend/alembic.ini</code>。</p>
+<pre><code class="language-bash">cd backend
+
+# 应用所有迁移
+alembic upgrade head
+
+# 生成新迁移
+alembic revision --autogenerate -m &quot;add column X&quot;
+
+# 回退一次
+alembic downgrade -1
+</code></pre>
+<h3 id="67-models">6.7 项目中的 models 目录</h3>
+<pre><code class="language-text">backend/app/models/
+├── user.py
+├── document.py
+├── chunk.py
+├── conversation.py
+├── message.py
+├── feedback.py
+├── qa_record.py
+├── qa_cache.py
+├── kg_triple.py
+└── ...
+</code></pre>
+<h3 id="68">6.8 动手任务</h3>
+<p><strong>任务 6-1</strong>：查看 <code>backend/app/models/document.py</code>，列出所有字段，并指出哪些字段用于权限隔离。</p>
+<p><strong>任务 6-2</strong>：在 <code>backend/app/schemas/document.py</code> 里新增 <code>DocumentSimpleResponse</code>（只含 id 和 title），然后在 <code>routers/document.py</code> 新增 <code>GET /documents/simple</code> 返回简化列表。</p>
+<p><strong>任务 6-3</strong>：解释 <code>expire_on_commit=False</code> 在异步 session 中的作用。</p>
+<hr />
+<h2 id="7-vue-3">第 7 章：Vue 3 前端基础</h2>
+<h3 id="71-vue-3">7.1 Vue 3 核心变化</h3>
+<p>Vue 3 最大变化是 <strong>Composition API</strong>，相比 Vue 2 的 Options API：</p>
+<ul>
+<li>逻辑可以按功能组合，而不是按选项拆分。</li>
+<li>更好的 TypeScript 支持。</li>
+<li>更好的代码复用（组合式函数）。</li>
+</ul>
+<h3 id="72-vue-3">7.2 最小 Vue 3 组件</h3>
+<pre><code class="language-vue">&lt;script setup&gt;
+import { ref } from 'vue'
+
+const count = ref(0)
+
+function increment() {
+  count.value++
+}
+&lt;/script&gt;
+
+&lt;template&gt;
+  &lt;button @click=&quot;increment&quot;&gt;Count: {{ count }}&lt;/button&gt;
+&lt;/template&gt;
+</code></pre>
+<p><code>ref</code> 让普通变量变成响应式。修改 <code>count.value</code> 会自动更新界面。</p>
+<h3 id="73-vue-3">7.3 项目中的 Vue 3</h3>
+<p>打开 <code>frontend/src/views/Chat.vue</code>：</p>
+<pre><code class="language-vue">&lt;script setup&gt;
+import { ref, onMounted } from 'vue'
+import { streamAnswer } from '@/api'
+
+const question = ref('')
+const answer = ref('')
+const loading = ref(false)
+
+async function handleSend() {
+  loading.value = true
+  const res = await streamAnswer({ question: question.value, stream: true })
+  answer.value = res
+  loading.value = false
+}
+&lt;/script&gt;
+</code></pre>
+<h3 id="74">7.4 模板语法</h3>
+<table>
+<thead>
+<tr>
+<th>语法</th>
+<th>作用</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>{{ variable }}</code></td>
+<td>文本插值</td>
+</tr>
+<tr>
+<td><code>:src="url"</code></td>
+<td>绑定属性</td>
+</tr>
+<tr>
+<td><code>@click="handler"</code></td>
+<td>事件监听</td>
+</tr>
+<tr>
+<td><code>v-if="show"</code></td>
+<td>条件渲染</td>
+</tr>
+<tr>
+<td><code>v-for="item in list"</code></td>
+<td>列表渲染</td>
+</tr>
+<tr>
+<td><code>v-model="text"</code></td>
+<td>双向绑定</td>
+</tr>
+</tbody>
+</table>
+<h3 id="75">7.5 生命周期钩子</h3>
+<pre><code class="language-vue">&lt;script setup&gt;
+import { onMounted, onUnmounted } from 'vue'
+
+onMounted(() =&gt; {
+  console.log('组件挂载')
+})
+
+onUnmounted(() =&gt; {
+  console.log('组件卸载')
+})
+&lt;/script&gt;
+</code></pre>
+<h3 id="76">7.6 计算属性与侦听器</h3>
+<pre><code class="language-vue">&lt;script setup&gt;
+import { ref, computed, watch } from 'vue'
+
+const firstName = ref('张')
+const lastName = ref('三')
+const fullName = computed(() =&gt; firstName.value + lastName.value)
+
+watch(fullName, (newVal) =&gt; {
+  console.log('姓名变化:', newVal)
+})
+&lt;/script&gt;
+</code></pre>
+<h3 id="77">7.7 项目中的主要页面</h3>
+<table>
+<thead>
+<tr>
+<th>页面</th>
+<th>路径</th>
+<th>文件</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>聊天</td>
+<td><code>/chat</code></td>
+<td><code>views/Chat.vue</code></td>
+</tr>
+<tr>
+<td>文档管理</td>
+<td><code>/documents</code></td>
+<td><code>views/Documents.vue</code></td>
+</tr>
+<tr>
+<td>知识图谱</td>
+<td><code>/kg</code></td>
+<td><code>views/KgGraph.vue</code></td>
+</tr>
+<tr>
+<td>管理后台</td>
+<td><code>/admin</code></td>
+<td><code>views/Admin.vue</code></td>
+</tr>
+<tr>
+<td>登录</td>
+<td><code>/login</code></td>
+<td><code>views/Login.vue</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="78">7.8 动手任务</h3>
+<p><strong>任务 7-1</strong>：在 <code>frontend/src/views/</code> 下新建 <code>TestPage.vue</code>，显示一个计数器按钮。</p>
+<p><strong>任务 7-2</strong>：修改 <code>frontend/src/router/index.js</code>，添加 <code>/test</code> 路由指向 <code>TestPage.vue</code>。</p>
+<p><strong>任务 7-3</strong>：在 <code>TestPage.vue</code> 中调用 <code>/api/system/runtime-info</code>，把 <code>app_name</code> 显示在页面上。</p>
+<hr />
+<h2 id="8-pinia">第 8 章：Pinia 状态管理</h2>
+<h3 id="81">8.1 为什么需要状态管理</h3>
+<p>当多个组件共享数据时（如登录态、用户信息），直接父子传参会变得很乱。Pinia 提供全局状态管理。</p>
+<h3 id="82-pinia">8.2 Pinia 基础</h3>
+<pre><code class="language-javascript">// stores/counter.js
+import { defineStore } from 'pinia'
+import { ref, computed } from 'vue'
+
+export const useCounterStore = defineStore('counter', () =&gt; {
+  const count = ref(0)
+  const double = computed(() =&gt; count.value * 2)
+
+  function increment() {
+    count.value++
+  }
+
+  return { count, double, increment }
+})
+</code></pre>
+<p>在组件中使用：</p>
+<pre><code class="language-vue">&lt;script setup&gt;
+import { useCounterStore } from '@/stores/counter'
+const counter = useCounterStore()
+&lt;/script&gt;
+
+&lt;template&gt;
+  &lt;div&gt;{{ counter.count }} / {{ counter.double }}&lt;/div&gt;
+  &lt;button @click=&quot;counter.increment&quot;&gt;+1&lt;/button&gt;
+&lt;/template&gt;
+</code></pre>
+<h3 id="83-auth-store">8.3 项目中的 auth store</h3>
+<pre><code class="language-javascript">// frontend/src/stores/auth.js
+import { defineStore } from 'pinia'
+import { ref } from 'vue'
+
+export const useAuthStore = defineStore('auth', () =&gt; {
+  const token = ref(localStorage.getItem('token') || '')
+  const username = ref('')
+  const role = ref('')
+
+  function setToken(t) {
+    token.value = t
+    localStorage.setItem('token', t)
+  }
+
+  function clear() {
+    token.value = ''
+    username.value = ''
+    localStorage.removeItem('token')
+  }
+
+  return { token, username, role, setToken, clear }
+})
+</code></pre>
+<h3 id="84-localstorage">8.4 持久化与 localStorage</h3>
+<p>项目没有把 Pinia 持久化插件化，而是手动读写 <code>localStorage</code>。这样更可控：</p>
+<ul>
+<li>登录时写 token。</li>
+<li>刷新页面时从 localStorage 读 token。</li>
+<li>退出时清除 token。</li>
+</ul>
+<h3 id="85">8.5 动手任务</h3>
+<p><strong>任务 8-1</strong>：在 <code>stores/auth.js</code> 里增加 <code>isAdmin</code> computed 属性，判断 role 是否为 <code>"admin"</code>。</p>
+<p><strong>任务 8-2</strong>：在 <code>TestPage.vue</code> 中显示当前登录用户名和角色。</p>
+<hr />
+<h2 id="9-vue-router">第 9 章：Vue Router 与权限守卫</h2>
+<h3 id="91-vue-router">9.1 Vue Router 基础</h3>
+<p>Vue Router 是 Vue 的官方路由库，实现 SPA（单页应用）的页面切换。</p>
+<pre><code class="language-javascript">// router/index.js
+import { createRouter, createWebHistory } from 'vue-router'
+import Chat from '@/views/Chat.vue'
+import Login from '@/views/Login.vue'
+
+const routes = [
+  { path: '/', redirect: '/chat' },
+  { path: '/login', component: Login },
+  { path: '/chat', component: Chat, meta: { auth: true } },
+]
+
+const router = createRouter({
+  history: createWebHistory(),
+  routes,
+})
+</code></pre>
+<h3 id="92">9.2 路由守卫</h3>
+<p>项目中的路由守卫：</p>
+<pre><code class="language-javascript">router.beforeEach((to, from, next) =&gt; {
+  const auth = useAuthStore()
+
+  if (to.meta.auth &amp;&amp; !auth.token) {
+    next('/login')
+    return
+  }
+
+  if (to.meta.admin &amp;&amp; auth.role !== 'admin') {
+    next('/')
+    return
+  }
+
+  next()
+})
+</code></pre>
+<h3 id="93-meta">9.3 meta 字段</h3>
+<table>
+<thead>
+<tr>
+<th>meta</th>
+<th>含义</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>auth: true</code></td>
+<td>需要登录</td>
+</tr>
+<tr>
+<td><code>admin: true</code></td>
+<td>需要管理员角色</td>
+</tr>
+<tr>
+<td><code>roles: ['admin', 'editor']</code></td>
+<td>角色白名单</td>
+</tr>
+</tbody>
+</table>
+<h3 id="94">9.4 动手任务</h3>
+<p><strong>任务 9-1</strong>：给 <code>TestPage.vue</code> 所在路由添加 <code>meta: { auth: true }</code>，测试未登录时是否被重定向到登录页。</p>
+<p><strong>任务 9-2</strong>：在路由守卫里增加一个提示：当无权限访问 <code>/admin</code> 时，弹窗提示"权限不足"。</p>
+<hr />
+<h2 id="10-docker-compose">第 10 章：Docker Compose 与服务编排</h2>
+<h3 id="101-docker-compose">10.1 为什么用 Docker Compose</h3>
+<p>项目有 18 个服务。手动安装会面临：</p>
+<ul>
+<li>版本冲突。</li>
+<li>端口冲突。</li>
+<li>环境不一致。</li>
+<li>启动顺序难控制。</li>
+</ul>
+<p>Docker Compose 用一个 YAML 文件描述所有服务，一条命令启动。</p>
+<h3 id="102">10.2 核心概念</h3>
+<table>
+<thead>
+<tr>
+<th>概念</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Service</td>
+<td>一个容器，如 <code>backend</code>、<code>mysql</code></td>
+</tr>
+<tr>
+<td>Image</td>
+<td>容器镜像，如 <code>mysql:8.0</code></td>
+</tr>
+<tr>
+<td>Volume</td>
+<td>持久化数据卷</td>
+</tr>
+<tr>
+<td>Network</td>
+<td>容器间通信网络</td>
+</tr>
+<tr>
+<td>depends_on</td>
+<td>启动顺序</td>
+</tr>
+<tr>
+<td>healthcheck</td>
+<td>健康检查</td>
+</tr>
+</tbody>
+</table>
+<h3 id="103-docker-composeyml">10.3 docker-compose.yml 关键片段</h3>
+<pre><code class="language-yaml">services:
+  backend:
+    build:
+      context: ./backend
+    container_name: grid-backend
+    depends_on:
+      mysql: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    environment:
+      DATABASE_URL: mysql+aiomysql://grid:grid123456@mysql:3306/grid_qa?charset=utf8mb4
+      REDIS_URL: redis://:grid-langfuse-pass@redis:6379/0
+    ports:
+      - &quot;8001:8001&quot;
+</code></pre>
+<p>注意容器内用服务名 <code>mysql</code>、<code>redis</code> 互相访问，不是 <code>localhost</code>。</p>
+<h3 id="104">10.4 常用命令</h3>
+<pre><code class="language-bash"># 启动并构建
+docker compose up -d --build
+
+# 查看状态
+docker compose ps
+
+# 查看日志
+docker compose logs -f backend
+
+# 进入容器
+docker exec -it grid-backend bash
+
+# 停止
+docker compose down
+
+# 重建单个服务
+docker compose up -d --build backend
+</code></pre>
+<h3 id="105">10.5 数据持久化</h3>
+<pre><code class="language-yaml">volumes:
+  mysql_data:
+  milvus_data:
+</code></pre>
+<p>即使容器删除，数据卷里的数据还在。</p>
+<h3 id="106">10.6 动手任务</h3>
+<p><strong>任务 10-1</strong>：执行 <code>docker compose ps</code>，解释每个服务的 <code>STATUS</code> 列。</p>
+<p><strong>任务 10-2</strong>：修改 <code>docker-compose.yml</code> 中 backend 的环境变量 <code>LLM_PROVIDER=qwen</code>，重建 backend 容器，观察运行时信息变化。</p>
+<p><strong>任务 10-3</strong>：解释 <code>depends_on</code> 中 <code>condition: service_healthy</code> 和普通的 <code>depends_on</code> 有什么区别。</p>
+<hr />
+<h2 id="11-embedding">第 11 章：Embedding 与向量检索</h2>
+<h3 id="111-embedding">11.1 什么是 Embedding</h3>
+<p>Embedding 是把文本、图片等数据转换成稠密向量的技术。语义相近的内容，向量空间中的距离也近。</p>
+<p>例如：</p>
+<ul>
+<li>"主变重瓦斯动作" 和 "变压器瓦斯保护跳闸" → 向量距离近。</li>
+<li>"主变重瓦斯动作" 和 "今天天气很好" → 向量距离远。</li>
+</ul>
+<h3 id="112-embedding">11.2 Embedding 模型</h3>
+<table>
+<thead>
+<tr>
+<th>模型</th>
+<th>维度</th>
+<th>类型</th>
+<th>项目用途</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>qwen-embedding</td>
+<td>1024</td>
+<td>云</td>
+<td>大文档、主 collection</td>
+</tr>
+<tr>
+<td>doubao-embedding</td>
+<td>1024</td>
+<td>云</td>
+<td>备用</td>
+</tr>
+<tr>
+<td>BAAI/bge-small-zh-v1.5</td>
+<td>512</td>
+<td>本地</td>
+<td>小文档、离线环境</td>
+</tr>
+</tbody>
+</table>
+<h3 id="113">11.3 向量检索原理</h3>
+<p>把文档 chunk 转成向量存入 Milvus。用户提问时，把问题也转成向量，然后在 Milvus 中找最近的向量。</p>
+<p>常用距离：</p>
+<ul>
+<li><strong>余弦相似度</strong>：方向越接近越相似。</li>
+<li><strong>欧氏距离</strong>：距离越短越相似。</li>
+</ul>
+<h3 id="114-embedding-provider">11.4 项目中的 Embedding Provider</h3>
+<pre><code class="language-python"># backend/app/providers/factory.py
+async def get_embedding_provider(provider=None):
+    name = provider or settings.EMB_PROVIDER
+    if name == &quot;qwen&quot;:
+        return QwenEmbeddingProvider()
+    if name == &quot;doubao&quot;:
+        return DoubaoEmbeddingProvider()
+    if name == &quot;bge&quot;:
+        return BgeEmbeddingProvider()
+</code></pre>
+<h3 id="115-milvus-collection">11.5 Milvus Collection</h3>
+<p>项目有两个 collection：</p>
+<table>
+<thead>
+<tr>
+<th>Collection</th>
+<th>维度</th>
+<th>用途</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>grid_chunks</code></td>
+<td>1024</td>
+<td>云 embedding</td>
+</tr>
+<tr>
+<td><code>grid_chunks_bge</code></td>
+<td>512</td>
+<td>本地 bge</td>
+</tr>
+</tbody>
+</table>
+<h3 id="116">11.6 文档切分策略</h3>
+<p>长文档需要先切分成 chunk：</p>
+<pre><code class="language-python">class Chunk(Base):
+    id: Mapped[int] = mapped_column(primary_key=True)
+    document_id: Mapped[int]
+    content: Mapped[str]
+    chunk_idx: Mapped[int]
+    parent_chunk_id: Mapped[Optional[int]]   # small-to-big
+</code></pre>
+<h3 id="117">11.7 动手任务</h3>
+<p><strong>任务 11-1</strong>：用 Python 写一段代码，使用 <code>sentence-transformers</code> 把三句话转成向量，计算它们两两之间的余弦相似度。</p>
+<p><strong>任务 11-2</strong>：查看 <code>backend/app/providers/embedding/bge_embedding.py</code>，找出模型名称和 batch size。</p>
+<hr />
+<h2 id="12-bm25">第 12 章：BM25 稀疏检索</h2>
+<h3 id="121-bm25">12.1 为什么需要 BM25</h3>
+<p>向量检索擅长语义匹配，但不擅长精确匹配专业术语和标准号。例如：</p>
+<blockquote>
+<p>"DL/T 596-2021 对变压器油色谱的要求？"</p>
+</blockquote>
+<p>这种查询用 BM25 更准。</p>
+<h3 id="122-bm25">12.2 BM25 原理</h3>
+<p>BM25 是一种基于词频的排序算法，综合考虑：</p>
+<ul>
+<li>词在文档中的出现次数（TF）。</li>
+<li>词在所有文档中的出现频率（IDF）。</li>
+<li>文档长度归一化。</li>
+</ul>
+<h3 id="123-bm25">12.3 项目中的 BM25</h3>
+<p>项目使用 <code>jieba</code> 分词 + <code>rank-bm25</code>：</p>
+<pre><code class="language-python"># backend/app/services/bm25_service.py
+import jieba
+from rank_bm25 import BM25Okapi
+
+class Bm25Service:
+    def __init__(self):
+        self.corpus = []
+        self.tokenized_corpus = []
+        self.bm25 = None
+
+    def build_index(self, chunks: List[Chunk]):
+        self.corpus = [c.content for c in chunks]
+        self.tokenized_corpus = [list(jieba.cut(doc)) for doc in self.corpus]
+        self.bm25 = BM25Okapi(self.tokenized_corpus)
+
+    def search(self, query: str, top_k: int = 10):
+        tokenized_query = list(jieba.cut(query))
+        scores = self.bm25.get_scores(tokenized_query)
+        # 返回 top_k 文档索引和分数
+</code></pre>
+<h3 id="124-jieba">12.4 jieba 分词</h3>
+<pre><code class="language-python">import jieba
+print(list(jieba.cut(&quot;主变压器重瓦斯动作&quot;)))
+# ['主变压器', '重', '瓦斯', '动作']
+</code></pre>
+<h3 id="125">12.5 动手任务</h3>
+<p><strong>任务 12-1</strong>：安装 <code>jieba</code> 和 <code>rank-bm25</code>，用 5 句话建立 BM25 索引，查询"变压器故障"，观察返回结果。</p>
+<p><strong>任务 12-2</strong>：对比同一个问题在向量检索和 BM25 下的 top1 结果差异。</p>
+<hr />
+<h2 id="13-rrf">第 13 章：RRF 多路召回融合</h2>
+<h3 id="131">13.1 为什么需要多路融合</h3>
+<p>单路检索有局限：</p>
+<ul>
+<li>向量检索：语义好，但可能漏掉专业术语。</li>
+<li>BM25：精确匹配好，但无法理解语义。</li>
+<li>bge 本地：便宜离线，但效果可能稍差。</li>
+</ul>
+<p>多路融合可以取长补短。</p>
+<h3 id="132-rrf">13.2 RRF 公式</h3>
+<p>RRF（Reciprocal Rank Fusion）：</p>
+<pre><code>RRF_score(d) = Σ 1 / (k + rank_i(d))
+</code></pre>
+<ul>
+<li><code>k</code>：平滑常数，项目默认 60。</li>
+<li><code>rank_i(d)</code>：文档 d 在第 i 路中的排名。</li>
+</ul>
+<h3 id="133-rrf">13.3 项目中的 RRF</h3>
+<pre><code class="language-python"># backend/app/rag/rrf.py
+def rrf_fuse(lists, k=60, weights=None):
+    scores = {}
+    for i, ranked_list in enumerate(lists):
+        weight = weights[i] if weights else 1.0
+        for rank, doc_id in enumerate(ranked_list):
+            scores[doc_id] = scores.get(doc_id, 0) + weight / (k + rank + 1)
+    return sorted(scores.items(), key=lambda x: x[1], reverse=True)
+</code></pre>
+<h3 id="134">13.4 权重配置</h3>
+<p>项目支持按 route 动态调整权重：</p>
+<pre><code class="language-python">RRF_DENSE_WEIGHT: float = 1.0
+RRF_SPARSE_WEIGHT: float = 1.0
+RRF_BGE_WEIGHT: float = 0.8
+</code></pre>
+<h3 id="135">13.5 动手任务</h3>
+<p><strong>任务 13-1</strong>：手动计算两路检索结果 <code>["A", "B", "C"]</code> 和 <code>["B", "A", "D"]</code> 的 RRF 分数，k=60。</p>
+<p><strong>任务 13-2</strong>：在 Swagger 上调 <code>/api/retrieval/debug-search</code>，查看返回里的 <code>rrf_score</code> 字段。</p>
+<hr />
+<h2 id="14-rerank-mmr">第 14 章：Rerank 与 MMR</h2>
+<h3 id="141-rerank">14.1 Rerank 的作用</h3>
+<p>RRF 融合后，候选 chunk 的排名可能还不够精准。rerank 用更强大的模型直接判断"这个 chunk 对回答 query 有多重要"。</p>
+<h3 id="142-rerank">14.2 Rerank 模型</h3>
+<p>项目常用 <code>gte-rerank-v2</code> 等云端 rerank 模型。输入 query + chunk，输出相关性分数。</p>
+<h3 id="143">14.3 降级策略</h3>
+<p>rerank 是外部调用，可能超时或失败。项目降级策略：</p>
+<pre><code class="language-python">async def rerank(query, candidates):
+    try:
+        return await cloud_rerank(query, candidates)
+    except Exception as e:
+        obs.degraded(&quot;rerank&quot;, e)
+        return candidates  # 回退到 RRF 原序
+</code></pre>
+<h3 id="144-mmr">14.4 MMR 多样性</h3>
+<p>rerank 后 topK 可能内容重复。MMR 平衡相关性和多样性：</p>
+<pre><code>MMR_score = λ * Sim(query, doc) - (1-λ) * max Sim(doc, selected_docs)
+</code></pre>
+<ul>
+<li><code>λ=1</code>：只看相关性。</li>
+<li><code>λ=0</code>：只看多样性。</li>
+<li>项目默认 <code>MMR_LAMBDA=0.5</code>。</li>
+</ul>
+<h3 id="145">14.5 动手任务</h3>
+<p><strong>任务 14-1</strong>：在 <code>config.py</code> 里找到 <code>MMR_LAMBDA</code> 的默认值，通过 <code>/api/system/config/mmr_lambda</code> 热更新为 0.8，观察答案变化。</p>
+<p><strong>任务 14-2</strong>：关闭 rerank（如果支持），对比答案质量差异。</p>
+<hr />
+<h2 id="15-crag">第 15 章：CRAG 自纠错</h2>
+<h3 id="151-crag">15.1 为什么需要 CRAG</h3>
+<p>大模型可能会编造答案。CRAG 在生成前检查检索到的证据是否足够可信，不够就重写 query 再检索，还不够就拒答。</p>
+<h3 id="152">15.2 三档分级</h3>
+<table>
+<thead>
+<tr>
+<th>档位</th>
+<th>条件</th>
+<th>动作</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>correct</td>
+<td>top1 score &gt;= CRAG_HIGH</td>
+<td>证据充分，继续生成</td>
+</tr>
+<tr>
+<td>ambiguous</td>
+<td>CRAG_LOW &lt;= top1 &lt; CRAG_HIGH</td>
+<td>证据一般，生成但降低置信度</td>
+</tr>
+<tr>
+<td>incorrect</td>
+<td>top1 &lt; CRAG_LOW</td>
+<td>改 query 重检索；仍不足则拒答</td>
+</tr>
+</tbody>
+</table>
+<p>默认阈值：<code>CRAG_HIGH=0.72</code>，<code>CRAG_LOW=0.3</code>。</p>
+<h3 id="153">15.3 项目实现</h3>
+<pre><code class="language-python"># backend/app/rag/crag.py
+@dataclass
+class GradeResult:
+    action: str
+    confidence: float
+    top_score: float
+
+def grade(contexts, query) -&gt; GradeResult:
+    top_score = contexts[0].score if contexts else 0
+    if top_score &gt;= settings.CRAG_HIGH:
+        return GradeResult(&quot;correct&quot;, 0.9, top_score)
+    elif top_score &gt;= settings.CRAG_LOW:
+        return GradeResult(&quot;ambiguous&quot;, 0.6, top_score)
+    else:
+        return GradeResult(&quot;incorrect&quot;, 0.3, top_score)
+</code></pre>
+<h3 id="154-crag-v3">15.4 CRAG V3 与逐文档评估</h3>
+<ul>
+<li><code>CRAG_V3_ENABLE</code>：连续置信度 5 档 + 归因矩阵。</li>
+<li><code>CRAG_PERDOC_ENABLE</code>：LLM 逐条评估每篇文档相关性。</li>
+</ul>
+<h3 id="155">15.5 动手任务</h3>
+<p><strong>任务 15-1</strong>：把 <code>CRAG_HIGH</code> 从 0.72 调到 0.65，问几个模糊问题，观察 <code>crag_action</code> 变化。</p>
+<p><strong>任务 15-2</strong>：找一个系统明确拒答的问题，分析是检索不足还是 CRAG 判定为 incorrect。</p>
+<hr />
+<h2 id="16">第 16 章：引用与校验</h2>
+<h3 id="161">16.1 为什么需要引用</h3>
+<p>用户需要知道答案的出处，以便核实。没有引用的答案不可信。</p>
+<h3 id="162">16.2 引用四层架构</h3>
+<table>
+<thead>
+<tr>
+<th>层级</th>
+<th>功能</th>
+<th>开关</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>自动补标</td>
+<td>无角标句子按向量相似度补引用</td>
+<td><code>CITATION_AUTO_ENABLE</code></td>
+</tr>
+<tr>
+<td>格式校验</td>
+<td>检查角标格式、编号连续性</td>
+<td><code>CITATION_VERIFIER_ENABLE</code></td>
+</tr>
+<tr>
+<td>向量校验</td>
+<td>答案句与原文 chunk 向量相似度</td>
+<td><code>CITATION_VERIFIER_ENABLE</code></td>
+</tr>
+<tr>
+<td>NLI 校验</td>
+<td>自然语言推理判断支撑关系</td>
+<td><code>CITATION_NLI_ENABLE</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="163">16.3 自动补标</h3>
+<pre><code class="language-python"># backend/app/rag/citation.py
+def auto_cite(answer, contexts):
+    # 对答案中每个没有引用的句子
+    # 找到最相似的 chunk，添加 [i] 角标
+    ...
+</code></pre>
+<h3 id="164">16.4 引用校验</h3>
+<pre><code class="language-python"># backend/app/rag/citation_verifier.py
+def verify(answer, contexts):
+    # 1. 解析角标
+    # 2. 格式检查
+    # 3. 向量相似度检查
+    # 4. NLI 检查（可选）
+    ...
+</code></pre>
+<h3 id="165">16.5 引用失败的处理</h3>
+<p>如果校验失败且 <code>CITATION_REWRITE_ON_FAIL=True</code>，可以：</p>
+<ul>
+<li>联动 CRAG 二次检索。</li>
+<li>或直接拒答。</li>
+</ul>
+<h3 id="166">16.6 动手任务</h3>
+<p><strong>任务 16-1</strong>：在前端问一个问题，点击答案里的引用角标，查看来源文档。</p>
+<p><strong>任务 16-2</strong>：关闭 <code>CITATION_AUTO_ENABLE</code>，观察答案引用是否减少或格式是否变差。</p>
+<hr />
+<h2 id="17">第 17 章：三级缓存与热配置</h2>
+<h3 id="171">17.1 为什么需要缓存</h3>
+<p>大模型调用慢、贵。同样的问题反复问，直接返回缓存答案可以大幅降低成本和延迟。</p>
+<h3 id="172">17.2 三级缓存架构</h3>
+<pre><code class="language-text">L1 Redis：qa:{tenant}:{nq_hash}:{cv}
+L2 MySQL：qa_cache 表
+L1.5 Semantic：semantic:{tenant}:{embedding_hash}
+</code></pre>
+<h3 id="173">17.3 缓存命中规则</h3>
+<ul>
+<li>仅单轮问答走缓存。</li>
+<li>多轮对话不走缓存（避免上下文混乱）。</li>
+<li>命中后复核文档是否被撤回/过期。</li>
+</ul>
+<h3 id="174">17.4 缓存版本串</h3>
+<pre><code class="language-python">def citation_cache_version():
+    return (f&quot;cv{int(s.CITATION_VERIFIER_ENABLE)}&quot;
+            f&quot;R{int(s.CRAG_V3_ENABLE)}&quot;
+            f&quot;P{int(s.CRAG_PERDOC_ENABLE)}&quot;
+            f&quot;F{int(s.LLM_TIER_FACT_FAST_ENABLE)}&quot;)
+</code></pre>
+<p>开关变化后 key 变化，旧缓存自动失效。</p>
+<h3 id="175">17.5 热配置</h3>
+<pre><code class="language-python"># backend/app/services/config_service.py
+async def rt_crag_high() -&gt; float:
+    return await _get(&quot;config:crag_high&quot;, default=settings.CRAG_HIGH)
+</code></pre>
+<p>通过 <code>/api/system/config/crag_high</code> 修改后，立即生效，无需重启。</p>
+<h3 id="176">17.6 动手任务</h3>
+<p><strong>任务 17-1</strong>：同一个问题问两次，第二次观察响应是否更快（缓存命中）。</p>
+<p><strong>任务 17-2</strong>：通过热配置接口修改 <code>crag_high</code>，验证立即生效。</p>
+<p><strong>任务 17-3</strong>：解释为什么多轮对话不走缓存。</p>
+<hr />
+<h2 id="18">第 18 章：问答主链路（上）——入口与预处理</h2>
+<h3 id="181">18.1 主链路概览</h3>
+<p>一次 <code>/api/qa/answer</code> 请求的处理流程：</p>
+<pre><code class="language-text">入口 router → 权限校验 → 预处理 → 缓存检查 → 多轮消解 → 智能路由 → 混合检索 → CRAG → 图谱 → 生成 → 引用 → 落库
+</code></pre>
+<p>本章讲前半部分：入口到路由。</p>
+<h3 id="182-router">18.2 入口 router</h3>
+<pre><code class="language-python"># backend/app/routers/qa.py
+@router.post(&quot;/answer&quot;)
+async def answer(req: QuestionRequest, user=Depends(require_perm(&quot;qa:answer&quot;))):
+    collector = QATraceCollector()
+    return await qa_service.answer(
+        question=req.question,
+        user=user,
+        conversation_id=req.conversation_id,
+        stream=req.stream,
+    )
+</code></pre>
+<h3 id="183">18.3 权限校验</h3>
+<p><code>require_perm("qa:answer")</code> 会：</p>
+<ol>
+<li>解析 JWT token。</li>
+<li>查询用户权限。</li>
+<li>检查是否包含 <code>qa:answer</code>。</li>
+<li>无权限则抛出 BizError。</li>
+</ol>
+<h3 id="184">18.4 预处理</h3>
+<p><code>qa_service.answer()</code> 首先做：</p>
+<pre><code class="language-python">query = term_service.normalize(question)
+if safety.guard_query(query):
+    return refused_response(&quot;检测到潜在注入攻击&quot;)
+</code></pre>
+<ul>
+<li><code>term_service.normalize</code>：统一术语，如"主变"标准化为"主变压器"。</li>
+<li><code>safety.guard_query</code>：检测 prompt injection。</li>
+</ul>
+<h3 id="185">18.5 缓存检查</h3>
+<pre><code class="language-python">cached = await _check_cache(query, user)
+if cached:
+    if await _cache_knowledge_valid(cached.sources):
+        return cached
+</code></pre>
+<h3 id="186">18.6 多轮指代消解</h3>
+<p>如果传了 <code>conversation_id</code>：</p>
+<pre><code class="language-python">history = await conversation_service.get_messages(conversation_id)
+search_q = await standalone_query.rewrite_standalone(question, history)
+</code></pre>
+<p>例如：</p>
+<blockquote>
+<p>用户："主变重瓦斯动作怎么处理？"<br />
+用户："它的复位步骤？"<br />
+改写后："主变重瓦斯动作后的复位步骤是什么？"</p>
+</blockquote>
+<h3 id="187">18.7 智能路由</h3>
+<pre><code class="language-python">features = query_classifier.extract_features(search_q)
+route = routing_service.route_query(search_q, features)
+</code></pre>
+<p><code>route</code> 决定后续检索策略：<code>sparse</code>、<code>dense</code>、<code>hybrid</code>、<code>sparse_first</code>。</p>
+<h3 id="188">18.8 动手任务</h3>
+<p><strong>任务 18-1</strong>：在 <code>qa_service.answer()</code> 里加日志，打印 <code>question</code>、<code>search_q</code>、<code>route</code>。</p>
+<p><strong>任务 18-2</strong>：用 Swagger 分别调用有 <code>conversation_id</code> 和没有 <code>conversation_id</code> 的 <code>/qa/answer</code>，观察响应差异。</p>
+<hr />
+<h2 id="19-crag">第 19 章：问答主链路（中）——检索与 CRAG</h2>
+<h3 id="191">19.1 混合检索</h3>
+<pre><code class="language-python">retrieval_result = await retrieval_service.mixed_search(
+    query=search_q,
+    route=route,
+    user=user,
+)
+</code></pre>
+<p>内部流程：</p>
+<pre><code class="language-text">query
+  ├── 云 embedding 检索 (grid_chunks)
+  ├── bge 检索 (grid_chunks_bge)
+  ├── BM25 检索
+  ├── RRF 融合
+  ├── rerank 精排
+  ├── MMR 去重
+  ├── small-to-big 父块扩展
+  └── ACL 过滤
+</code></pre>
+<h3 id="192-acl">19.2 ACL 过滤</h3>
+<p>检索结果会按用户权限过滤：</p>
+<pre><code class="language-python">candidates = [c for c in candidates if acl.can_access(user, c.document_id)]
+</code></pre>
+<h3 id="193-crag">19.3 CRAG 判定</h3>
+<pre><code class="language-python">grade = crag.grade(retrieval_result.contexts, search_q)
+
+if grade.action == &quot;incorrect&quot;:
+    rewritten = await query_rewrite.rewrite_query(search_q, force=True)
+    retrieval_result = await retrieval_service.mixed_search(rewritten, route, user)
+    grade = crag.grade(retrieval_result.contexts, search_q)
+    if grade.action == &quot;incorrect&quot;:
+        return refused_response(&quot;证据不足，无法回答&quot;)
+</code></pre>
+<h3 id="194">19.4 知识图谱增强</h3>
+<pre><code class="language-python">entities = entity_extractor.extract(search_q)
+graph_context = await kg_service.graph_context(search_q, entities)
+</code></pre>
+<h3 id="195">19.5 动手任务</h3>
+<p><strong>任务 19-1</strong>：在 <code>/api/retrieval/debug-search</code> 观察一次检索的中间结果，包括 RRF、rerank、MMR 各阶段分数。</p>
+<p><strong>任务 19-2</strong>：构造一个检索不足的问题，确认系统会进入 CRAG incorrect 分支。</p>
+<hr />
+<h2 id="20">第 20 章：问答主链路（下）——生成与落库</h2>
+<h3 id="201-prompt">20.1 Prompt 组装</h3>
+<pre><code class="language-python">messages = prompt_templates.build_messages_with_history(
+    question=question,
+    contexts=contexts,
+    graph_context=graph_context,
+    history=history,
+)
+</code></pre>
+<p>典型的 prompt 结构：</p>
+<pre><code class="language-text">系统角色：你是电网运维专家，只基于提供的参考资料回答。
+参考资料：
+[1] xxxx
+[2] xxxx
+历史对话：...
+用户问题：...
+</code></pre>
+<h3 id="202-llm">20.2 LLM 生成</h3>
+<pre><code class="language-python">provider = llm_router.get_provider(question)
+answer = await provider.generate_stream(messages)
+</code></pre>
+<h3 id="203">20.3 引用处理</h3>
+<pre><code class="language-python">answer = citation.auto_cite(answer, contexts)
+verify_result = citation_verifier.verify(answer, contexts)
+</code></pre>
+<h3 id="204">20.4 落库</h3>
+<pre><code class="language-python">await conversation_service.add_message(conv_id, &quot;assistant&quot;, answer)
+if grade.action == &quot;correct&quot; and not conversation_id:
+    await _write_cache(query, answer, contexts)
+await online_eval_service.sample_eval(question, answer, contexts)
+</code></pre>
+<h3 id="205">20.5 流式返回</h3>
+<p>流式答案通过 SSE 返回：</p>
+<pre><code class="language-text">event: meta
+data: {&quot;trace_id&quot;: &quot;xxx&quot;}
+
+event: token
+data: {&quot;delta&quot;: &quot;首先&quot;}
+
+event: done
+data: {&quot;answer&quot;: &quot;...&quot;, &quot;confidence&quot;: 0.85}
+</code></pre>
+<h3 id="206">20.6 异步闭环</h3>
+<p>答案返回后，后台异步：</p>
+<ul>
+<li>LLM-judge 评估。</li>
+<li>evidence_gap 收集。</li>
+<li>反馈驱动的知识自进化。</li>
+</ul>
+<h3 id="207">20.7 动手任务</h3>
+<p><strong>任务 20-1</strong>：用 curl 分别调用流式和非流式 <code>/qa/answer</code>，对比返回结构。</p>
+<p><strong>任务 20-2</strong>：在 Langfuse 中查看一次问答的完整 trace waterfall。</p>
+<hr />
+<h2 id="21-provider-llm-router">第 21 章：Provider 工厂与 LLM Router</h2>
+<h3 id="211">21.1 工厂模式</h3>
+<pre><code class="language-python"># backend/app/providers/factory.py
+async def get_llm_provider(provider=None):
+    name = provider or settings.LLM_PROVIDER
+    if name == &quot;deepseek&quot;:
+        return DeepSeekLLMProvider()
+    elif name == &quot;qwen&quot;:
+        return QwenLLMProvider()
+    elif name == &quot;doubao&quot;:
+        return DoubaoLLMProvider()
+    elif name == &quot;ollama&quot;:
+        return OllamaLLMProvider()
+</code></pre>
+<p>好处：切换 provider 只需改配置。</p>
+<h3 id="212-base-provider">21.2 Base Provider</h3>
+<pre><code class="language-python"># backend/app/providers/base.py
+class BaseLLMProvider(ABC):
+    @abstractmethod
+    async def generate(self, messages: List[dict]) -&gt; str: ...
+
+    @abstractmethod
+    async def generate_stream(self, messages: List[dict]) -&gt; AsyncGenerator[str, None]: ...
+</code></pre>
+<h3 id="213-llm-router">21.3 LLM Router 三层</h3>
+<p><strong>L0：Fallback 链</strong></p>
+<pre><code class="language-text">qwen → deepseek → doubao → ollama
+</code></pre>
+<p><strong>L1：健康熔断</strong></p>
+<p>连续失败 N 次后熔断，冷却 M 秒。</p>
+<p><strong>L2：Query 分档</strong></p>
+<p>简单事实型走 turbo，复杂推理走 plus。</p>
+<h3 id="214">21.4 动手任务</h3>
+<p><strong>任务 21-1</strong>：切换 <code>.env</code> 中的 <code>LLM_PROVIDER</code>，观察不同 provider 的答案风格。</p>
+<p><strong>任务 21-2</strong>：查看 <code>llm_router.py</code>，找出 fallback 链和熔断阈值的配置名。</p>
+<hr />
+<h2 id="22_1">第 22 章：查询分类与智能路由</h2>
+<h3 id="221">22.1 为什么需要路由</h3>
+<p>不同问题适合不同检索策略：</p>
+<ul>
+<li>标准号查询 → BM25。</li>
+<li>语义理解型 → 向量。</li>
+<li>复杂问题 → hybrid。</li>
+</ul>
+<h3 id="222-6">22.2 6 维特征</h3>
+<pre><code class="language-python">@dataclass
+class QueryFeatures:
+    term_density: float
+    has_fault_word: bool
+    has_standard_no: bool
+    has_numeric_param: bool
+    length: int
+    question_type: str
+</code></pre>
+<h3 id="223">22.3 路由决策</h3>
+<pre><code class="language-python">def route_query(query, features) -&gt; RoutingDecision:
+    if features.has_standard_no:
+        return RoutingDecision(&quot;sparse&quot;)
+    if features.term_density &gt; 0.5 and features.length &gt; 30:
+        return RoutingDecision(&quot;hybrid&quot;)
+    return RoutingDecision(&quot;dense&quot;)
+</code></pre>
+<h3 id="224">22.4 动手任务</h3>
+<p><strong>任务 22-1</strong>：在 <code>/api/retrieval/debug-search</code> 中提交不同类型的问题（带标准号、故障词、长问题、短问题），观察 <code>route</code> 字段变化。</p>
+<hr />
+<h2 id="23_1">第 23 章：混合检索实现</h2>
+<h3 id="231-retrieval_servicemixed_search">23.1 retrieval_service.mixed_search</h3>
+<pre><code class="language-python">async def mixed_search(query, route, user, top_k=10):
+    # 1. 并行执行多路检索
+    dense_results = await dense_search(query)
+    sparse_results = await bm25_search(query)
+    bge_results = await bge_search(query)
+
+    # 2. RRF 融合
+    fused = rrf_fuse([dense_results, sparse_results, bge_results])
+
+    # 3. rerank
+    reranked = await rerank(query, fused)
+
+    # 4. MMR 去重
+    diverse = mmr_diverse(reranked)
+
+    # 5. ACL 过滤
+    return filter_by_acl(diverse, user)
+</code></pre>
+<h3 id="232-small-to-big">23.2 small-to-big</h3>
+<p>小块命中后，可能召回父块获得更完整上下文：</p>
+<pre><code class="language-python">parent_id = chunk.parent_chunk_id
+if parent_id:
+    parent = await chunk_service.get_parent_chunk(parent_id)
+</code></pre>
+<h3 id="233">23.3 动手任务</h3>
+<p><strong>任务 23-1</strong>：调整 <code>RRF_DENSE_WEIGHT</code> 和 <code>RRF_SPARSE_WEIGHT</code>，观察 debug-search 结果变化。</p>
+<hr />
+<h2 id="24-neo4j">第 24 章：知识图谱与 Neo4j</h2>
+<h3 id="241">24.1 知识图谱的作用</h3>
+<p>向量检索擅长找语义相似文本，但不擅长推理关系。知识图谱可以：</p>
+<ul>
+<li>表达"设备 → 故障 → 处置"的明确关系。</li>
+<li>支持多跳推理。</li>
+</ul>
+<h3 id="242">24.2 数据模型</h3>
+<pre><code class="language-cypher">(:Entity {name: &quot;主变压器&quot;})-[:故障]-&gt;(:Entity {name: &quot;重瓦斯动作&quot;})
+(:Entity {name: &quot;重瓦斯动作&quot;})-[:处置]-&gt;(:Entity {name: &quot;停运检查&quot;})
+</code></pre>
+<h3 id="243">24.3 自动抽取</h3>
+<p>文档向量化后，调用 LLM 抽取三元组：</p>
+<pre><code class="language-python">async def extract_triples(text: str) -&gt; List[KgTriple]:
+    prompt = &quot;从以下文本中抽取 (subject, predicate, object) 三元组...&quot;
+    response = await llm.generate(prompt + text)
+    return parse_triples(response)
+</code></pre>
+<h3 id="244">24.4 图谱查询</h3>
+<pre><code class="language-python">async def graph_context(question, entities):
+    query = &quot;&quot;&quot;
+    MATCH (e:Entity)-[r*1..2]-&gt;(related)
+    WHERE e.name IN $entities
+    RETURN e, r, related
+    &quot;&quot;&quot;
+    return await neo4j_client.run(query, entities=entities)
+</code></pre>
+<h3 id="245-mysql">24.5 MySQL 镜像</h3>
+<p><code>KgTriple</code> 表是 Neo4j 的镜像，用于：</p>
+<ul>
+<li>数据备份。</li>
+<li>对账。</li>
+<li>Neo4j 故障时重建。</li>
+</ul>
+<h3 id="246">24.6 动手任务</h3>
+<p><strong>任务 24-1</strong>：在 Swagger 上调 <code>/api/kg/query</code>，查询"主变压器"相关三元组。</p>
+<p><strong>任务 24-2</strong>：查看 <code>backend/app/models/kg_triple.py</code> 的字段定义。</p>
+<hr />
+<h2 id="25-agent-persona">第 25 章：Agent 引擎与 Persona</h2>
+<h3 id="251-agent">25.1 什么是 Agent</h3>
+<p>Agent = LLM + 工具 + 记忆 + 规划。它不仅能回答问题，还能调用工具、多步推理。</p>
+<h3 id="252-agent-runtime">25.2 Agent Runtime</h3>
+<pre><code class="language-python">async def run_agent(persona, user_input, tools, max_steps=10):
+    state = AgentState()
+    for step in range(max_steps):
+        # 1. LLM 决定下一步：调用工具或直接回答
+        action = await llm.decide(state, tools)
+        if action.type == &quot;answer&quot;:
+            return action.content
+        # 2. 执行工具
+        result = await execute_tool(action.tool, action.params)
+        state.add_observation(result)
+</code></pre>
+<h3 id="253-persona">25.3 Persona</h3>
+<p>Persona 定义 Agent 的角色和系统提示：</p>
+<pre><code class="language-python">PERSONAS = {
+    &quot;diagnose_agent&quot;: {
+        &quot;system_prompt&quot;: &quot;你是电网故障诊断专家...&quot;,
+        &quot;tools&quot;: [&quot;query_telemetry&quot;, &quot;search_kb&quot;, &quot;ask_human&quot;],
+    },
+    &quot;ops_planner&quot;: {
+        &quot;system_prompt&quot;: &quot;你是运维规划专家...&quot;,
+        &quot;tools&quot;: [&quot;schedule_task&quot;, &quot;query_device&quot;],
+    },
+}
+</code></pre>
+<h3 id="254">25.4 动手任务</h3>
+<p><strong>任务 25-1</strong>：查看 <code>backend/app/services/agent_personas.py</code>，列出所有 persona。</p>
+<p><strong>任务 25-2</strong>：给 <code>diagnose_agent</code> 增加一条 system prompt 规则。</p>
+<hr />
+<h2 id="26-mcp">第 26 章：MCP 工具总线</h2>
+<h3 id="261-mcp">26.1 什么是 MCP</h3>
+<p>MCP（Model Context Protocol）是 Anthropic 提出的开放协议，用于标准化 LLM 与外部工具的连接。</p>
+<h3 id="262-mcp">26.2 项目中的 MCP</h3>
+<p><code>backend/app/mcp/registry.py</code> 负责：</p>
+<ol>
+<li>从配置加载外部 MCP server。</li>
+<li>发现 server 提供的工具。</li>
+<li>把工具注册到 Agent runtime。</li>
+</ol>
+<h3 id="263-mock-scada">26.3 mock SCADA</h3>
+<p>项目包含一个 mock SCADA MCP server，提供：</p>
+<ul>
+<li><code>query_telemetry(device_id, metric, start, end)</code>：查询设备遥测。</li>
+<li><code>list_alarms()</code>：列出告警。</li>
+</ul>
+<h3 id="264">26.4 动手任务</h3>
+<p><strong>任务 26-1</strong>：查看 <code>mcp/</code> 目录，找出注册了哪些工具。</p>
+<p><strong>任务 26-2</strong>：在 Agent 对话中问设备状态问题，观察是否触发 MCP 工具调用。</p>
+<hr />
+<h2 id="27">第 27 章：任务中心与质量事件</h2>
+<h3 id="271">27.1 持久化任务</h3>
+<p><code>task_center_service.py</code> 把任务写入 MySQL，worker 拉取执行：</p>
+<pre><code class="language-python">async def enqueue(task_type, payload):
+    task = PersistentTask(type=task_type, payload=payload, status=&quot;pending&quot;)
+    session.add(task)
+    await session.commit()
+    return task.id
+</code></pre>
+<h3 id="272">27.2 质量事件总线</h3>
+<pre><code class="language-python">async def emit(event_type, payload):
+    event = QualityEvent(type=event_type, payload=payload)
+    await session.add(event)
+    # 异步通知订阅者
+</code></pre>
+<p>订阅者包括 evidence_gap_service、knowledge_evolution_service 等。</p>
+<h3 id="273">27.3 动手任务</h3>
+<p><strong>任务 27-1</strong>：查看 <code>backend/app/services/task_center_service.py</code>，找出任务状态有哪些。</p>
+<p><strong>任务 27-2</strong>：查看 <code>backend/app/events/</code> 目录，了解事件定义。</p>
+<hr />
+<h2 id="28">第 28 章：测试体系</h2>
+<h3 id="281">28.1 测试分层</h3>
+<table>
+<thead>
+<tr>
+<th>类型</th>
+<th>说明</th>
+<th>命令</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>单元测试</td>
+<td>不依赖外部服务</td>
+<td><code>pytest tests/ -m "not integration"</code></td>
+</tr>
+<tr>
+<td>集成测试</td>
+<td>需要 MySQL/Milvus</td>
+<td><code>pytest tests/ -m integration</code></td>
+</tr>
+<tr>
+<td>E2E</td>
+<td>需要完整后端栈</td>
+<td><code>pytest tests/test_api.py</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="282-fixtures">28.2 Fixtures</h3>
+<pre><code class="language-python"># tests/conftest.py
+@pytest.fixture
+async def test_db():
+    engine = create_async_engine(&quot;sqlite+aiosqlite:///:memory:&quot;)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    async_session = async_sessionmaker(engine, class_=AsyncSession)
+    async with async_session() as session:
+        yield session
+</code></pre>
+<h3 id="283-mock">28.3 Mock 外部依赖</h3>
+<pre><code class="language-python">async def fake_generate(*args, **kwargs):
+    return &quot;测试答案&quot;
+
+monkeypatch.setattr(
+    &quot;app.providers.llm.qwen_llm.QwenLLMProvider.generate&quot;,
+    fake_generate
+)
+</code></pre>
+<h3 id="284">28.4 动手任务</h3>
+<p><strong>任务 28-1</strong>：运行 <code>pytest tests/ -q --ignore=tests/test_api.py -m "not integration"</code>，记录通过/失败数量。</p>
+<p><strong>任务 28-2</strong>：为 <code>services/qa_service.py</code> 里的 <code>_cache_knowledge_valid</code> 函数写一个单元测试。</p>
+<hr />
+<h2 id="29">第 29 章：可观测性</h2>
+<h3 id="291-prometheus">29.1 Prometheus</h3>
+<p>业务指标：<code>http://localhost:8001/metrics</code></p>
+<pre><code class="language-text">qa_request_total 150
+qa_cache_hit_total{layer=&quot;redis&quot;} 45
+DEGRADED{tag=&quot;milvus_init&quot;} 0
+</code></pre>
+<h3 id="292-grafana">29.2 Grafana</h3>
+<p>仪表盘：<code>http://localhost:3000</code>（admin/admin）</p>
+<p>预设面板：QA 请求量、缓存命中率、检索延迟、LLM 成本等。</p>
+<h3 id="293-langfuse">29.3 Langfuse</h3>
+<p>Trace 平台：<code>http://localhost:3001</code></p>
+<p>可以看到每次问答的完整调用链：prompt、token、latency、模型调用。</p>
+<h3 id="294">29.4 动手任务</h3>
+<p><strong>任务 29-1</strong>：访问 <code>http://localhost:8001/metrics</code>，找出 5 个业务指标。</p>
+<p><strong>任务 29-2</strong>：在 Langfuse 里查看一次问答的 trace waterfall。</p>
+<hr />
+<h2 id="30">第 30 章：部署与知识治理</h2>
+<h3 id="301">30.1 生产部署</h3>
+<pre><code class="language-bash">bash install.sh up
+</code></pre>
+<p>会自动：</p>
+<ol>
+<li>生成 <code>JWT_SECRET</code>。</li>
+<li>校验 API Key。</li>
+<li>等待 MySQL 初始化。</li>
+<li>启动全部服务。</li>
+</ol>
+<h3 id="302">30.2 知识治理</h3>
+<p>治理动作：</p>
+<ul>
+<li><strong>withdraw</strong>：撤回文档。</li>
+<li><strong>supersede</strong>：用新版本替代。</li>
+<li><strong>expire</strong>：标记过期。</li>
+</ul>
+<p>治理传播会同步到：</p>
+<ul>
+<li>MySQL <code>document.status</code></li>
+<li>Milvus chunk</li>
+<li>Neo4j 三元组</li>
+<li>Redis 缓存</li>
+</ul>
+<h3 id="303">30.3 动手任务</h3>
+<p><strong>任务 30-1</strong>：在管理后台撤回一篇文档，重新提问，验证答案不再引用该文档。</p>
+<p><strong>任务 30-2</strong>：查看 <code>backend/app/services/governance_propagate_service.py</code>，列出传播目标。</p>
+<hr />
+<h2 id="31_1">第 31 章：实战练习</h2>
+<h3 id="311-1-crag">31.1 练习 1：调整 CRAG 阈值</h3>
+<p><strong>目标</strong>：把 <code>CRAG_HIGH</code> 从 0.72 改为 0.65，观察模糊问题的处理方式。</p>
+<p><strong>步骤</strong>：</p>
+<ol>
+<li>调用热配置接口更新。</li>
+<li>用同一问题多次测试。</li>
+<li>记录 <code>crag_action</code> 和 <code>confidence</code>。</li>
+</ol>
+<h3 id="312-2">31.2 练习 2：新增健康检查路由</h3>
+<p><strong>目标</strong>：新增 <code>GET /api/system/health-check</code>。</p>
+<p><strong>步骤</strong>：</p>
+<ol>
+<li>在 <code>routers/system.py</code> 加路由。</li>
+<li>检查 MySQL、Redis、Milvus 连接状态。</li>
+<li>返回统一响应。</li>
+<li>写测试。</li>
+</ol>
+<h3 id="313-3">31.3 练习 3：优化检索效果</h3>
+<p><strong>目标</strong>：某个具体 question 检索结果不好。</p>
+<p><strong>步骤</strong>：</p>
+<ol>
+<li>用 <code>/api/retrieval/debug-search</code> 查中间结果。</li>
+<li>调整 RRF 权重或 MMR λ。</li>
+<li>对比前后结果。</li>
+</ol>
+<h3 id="314-4-agent-persona">31.4 练习 4：新增 Agent Persona</h3>
+<p><strong>目标</strong>：新增 <code>safety_auditor</code> persona。</p>
+<p><strong>步骤</strong>：</p>
+<ol>
+<li>在 <code>agent_personas.py</code> 定义。</li>
+<li>在 <code>qa_service.py</code> 生成答案后调用。</li>
+<li>检测到违规则拒答。</li>
+</ol>
+<h3 id="315-5-bug">31.5 练习 5：修复缓存隔离 bug</h3>
+<p><strong>目标</strong>：多轮对话错误命中单轮缓存。</p>
+<p><strong>步骤</strong>：</p>
+<ol>
+<li>分析缓存 key 生成逻辑。</li>
+<li>修复 key 中缺少 <code>conversation_id</code> 的问题。</li>
+<li>写测试。</li>
+</ol>
+<hr />
+<h2 id="_1">附录：常用命令与端点速查</h2>
+<h3 id="a1">A.1 常用命令</h3>
+<pre><code class="language-bash"># 启动全栈
+docker compose up -d --build
+
+# 后端本地开发
+uvicorn app.main:app --reload --host 127.0.0.1 --port 8001 --app-dir backend
+
+# 前端本地开发
+cd frontend &amp;&amp; npm run dev
+
+# 运行测试
+python -m pytest tests/ -q --ignore=tests/test_api.py -m &quot;not integration&quot;
+
+# 数据库迁移
+cd backend &amp;&amp; alembic upgrade head
+
+# lint
+ruff check backend tests
+
+# 查看后端日志
+bash start.sh logs backend
+</code></pre>
+<h3 id="a2">A.2 关键端点</h3>
+<table>
+<thead>
+<tr>
+<th>端点</th>
+<th>用途</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>GET /api/system/runtime-info</code></td>
+<td>运行时信息</td>
+</tr>
+<tr>
+<td><code>GET /api/system/config/feature-flags</code></td>
+<td>feature flags</td>
+</tr>
+<tr>
+<td><code>POST /api/qa/answer</code></td>
+<td>非流式问答</td>
+</tr>
+<tr>
+<td><code>POST /api/qa/answer/stream</code></td>
+<td>流式问答</td>
+</tr>
+<tr>
+<td><code>POST /api/retrieval/debug-search</code></td>
+<td>检索调试</td>
+</tr>
+<tr>
+<td><code>GET /api/qa/trace/{trace_id}</code></td>
+<td>QA trace</td>
+</tr>
+<tr>
+<td><code>GET /metrics</code></td>
+<td>Prometheus 指标</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<blockquote>
+<p>本学习指南生成时间：2026-10-01<br />
+配套文档：<a href="CODE_WIKI.html">CODE_WIKI.html</a></p>
+</blockquote>
+            <footer>
+                学习指南生成时间：2026-10-01 · 配套文档：[CODE_WIKI.html](CODE_WIKI.html)
+            </footer>
+        </div>
+    </main>
+
+    <button class="back-to-top" id="backToTop" title="返回顶部">↑</button>
+
+    <script>
+        (function() {
+            const content = document.getElementById('content');
+            const paragraphs = content.querySelectorAll('p');
+            paragraphs.forEach(p => {
+                if (p.textContent.startsWith('任务 ')) {
+                    p.classList.add('task-box');
+                }
+                if (p.textContent.startsWith('提示：') || p.textContent.startsWith('注意：')) {
+                    p.classList.add('tip-box');
+                }
+            });
+
+            const themeBtn = document.getElementById('themeBtn');
+            const savedTheme = localStorage.getItem('learn-theme-v2');
+            if (savedTheme) {
+                document.documentElement.setAttribute('data-theme', savedTheme);
+                themeBtn.textContent = savedTheme === 'dark' ? '☀️' : '🌙';
+            }
+            themeBtn.addEventListener('click', () => {
+                const current = document.documentElement.getAttribute('data-theme');
+                const next = current === 'dark' ? 'light' : 'dark';
+                document.documentElement.setAttribute('data-theme', next);
+                localStorage.setItem('learn-theme-v2', next);
+                themeBtn.textContent = next === 'dark' ? '☀️' : '🌙';
+            });
+
+            const headings = content.querySelectorAll('h1, h2, h3');
+            const toc = document.getElementById('toc');
+            const ul = document.createElement('ul');
+            headings.forEach((h, idx) => {
+                if (!h.id) h.id = 'heading-' + idx;
+                const li = document.createElement('li');
+                const a = document.createElement('a');
+                a.href = '#' + h.id;
+                a.textContent = h.textContent;
+                a.className = 'toc-' + h.tagName.toLowerCase();
+                a.dataset.text = h.textContent.toLowerCase();
+                a.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    h.scrollIntoView({ behavior: 'smooth' });
+                    if (window.innerWidth <= 900) {
+                        document.getElementById('sidebar').classList.remove('open');
+                    }
+                });
+                li.appendChild(a);
+                ul.appendChild(li);
+            });
+            toc.appendChild(ul);
+
+            const tocLinks = toc.querySelectorAll('a');
+            const observer = new IntersectionObserver((entries) => {
+                entries.forEach(entry => {
+                    if (entry.isIntersecting) {
+                        tocLinks.forEach(a => a.classList.remove('active'));
+                        const active = toc.querySelector('a[href="#' + entry.target.id + '"]');
+                        if (active) active.classList.add('active');
+                    }
+                });
+            }, { rootMargin: '-80px 0px -70% 0px', threshold: 0 });
+            headings.forEach(h => observer.observe(h));
+
+            const menuToggle = document.getElementById('menuToggle');
+            const sidebar = document.getElementById('sidebar');
+            menuToggle.addEventListener('click', () => sidebar.classList.toggle('open'));
+
+            const backToTop = document.getElementById('backToTop');
+            window.addEventListener('scroll', () => {
+                backToTop.classList.toggle('visible', window.scrollY > 400);
+            });
+            backToTop.addEventListener('click', () => window.scrollTo({ top: 0, behavior: 'smooth' }));
+
+            function addCopyButtons() {
+                document.querySelectorAll('pre').forEach(pre => {
+                    if (pre.querySelector('.copy-btn')) return;
+                    const btn = document.createElement('button');
+                    btn.className = 'copy-btn';
+                    btn.textContent = '复制';
+                    btn.addEventListener('click', () => {
+                        const code = pre.querySelector('code') || pre;
+                        navigator.clipboard.writeText(code.textContent).then(() => {
+                            btn.textContent = '已复制';
+                            setTimeout(() => btn.textContent = '复制', 1500);
+                        });
+                    });
+                    pre.appendChild(btn);
+                });
+            }
+            addCopyButtons();
+
+            const searchInput = document.getElementById('searchInput');
+            let originalContent = content.innerHTML;
+            searchInput.addEventListener('input', (e) => {
+                const term = e.target.value.trim().toLowerCase();
+                tocLinks.forEach(a => {
+                    a.classList.toggle('hidden-match', term && !a.dataset.text.includes(term));
+                });
+                if (!term) {
+                    content.innerHTML = originalContent;
+                    addCopyButtons();
+                    return;
+                }
+                const walker = document.createTreeWalker(content, NodeFilter.SHOW_TEXT, null, false);
+                const nodes = [];
+                while (walker.nextNode()) nodes.push(walker.currentNode);
+                nodes.forEach(node => {
+                    const text = node.textContent;
+                    const lower = text.toLowerCase();
+                    if (lower.includes(term)) {
+                        const parts = text.split(new RegExp('(' + term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'gi'));
+                        const frag = document.createDocumentFragment();
+                        parts.forEach(part => {
+                            if (part.toLowerCase() === term) {
+                                const span = document.createElement('span');
+                                span.className = 'highlight';
+                                span.textContent = part;
+                                frag.appendChild(span);
+                            } else {
+                                frag.appendChild(document.createTextNode(part));
+                            }
+                        });
+                        node.parentNode.replaceChild(frag, node);
+                    }
+                });
+            });
+
+            const collapseBtn = document.getElementById('collapseBtn');
+            let allOpen = false;
+            collapseBtn.addEventListener('click', () => {
+                allOpen = !allOpen;
+                document.querySelectorAll('details').forEach(d => d.open = allOpen);
+            });
+        })();
+    </script>
+</body>
+</html>

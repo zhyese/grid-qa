@@ -1,0 +1,3520 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>电网运维 RAG 智能问答系统 · Code Wiki</title>
+    <style>
+        :root {
+            --bg: #ffffff;
+            --fg: #1f2328;
+            --muted: #656d76;
+            --border: #d0d7de;
+            --code-bg: #f6f8fa;
+            --accent: #0969da;
+            --accent-soft: #ddf4ff;
+            --accent-hover: #0550ae;
+            --table-stripe: #f6f8fa;
+            --sidebar-bg: #f6f8fa;
+            --sidebar-width: 300px;
+            --topbar-height: 56px;
+            --shadow: 0 1px 2px rgba(31, 35, 40, 0.04), 0 1px 3px rgba(31, 35, 40, 0.08);
+        }
+        [data-theme="dark"] {
+            --bg: #0d1117;
+            --fg: #c9d1d9;
+            --muted: #8b949e;
+            --border: #30363d;
+            --code-bg: #161b22;
+            --accent: #58a6ff;
+            --accent-soft: #388bfd26;
+            --accent-hover: #79c0ff;
+            --table-stripe: #161b22;
+            --sidebar-bg: #161b22;
+            --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 1px 3px rgba(0, 0, 0, 0.4);
+        }
+        * { box-sizing: border-box; }
+        html { scroll-behavior: smooth; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+            line-height: 1.7;
+            color: var(--fg);
+            background: var(--bg);
+            margin: 0;
+            padding: 0;
+            transition: background 0.2s, color 0.2s;
+        }
+        /* Topbar */
+        .topbar {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: var(--topbar-height);
+            background: var(--bg);
+            border-bottom: 1px solid var(--border);
+            box-shadow: var(--shadow);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 20px;
+            z-index: 1000;
+        }
+        .topbar-left {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+        .menu-toggle {
+            display: none;
+            background: none;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 6px 10px;
+            cursor: pointer;
+            color: var(--fg);
+        }
+        .topbar-title {
+            font-weight: 600;
+            font-size: 1.05em;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .topbar-actions {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .btn {
+            background: var(--code-bg);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 6px 12px;
+            cursor: pointer;
+            color: var(--fg);
+            font-size: 0.9em;
+            transition: background 0.15s;
+        }
+        .btn:hover { background: var(--accent-soft); border-color: var(--accent); }
+        .search-box {
+            position: relative;
+            width: 260px;
+        }
+        .search-box input {
+            width: 100%;
+            padding: 7px 12px 7px 34px;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            background: var(--code-bg);
+            color: var(--fg);
+            font-size: 0.9em;
+        }
+        .search-box input:focus {
+            outline: none;
+            border-color: var(--accent);
+            box-shadow: 0 0 0 3px var(--accent-soft);
+        }
+        .search-icon {
+            position: absolute;
+            left: 10px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: var(--muted);
+            font-size: 0.9em;
+        }
+        /* Sidebar */
+        .sidebar {
+            position: fixed;
+            top: var(--topbar-height);
+            left: 0;
+            width: var(--sidebar-width);
+            bottom: 0;
+            background: var(--sidebar-bg);
+            border-right: 1px solid var(--border);
+            overflow-y: auto;
+            padding: 16px 0;
+            z-index: 900;
+            transition: transform 0.25s;
+        }
+        .sidebar.hidden {
+            transform: translateX(-100%);
+        }
+        .toc-title {
+            padding: 0 20px 10px;
+            font-weight: 600;
+            color: var(--muted);
+            font-size: 0.85em;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .toc ul {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+        .toc li { margin: 0; }
+        .toc a {
+            display: block;
+            padding: 6px 20px;
+            color: var(--fg);
+            text-decoration: none;
+            font-size: 0.92em;
+            border-left: 3px solid transparent;
+            transition: background 0.15s, border-color 0.15s;
+        }
+        .toc a:hover {
+            background: var(--accent-soft);
+            color: var(--accent-hover);
+        }
+        .toc a.active {
+            border-left-color: var(--accent);
+            background: var(--accent-soft);
+            color: var(--accent-hover);
+            font-weight: 500;
+        }
+        .toc a.hidden-match { display: none; }
+        .toc-l1 { padding-left: 0; }
+        .toc-l2 { padding-left: 16px !important; font-size: 0.88em !important; }
+        .toc-l3 { padding-left: 32px !important; font-size: 0.85em !important; color: var(--muted); }
+        /* Main content */
+        .main {
+            margin-left: var(--sidebar-width);
+            margin-top: var(--topbar-height);
+            min-height: calc(100vh - var(--topbar-height));
+        }
+        .container {
+            max-width: 920px;
+            margin: 0 auto;
+            padding: 32px 28px 100px;
+        }
+        h1, h2, h3, h4 {
+            font-weight: 600;
+            line-height: 1.3;
+            margin-top: 2em;
+            margin-bottom: 0.7em;
+            scroll-margin-top: calc(var(--topbar-height) + 20px);
+        }
+        h1 { font-size: 2em; border-bottom: 1px solid var(--border); padding-bottom: 0.3em; margin-top: 0; }
+        h2 { font-size: 1.55em; border-bottom: 1px solid var(--border); padding-bottom: 0.3em; }
+        h3 { font-size: 1.25em; }
+        h4 { font-size: 1.1em; }
+        p { margin: 0.9em 0; }
+        a { color: var(--accent); text-decoration: none; }
+        a:hover { text-decoration: underline; }
+        code {
+            font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+            background: var(--code-bg);
+            padding: 0.15em 0.4em;
+            border-radius: 4px;
+            font-size: 0.88em;
+            border: 1px solid var(--border);
+        }
+        pre {
+            background: var(--code-bg);
+            padding: 16px;
+            border-radius: 8px;
+            overflow-x: auto;
+            border: 1px solid var(--border);
+            position: relative;
+            margin: 1em 0;
+        }
+        pre code {
+            background: none;
+            padding: 0;
+            border: none;
+            font-size: 0.9em;
+        }
+        .copy-btn {
+            position: absolute;
+            top: 8px;
+            right: 8px;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 5px;
+            padding: 4px 10px;
+            font-size: 0.78em;
+            cursor: pointer;
+            color: var(--muted);
+            opacity: 0.7;
+            transition: opacity 0.15s;
+        }
+        pre:hover .copy-btn { opacity: 1; }
+        .copy-btn:hover { color: var(--accent); border-color: var(--accent); }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 1.1em 0;
+            border: 1px solid var(--border);
+            display: block;
+            overflow-x: auto;
+            border-radius: 8px;
+        }
+        th, td {
+            border: 1px solid var(--border);
+            padding: 8px 12px;
+            text-align: left;
+            vertical-align: top;
+        }
+        th { background: var(--accent-soft); font-weight: 600; }
+        tr:nth-child(even) { background: var(--table-stripe); }
+        ul, ol { padding-left: 1.8em; }
+        li { margin: 0.3em 0; }
+        blockquote {
+            border-left: 4px solid var(--accent);
+            background: var(--accent-soft);
+            margin: 1.2em 0;
+            padding: 0.6em 1.2em;
+            border-radius: 0 8px 8px 0;
+        }
+        hr { border: 0; border-top: 1px solid var(--border); margin: 2.5em 0; }
+        /* Collapsible sections via details */
+        details {
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 12px 16px;
+            margin: 1em 0;
+            background: var(--code-bg);
+        }
+        summary {
+            cursor: pointer;
+            font-weight: 600;
+            outline: none;
+        }
+        details[open] summary { margin-bottom: 10px; }
+        /* Back to top */
+        .back-to-top {
+            position: fixed;
+            right: 24px;
+            bottom: 24px;
+            width: 44px;
+            height: 44px;
+            border-radius: 50%;
+            background: var(--accent);
+            color: #fff;
+            border: none;
+            cursor: pointer;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            box-shadow: var(--shadow);
+            z-index: 1100;
+        }
+        .back-to-top.visible { display: flex; }
+        .back-to-top:hover { background: var(--accent-hover); }
+        /* Search highlight */
+        .highlight {
+            background: yellow;
+            color: black;
+            border-radius: 2px;
+            padding: 0 2px;
+        }
+        [data-theme="dark"] .highlight {
+            background: #f9c513;
+            color: #000;
+        }
+        /* Footer */
+        footer {
+            margin-top: 4em;
+            padding-top: 1.5em;
+            border-top: 1px solid var(--border);
+            color: var(--muted);
+            font-size: 0.9em;
+        }
+        /* Responsive */
+        @media (max-width: 1100px) {
+            .search-box { width: 180px; }
+        }
+        @media (max-width: 900px) {
+            .menu-toggle { display: block; }
+            .sidebar {
+                transform: translateX(-100%);
+            }
+            .sidebar.open {
+                transform: translateX(0);
+            }
+            .main {
+                margin-left: 0;
+            }
+            .search-box { display: none; }
+        }
+        @media (max-width: 600px) {
+            .container { padding: 24px 16px 80px; }
+            h1 { font-size: 1.6em; }
+            h2 { font-size: 1.3em; }
+        }
+    </style>
+</head>
+<body>
+    <div class="topbar">
+        <div class="topbar-left">
+            <button class="menu-toggle" id="menuToggle" aria-label="切换目录">☰</button>
+            <div class="topbar-title">电网运维 RAG · Code Wiki</div>
+        </div>
+        <div class="topbar-actions">
+            <div class="search-box">
+                <span class="search-icon">🔍</span>
+                <input type="text" id="searchInput" placeholder="搜索标题或内容..." autocomplete="off">
+            </div>
+            <button class="btn" id="collapseBtn" title="展开/折叠详情">⛶</button>
+            <button class="btn" id="themeBtn" title="切换主题">🌙</button>
+        </div>
+    </div>
+
+    <aside class="sidebar" id="sidebar">
+        <div class="toc" id="toc">
+            <div class="toc-title">目录</div>
+            <!-- TOC will be generated by JS -->
+        </div>
+    </aside>
+
+    <main class="main">
+        <div class="container" id="content">
+<h1 id="rag-code-wiki">电网运维 RAG 智能问答系统 · Code Wiki（交互版）</h1>
+<blockquote>
+<p>面向开发者、架构师与运维人员的深度技术百科。覆盖项目定位、分层架构、模块职责、关键类/函数签名、数据模型、配置项、依赖关系、运行方式、测试体系与故障排查。</p>
+</blockquote>
+<hr />
+<h2 id="1">1. 项目概述</h2>
+<h3 id="11">1.1 项目定位</h3>
+<p><strong>电网运维 RAG 智能问答系统</strong>是一个面向电力行业（变电、配电、输电）的智能问答平台，基于大语言模型（LLM）+ 检索增强生成（RAG）技术，为一线运维人员提供故障处理、规程查询、设备状态分析等场景的可信答案。</p>
+<p>核心设计目标：</p>
+<ul>
+<li><strong>高可信</strong>：通过 CRAG 自纠错、引用校验、LLM-judge 降低幻觉。</li>
+<li><strong>高可用</strong>：所有外部依赖故障降级，不阻塞主链路。</li>
+<li><strong>可观测</strong>：Prometheus/Grafana/Langfuse 全链路监控。</li>
+<li><strong>可进化</strong>：知识自进化、证据缺口补全、用户反馈闭环。</li>
+<li><strong>强合规</strong>：RBAC + 多租户 + 文档级 ACL + 操作审计。</li>
+</ul>
+<h3 id="12">1.2 业务场景</h3>
+<table>
+<thead>
+<tr>
+<th>场景</th>
+<th>示例问题</th>
+<th>涉及能力</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>故障处理</td>
+<td>"110kV 主变重瓦斯动作如何处理？"</td>
+<td>路由 → 混合检索 → CRAG → 图谱 → 生成</td>
+</tr>
+<tr>
+<td>规程查询</td>
+<td>"倒闸操作的安全组织措施有哪些？"</td>
+<td>BM25 + 向量检索 → 引用校验</td>
+</tr>
+<tr>
+<td>设备状态</td>
+<td>"#1 主变近一周油温趋势？"</td>
+<td>MCP 遥测工具 → Agent 诊断</td>
+</tr>
+<tr>
+<td>案例复盘</td>
+<td>"去年同类接地故障的处理记录？"</td>
+<td>图谱多跳 + 时间范围过滤</td>
+</tr>
+<tr>
+<td>知识治理</td>
+<td>"这条规程已过期，如何撤回？"</td>
+<td>governance_propagate_service</td>
+</tr>
+</tbody>
+</table>
+<h3 id="13">1.3 项目元数据</h3>
+<table>
+<thead>
+<tr>
+<th>项</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>后端框架</td>
+<td>FastAPI 0.115 + Pydantic 2 + SQLAlchemy 2（async）</td>
+</tr>
+<tr>
+<td>前端框架</td>
+<td>Vue 3.4 + Vite 5.4 + Pinia 2.2 + Vue Router 4.4</td>
+</tr>
+<tr>
+<td>部署方式</td>
+<td>Docker Compose（开发）/ K8s 单 Pod（演示）</td>
+</tr>
+<tr>
+<td>项目入口</td>
+<td><code>backend/app/main.py</code></td>
+</tr>
+<tr>
+<td>API 前缀</td>
+<td><code>/api</code></td>
+</tr>
+<tr>
+<td>后端端口</td>
+<td>8001</td>
+</tr>
+<tr>
+<td>前端端口</td>
+<td>5173</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="2">2. 整体架构</h2>
+<h3 id="21">2.1 六层分层架构</h3>
+<pre><code class="language-text">┌─────────────────────────────────────────────────────────────┐
+│ 接入层       Vue3 前端 :5173 · nginx 反代 · JWT 鉴权          │
+├─────────────────────────────────────────────────────────────┤
+│ 应用层       FastAPI routers · RBAC · 限流 · 插件 hook        │
+├─────────────────────────────────────────────────────────────┤
+│ RAG 引擎层   检索 Retrieval → 增强 Augmentation → 生成 Generation │
+├─────────────────────────────────────────────────────────────┤
+│ 模型层       Provider 工厂 · LLM · Embedding · Rerank · VLM   │
+├─────────────────────────────────────────────────────────────┤
+│ 存储层       MySQL · Milvus · Neo4j · Redis · MinIO          │
+├─────────────────────────────────────────────────────────────┤
+│ 基础设施层   Docker Compose · Prometheus · Grafana · Langfuse │
+└─────────────────────────────────────────────────────────────┘
+</code></pre>
+<h3 id="22">2.2 请求全生命周期</h3>
+<p>一次问答请求 <code>POST /api/qa/answer</code> 的完整处理流程：</p>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>阶段</th>
+<th>核心文件</th>
+<th>关键动作</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>接入</td>
+<td><code>routers/qa.py</code></td>
+<td>JWT 校验、<code>qa:answer</code> 权限、限流、创建 trace collector。</td>
+</tr>
+<tr>
+<td>2</td>
+<td>预处理</td>
+<td><code>services/qa_service.py</code></td>
+<td>query 归一化、<code>safety.guard_query</code> 注入检测。</td>
+</tr>
+<tr>
+<td>3</td>
+<td>缓存</td>
+<td><code>services/qa_service.py</code></td>
+<td>L1 Redis → L2 MySQL → L1.5 Semantic；命中则复核知识时效。</td>
+</tr>
+<tr>
+<td>4</td>
+<td>多轮消解</td>
+<td><code>services/standalone_query.py</code></td>
+<td>基于会话历史改写成独立查询，仅用于检索。</td>
+</tr>
+<tr>
+<td>5</td>
+<td>智能路由</td>
+<td><code>routing/routing_service.py</code></td>
+<td>6 维特征 → sparse / dense / hybrid / sparse_first。</td>
+</tr>
+<tr>
+<td>6</td>
+<td>混合检索</td>
+<td><code>services/retrieval_service.py</code></td>
+<td>双路向量 + BM25 → RRF → rerank → MMR → small-to-big → ACL。</td>
+</tr>
+<tr>
+<td>7</td>
+<td>CRAG 自纠错</td>
+<td><code>rag/crag.py</code> / <code>rag/crag_v2.py</code></td>
+<td>correct/ambiguous/incorrect 分级，触发改写重检索或拒答。</td>
+</tr>
+<tr>
+<td>8</td>
+<td>图谱增强</td>
+<td><code>services/kg_service.py</code></td>
+<td>Neo4j 多跳补全设备-故障-处置结构化上下文。</td>
+</tr>
+<tr>
+<td>9</td>
+<td>LLM 生成</td>
+<td><code>providers/llm_router.py</code></td>
+<td>turbo/plus 分档 → fallback 链 → 流式生成 → PII 脱敏。</td>
+</tr>
+<tr>
+<td>10</td>
+<td>引用校验</td>
+<td><code>rag/citation.py</code> + <code>rag/citation_verifier.py</code></td>
+<td>自动补标 + 格式/向量/NLI 三层校验。</td>
+</tr>
+<tr>
+<td>11</td>
+<td>落库缓存</td>
+<td><code>services/qa_service.py</code></td>
+<td>保存会话、高置信写入缓存、记录成本与在线 eval。</td>
+</tr>
+<tr>
+<td>12</td>
+<td>异步闭环</td>
+<td><code>services/knowledge_evolution_service.py</code></td>
+<td>LLM-judge、证据缺口收集、dislike 沉淀。</td>
+</tr>
+</tbody>
+</table>
+<h3 id="23">2.3 模块快速索引</h3>
+<table>
+<thead>
+<tr>
+<th>如果你想了解…</th>
+<th>先看这些文件</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>一个请求从入口到答案怎么走</td>
+<td><code>routers/qa.py</code> → <code>services/qa_service.py</code> → <code>services/retrieval_service.py</code></td>
+</tr>
+<tr>
+<td>配置项怎么加 / 热配置怎么用</td>
+<td><code>backend/app/config.py</code> → <code>services/config_service.py</code></td>
+</tr>
+<tr>
+<td>权限怎么控制</td>
+<td><code>core/permissions.py</code> → <code>dependencies.py</code> → <code>utils/perm.js</code></td>
+</tr>
+<tr>
+<td>缓存为什么不命中</td>
+<td><code>services/qa_service.py</code> → <code>rag/semantic_cache.py</code> → <code>clients/redis_client.py</code></td>
+</tr>
+<tr>
+<td>检索结果差怎么调</td>
+<td><code>routing/query_classifier.py</code> → <code>services/retrieval_service.py</code> → <code>rag/rrf.py</code></td>
+</tr>
+<tr>
+<td>答案引用不准怎么办</td>
+<td><code>rag/citation.py</code> → <code>rag/citation_verifier.py</code></td>
+</tr>
+<tr>
+<td>LLM fallback 怎么切</td>
+<td><code>providers/llm_router.py</code> → <code>providers/factory.py</code></td>
+</tr>
+<tr>
+<td>图谱数据怎么来 / 怎么用</td>
+<td><code>services/kg_service.py</code> → <code>clients/neo4j_client.py</code> → <code>models/kg_triple.py</code></td>
+</tr>
+<tr>
+<td>后台任务怎么调度</td>
+<td><code>tasks/worker.py</code> → <code>services/task_center_service.py</code></td>
+</tr>
+<tr>
+<td>文档上传后怎么处理</td>
+<td><code>routers/document.py</code> → <code>services/document_service.py</code> → <code>services/chunk_service.py</code></td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="3-backendapp">3. 后端架构（backend/app）</h2>
+<h3 id="31">3.1 目录组织与模块职责</h3>
+<pre><code class="language-text">backend/app/
+├── main.py                 # FastAPI 入口 + lifespan（启动顺序、后台 cron）
+├── config.py               # pydantic-settings 全局配置 + feature flags + 缓存版本串
+├── dependencies.py         # JWT / RBAC 依赖注入
+├── routers/                # HTTP/WebSocket 端点（薄）
+├── services/               # 业务逻辑核心
+├── rag/                    # RAG 算法（CRAG、RRF、MMR、引用、prompt、语义缓存）
+├── providers/              # LLM + Embedding 工厂与实现
+├── routing/                # 查询分类 + 路由决策
+├── clients/                # 外部服务客户端
+├── core/                   # 横切能力（响应、权限、监控、降级、trace、安全）
+├── models/                 # SQLAlchemy ORM 实体
+├── schemas/                # Pydantic 请求/响应模型
+├── db/                     # 异步 session + 建表 + 初始管理员
+├── tasks/                  # 持久化后台任务队列/worker
+├── events/                 # 领域事件定义与 worker
+└── mcp/                    # MCP 工具总线
+</code></pre>
+<h3 id="32-mainpy">3.2 入口与生命周期（main.py）</h3>
+<p><code>backend/app/main.py</code> 是所有后台循环的装配点。启动顺序如下：</p>
+<pre><code class="language-text">1. setup_logging()              结构化日志
+2. run_startup_check()          默认密钥/口令安全自检
+3. _wait_for_startup_dependencies()  可选等待 MySQL
+4. apply_overrides()            Nacos 配置覆盖（CONFIG_SOURCE=nacos）
+5. init_db()                    建表 + 初始管理员
+6. init_bucket()                MinIO bucket 初始化
+7. ensure_collections()         Milvus collection 初始化
+8. ensure_memory_collection()   记忆 collection 初始化
+9. bge 模型预热                避免首问卡 80s
+10. Neo4j 约束/索引            知识图谱初始化
+11. init_otel()                OpenTelemetry → Langfuse
+12. mcp_registry.load_from_config()  加载外部 MCP server
+13. register_routers()          挂载全部 router
+14. start_background_loops()    启动后台 cron
+</code></pre>
+<p>后台 cron 包括：</p>
+<table>
+<thead>
+<tr>
+<th>cron</th>
+<th>周期</th>
+<th>负责文件</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>组件健康探活</td>
+<td>30s</td>
+<td><code>providers/llm_router.py</code></td>
+<td>LLM provider 熔断探活</td>
+</tr>
+<tr>
+<td>缓存预热</td>
+<td>6h</td>
+<td><code>services/cache_warmup.py</code></td>
+<td>基于热门 query 预热</td>
+</tr>
+<tr>
+<td>缓存持久化清理</td>
+<td>6h</td>
+<td><code>services/cache_persist.py</code></td>
+<td>清理过期 L2 缓存</td>
+</tr>
+<tr>
+<td>日志归档</td>
+<td>-</td>
+<td><code>services/log_archive_service.py</code></td>
+<td>操作日志归档</td>
+</tr>
+<tr>
+<td>全量备份</td>
+<td>3h</td>
+<td><code>services/backup_service.py</code></td>
+<td>三合一备份</td>
+</tr>
+<tr>
+<td>KG 对账</td>
+<td>24h</td>
+<td><code>services/kg_reconcile_service.py</code></td>
+<td>MySQL 镜像 vs Neo4j</td>
+</tr>
+<tr>
+<td>证据补全</td>
+<td>180s</td>
+<td><code>services/evidence_gap_service.py</code></td>
+<td>deep_draft 批量补全</td>
+</tr>
+<tr>
+<td>知识自进化</td>
+<td>24h</td>
+<td><code>services/knowledge_evolution_service.py</code></td>
+<td>dislike 聚类回流</td>
+</tr>
+<tr>
+<td>记忆衰减</td>
+<td>24h</td>
+<td><code>services/agent_memory_service.py</code></td>
+<td>记忆权重衰减与软删</td>
+</tr>
+<tr>
+<td>修复率聚合</td>
+<td>30min</td>
+<td><code>services/feedback_fix_rate_service.py</code></td>
+<td>数据飞轮修复率</td>
+</tr>
+</tbody>
+</table>
+<h3 id="33-configpy">3.3 配置体系（config.py）</h3>
+<p><code>backend/app/config.py</code> 使用 <code>pydantic-settings</code> 读取根目录 <code>.env</code>，导出 <code>settings</code> 单例。</p>
+<p>配置读取优先级（从高到低）：</p>
+<ol>
+<li>环境变量</li>
+<li><code>.env</code> 文件</li>
+<li>Nacos 配置中心（<code>CONFIG_SOURCE=nacos</code> 时启动覆盖）</li>
+<li>字段默认值</li>
+</ol>
+<h4 id="331-feature-flag">3.3.1 Feature Flag 详解</h4>
+<p>feature flag 遵循<strong>默认 <code>False</code> = 现状行为</strong>的约定，新增高级能力默认关闭，前端零改动。</p>
+<table>
+<thead>
+<tr>
+<th>分类</th>
+<th>Flag</th>
+<th>默认值</th>
+<th>开启效果</th>
+<th>典型调试端点</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>检索路由</td>
+<td><code>ROUTING_ENABLE</code></td>
+<td>True</td>
+<td>按 query 特征自动选检索路径</td>
+<td><code>/api/system/runtime-info</code></td>
+</tr>
+<tr>
+<td>检索路由</td>
+<td><code>RRF_ROUTE_AWARE_ENABLE</code></td>
+<td>False</td>
+<td>按 route 动态调 RRF 权重/MMR λ/Milvus ef</td>
+<td><code>/api/qa/answer</code> trace</td>
+</tr>
+<tr>
+<td>检索增强</td>
+<td><code>HYDE_ENABLE</code></td>
+<td>False</td>
+<td>LLM 生成假设文档再做向量检索</td>
+<td>-</td>
+</tr>
+<tr>
+<td>检索增强</td>
+<td><code>MULTI_QUERY_ENABLE</code></td>
+<td>False</td>
+<td>复杂问题拆子问题并行检索</td>
+<td>-</td>
+</tr>
+<tr>
+<td>检索增强</td>
+<td><code>SELF_RAG_ENABLE</code></td>
+<td>False</td>
+<td>LLM 判断是否需检索</td>
+<td>-</td>
+</tr>
+<tr>
+<td>检索增强</td>
+<td><code>RAPTOR_ENABLE</code></td>
+<td>False</td>
+<td>层次化摘要检索</td>
+<td>-</td>
+</tr>
+<tr>
+<td>CRAG</td>
+<td><code>CRAG_ENABLE</code></td>
+<td>True</td>
+<td>检索后分级+纠错</td>
+<td><code>/api/qa/answer</code></td>
+</tr>
+<tr>
+<td>CRAG</td>
+<td><code>CRAG_V3_ENABLE</code></td>
+<td>False</td>
+<td>连续置信度 5 档 + 归因矩阵</td>
+<td>-</td>
+</tr>
+<tr>
+<td>CRAG</td>
+<td><code>CRAG_PERDOC_ENABLE</code></td>
+<td>False</td>
+<td>LLM 逐条评估每篇证据</td>
+<td>-</td>
+</tr>
+<tr>
+<td>CRAG</td>
+<td><code>CRAG_NEIGHBOR_EXPAND_ENABLE</code></td>
+<td>False</td>
+<td>ambiguous 档邻域 chunk 扩展</td>
+<td>-</td>
+</tr>
+<tr>
+<td>引用</td>
+<td><code>CITATION_AUTO_ENABLE</code></td>
+<td>True</td>
+<td>无角标句子自动向量补标</td>
+<td>-</td>
+</tr>
+<tr>
+<td>引用</td>
+<td><code>CITATION_VERIFIER_ENABLE</code></td>
+<td>True</td>
+<td>格式+向量+NLI 校验引擎</td>
+<td>-</td>
+</tr>
+<tr>
+<td>引用</td>
+<td><code>CITATION_NLI_ENABLE</code></td>
+<td>False</td>
+<td>最重 NLI 精准核验</td>
+<td>-</td>
+</tr>
+<tr>
+<td>缓存</td>
+<td><code>SEMANTIC_CACHE_ENABLE</code></td>
+<td>False</td>
+<td>语义缓存 L1.5</td>
+<td>-</td>
+</tr>
+<tr>
+<td>缓存</td>
+<td><code>CACHE_PERSIST_ENABLE</code></td>
+<td>True</td>
+<td>MySQL 二级缓存 Write-Through</td>
+<td>-</td>
+</tr>
+<tr>
+<td>缓存</td>
+<td><code>CACHE_WARMUP_ENABLE</code></td>
+<td>True</td>
+<td>启动/周期缓存预热</td>
+<td>-</td>
+</tr>
+<tr>
+<td>缓存</td>
+<td><code>HOTQA_ENABLE</code></td>
+<td>True</td>
+<td>用户 like 的高频问答永久缓存</td>
+<td>-</td>
+</tr>
+<tr>
+<td>图谱</td>
+<td><code>KG_RAG_ENABLE</code></td>
+<td>True</td>
+<td>问答融合 Neo4j 上下文</td>
+<td>-</td>
+</tr>
+<tr>
+<td>图谱</td>
+<td><code>KG_AUTO_EXTRACT_ENABLE</code></td>
+<td>True</td>
+<td>文档向量化后自动抽三元组</td>
+<td>-</td>
+</tr>
+<tr>
+<td>LLM</td>
+<td><code>LLM_TIER_ENABLE</code></td>
+<td>False</td>
+<td>query 特征分档 turbo/plus</td>
+<td>-</td>
+</tr>
+<tr>
+<td>LLM</td>
+<td><code>LLM_TIER_FACT_FAST_ENABLE</code></td>
+<td>True</td>
+<td>事实型短问走 turbo</td>
+<td>-</td>
+</tr>
+<tr>
+<td>安全</td>
+<td><code>SAFETY_FILTER_ENABLE</code></td>
+<td>True</td>
+<td>prompt injection 检测</td>
+<td>-</td>
+</tr>
+<tr>
+<td>安全</td>
+<td><code>INJECTION_GUARD_STRICT_ENABLE</code></td>
+<td>False</td>
+<td>高危注入直接结构化拒答</td>
+<td>-</td>
+</tr>
+<tr>
+<td>可观测</td>
+<td><code>QA_TRACE_ENABLE</code></td>
+<td>True</td>
+<td>per-request 瀑布图 trace</td>
+<td><code>/api/qa/trace/*</code></td>
+</tr>
+<tr>
+<td>记忆</td>
+<td><code>MEMORY_ENABLE</code></td>
+<td>True</td>
+<td>Agent 长期记忆</td>
+<td>-</td>
+</tr>
+<tr>
+<td>MCP</td>
+<td><code>MCP_EXTERNAL_ENABLED</code></td>
+<td>True</td>
+<td>外部 MCP 工具总开关</td>
+<td>-</td>
+</tr>
+</tbody>
+</table>
+<h4 id="332">3.3.2 缓存版本串</h4>
+<pre><code class="language-python">def citation_cache_version() -&gt; str:
+    s = settings
+    return (f&quot;cv{int(s.CITATION_VERIFIER_ENABLE)}{int(s.CITATION_STRUCTURED_OUTPUT)}&quot;
+            f&quot;{int(s.CITATION_NLI_ENABLE)}{_gov_generation}&quot;
+            f&quot;R{int(getattr(s, 'CRAG_V3_ENABLE', False))}&quot;
+            f&quot;P{int(getattr(s, 'CRAG_PERDOC_ENABLE', False))}&quot;
+            f&quot;F{int(getattr(s, 'LLM_TIER_FACT_FAST_ENABLE', False))}&quot;
+            f&quot;S{int(getattr(s, 'INJECTION_GUARD_STRICT_ENABLE', False))}&quot;)
+</code></pre>
+<p>该版本串被拼入所有 QA 缓存 key。任何影响答案语义的开关变化都会使 key 变化，旧缓存自动失效。</p>
+<h3 id="34">3.4 问答核心链路</h3>
+<h4 id="341-router-routersqapy">3.4.1 Router 入口（routers/qa.py）</h4>
+<p>核心端点：</p>
+<table>
+<thead>
+<tr>
+<th>方法</th>
+<th>路径</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>POST</td>
+<td><code>/api/qa/answer</code></td>
+<td>非流式问答</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/api/qa/answer/stream</code></td>
+<td>SSE 流式问答</td>
+</tr>
+<tr>
+<td>WS</td>
+<td><code>/api/qa/answer/ws</code></td>
+<td>WebSocket 问答</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/api/qa/feedback</code></td>
+<td>点赞/点踩反馈</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/api/qa/history</code></td>
+<td>会话历史</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/api/qa/favorite</code></td>
+<td>收藏问答对</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/api/qa/export</code></td>
+<td>导出问答记录</td>
+</tr>
+</tbody>
+</table>
+<p><code>answer</code> 路由函数职责：</p>
+<ol>
+<li>解析 <code>QuestionRequest</code> schema。</li>
+<li>调用 <code>require_perm("qa:answer")</code> 校验权限。</li>
+<li>初始化 <code>QATraceCollector</code>。</li>
+<li>调用 <code>qa_service.answer(...)</code>。</li>
+<li>流式响应时分块返回 SSE 事件。</li>
+<li>统一包装 <code>success()</code> / <code>error()</code> 响应。</li>
+</ol>
+<h4 id="342-qa-serviceservicesqa_servicepy">3.4.2 QA Service（services/qa_service.py）</h4>
+<p><code>qa_service.answer()</code> 是问答编排核心。简化签名：</p>
+<pre><code class="language-python">async def answer(
+    question: str,
+    user: User,
+    conversation_id: Optional[str] = None,
+    stream: bool = False,
+    regen: bool = False,
+    extra: Optional[dict] = None,
+) -&gt; Union[dict, AsyncGenerator[str, None]]:
+</code></pre>
+<p>核心处理流程：</p>
+<pre><code class="language-text">question
+  ├── term_service.normalize(query)          # 术语归一化
+  ├── safety.guard_query(query)              # 注入检测 / 非运维拒答
+  ├── 缓存层（仅单轮）
+  │     ├── hotqa:{nq}                       # 永久高频缓存
+  │     ├── qa:{tenant}:{nq_hash}:cv...      # L1 Redis
+  │     ├── qa:mysql:{tenant}:{nq_hash}      # L2 MySQL
+  │     └── semantic:{tenant}:{embedding}    # L1.5 Semantic
+  ├── 多轮上下文
+  │     ├── conversation_service.get_messages(conv_id)
+  │     └── standalone_query.rewrite_standalone(question, history)
+  ├── 智能路由
+  │     ├── query_classifier.extract_features(search_q)
+  │     └── routing_service.route_query(search_q, features)
+  ├── 混合检索
+  │     └── retrieval_service.mixed_search(search_q, route, user)
+  ├── CRAG 自纠错
+  │     ├── crag.grade(contexts)
+  │     ├── 若 incorrect → query_rewrite.rewrite_query(force=True)
+  │     └── 仍不足 → refused + evidence_gap 收集
+  ├── 图谱增强
+  │     └── kg_service.graph_context(question, entities)
+  ├── LLM 生成
+  │     ├── llm_router.classify_llm(question)        # turbo/plus
+  │     ├── prompt_templates.build_messages_with_history(...)
+  │     └── llm_provider.generate_stream(messages)
+  ├── 引用处理
+  │     ├── citation.auto_cite(answer, contexts)
+  │     └── citation_verifier.verify(answer, contexts)
+  ├── 落库与缓存
+  │     ├── conversation_service.add_message(...)
+  │     ├── cache write-through（高置信单轮）
+  │     └── online_eval_service.sample_eval(...)
+  └── 返回 response dict 或 SSE generator
+</code></pre>
+<h4 id="343-servicesretrieval_servicepy">3.4.3 混合检索（services/retrieval_service.py）</h4>
+<p><code>retrieval_service.mixed_search()</code> 负责从多个检索路召回并融合结果。简化签名：</p>
+<pre><code class="language-python">async def mixed_search(
+    query: str,
+    route: RoutingDecision,
+    user: User,
+    top_k: int = 10,
+    conversation_id: Optional[str] = None,
+) -&gt; RetrievalResult:
+</code></pre>
+<p>检索路组成：</p>
+<table>
+<thead>
+<tr>
+<th>检索路</th>
+<th>实现</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>稠密向量（云）</td>
+<td><code>clients/milvus_client.py</code> + <code>providers/embedding/qwen_embedding.py</code></td>
+<td>1024 维，collection <code>grid_chunks</code></td>
+</tr>
+<tr>
+<td>稠密向量（本地 bge）</td>
+<td><code>providers/embedding/bge_embedding.py</code></td>
+<td>512 维，collection <code>grid_chunks_bge</code></td>
+</tr>
+<tr>
+<td>稀疏 BM25</td>
+<td><code>services/bm25_service.py</code></td>
+<td>jieba 分词 + rank-bm25</td>
+</tr>
+<tr>
+<td>HyDE（可选）</td>
+<td><code>services/hyde.py</code></td>
+<td>LLM 生成假设文档再检索</td>
+</tr>
+<tr>
+<td>GraphRAG（可选）</td>
+<td><code>services/kg_service.py</code></td>
+<td>Neo4j 多跳补全</td>
+</tr>
+</tbody>
+</table>
+<p>融合与精排：</p>
+<pre><code class="language-text">多路召回结果
+    ├── rrf.rrf_fuse(dense, sparse, bge, ...)   # 多路排名融合
+    ├── rerank_service.rerank(query, candidates) # 云 rerank（失败降级 RRF 原序）
+    ├── mmr.mmr_diverse(reranked, lambda=MMR_LAMBDA) # 多样性重排
+    ├── small-to-big 父块扩展                   # 小块命中 → 召回父块
+    └── ACL 过滤（dept/role/tenant）            # 文档级权限
+</code></pre>
+<h4 id="344-crag-ragcragpy">3.4.4 CRAG 自纠错（rag/crag.py）</h4>
+<p><code>crag.grade()</code> 基于 rerank top1 分数做三档分级：</p>
+<table>
+<thead>
+<tr>
+<th>档位</th>
+<th>条件</th>
+<th>动作</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>correct</td>
+<td>top1 score &gt;= CRAG_HIGH (0.72)</td>
+<td>证据充分，进入生成</td>
+</tr>
+<tr>
+<td>ambiguous</td>
+<td>CRAG_LOW (0.3) &lt;= score &lt; CRAG_HIGH</td>
+<td>证据一般，可进入生成但置信度降低</td>
+</tr>
+<tr>
+<td>incorrect</td>
+<td>score &lt; CRAG_LOW</td>
+<td>触发 query 改写重检索；仍不足则 refused</td>
+</tr>
+</tbody>
+</table>
+<p>当 <code>CRAG_V3_ENABLE=True</code> 时，升级为连续置信度 5 档 + 归因矩阵。</p>
+<p>当 <code>CRAG_PERDOC_ENABLE=True</code> 时，<code>rag/crag_v2.py</code> 调用 LLM 逐条评估每篇文档相关性。</p>
+<h4 id="345-ragcitationpy">3.4.5 引用校验（rag/citation*.py）</h4>
+<p>引用系统四层架构：</p>
+<table>
+<thead>
+<tr>
+<th>层级</th>
+<th>文件</th>
+<th>功能</th>
+<th>开关</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>L1 格式校验</td>
+<td><code>citation_verifier.py</code></td>
+<td>检查角标格式、编号连续性</td>
+<td><code>CITATION_VERIFIER_ENABLE</code></td>
+</tr>
+<tr>
+<td>L2 向量校验</td>
+<td><code>citation_verifier.py</code></td>
+<td>答案句与原文 chunk 向量相似度</td>
+<td><code>CITATION_VERIFIER_ENABLE</code></td>
+</tr>
+<tr>
+<td>L3 NLI 校验</td>
+<td><code>citation_verifier.py</code></td>
+<td>自然语言推理判断句是否被 chunk 支撑</td>
+<td><code>CITATION_NLI_ENABLE</code></td>
+</tr>
+<tr>
+<td>自动补标</td>
+<td><code>citation.py</code></td>
+<td>无角标句子按向量相似度自动补引用</td>
+<td><code>CITATION_AUTO_ENABLE</code></td>
+</tr>
+</tbody>
+</table>
+<p>当校验失败且 <code>CITATION_REWRITE_ON_FAIL=True</code> 时，联动 CRAG 做二次检索或 refused。</p>
+<h4 id="346-llm-provider-providersllm_routerpy">3.4.6 LLM Provider 路由（providers/llm_router.py）</h4>
+<p>三层模型路由：</p>
+<table>
+<thead>
+<tr>
+<th>层级</th>
+<th>名称</th>
+<th>功能</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>L0</td>
+<td>Fallback 链</td>
+<td>按 <code>LLM_FALLBACK_CHAIN</code> 顺序切换 provider，空答案也 fallback</td>
+</tr>
+<tr>
+<td>L1</td>
+<td>健康熔断</td>
+<td>连续失败 <code>LLM_CIRCUIT_FAIL_N</code> 次后熔断，冷却 <code>LLM_CIRCUIT_COOLDOWN</code> 秒</td>
+</tr>
+<tr>
+<td>L2</td>
+<td>Query 分档</td>
+<td>按 query 特征分 turbo/plus，<code>LLM_TIER_FACT_FAST_ENABLE</code> 控制事实短问走 turbo</td>
+</tr>
+</tbody>
+</table>
+<p>Provider 工厂：</p>
+<pre><code class="language-python"># backend/app/providers/factory.py
+async def get_llm_provider(provider: Optional[str] = None) -&gt; BaseLLMProvider:
+    ...
+
+async def get_embedding_provider(provider: Optional[str] = None) -&gt; BaseEmbeddingProvider:
+    ...
+</code></pre>
+<h3 id="35">3.5 各模块详细说明</h3>
+<h4 id="351-routers">3.5.1 Routers</h4>
+<p>所有 router 保持"薄"：参数校验 → <code>require_perm</code> → 调 service → 写操作日志。</p>
+<table>
+<thead>
+<tr>
+<th>Router</th>
+<th>主要职责</th>
+<th>关键权限</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>qa.py</code></td>
+<td>问答、反馈、历史、收藏、导出</td>
+<td><code>qa:answer</code>, <code>qa:feedback</code></td>
+</tr>
+<tr>
+<td><code>document.py</code></td>
+<td>文档上传、解析、向量化、版本、权限</td>
+<td><code>document:upload</code>, <code>document:manage</code></td>
+</tr>
+<tr>
+<td><code>kg.py</code></td>
+<td>知识图谱查询、三元组、重建</td>
+<td><code>kg:view</code>, <code>kg:manage</code></td>
+</tr>
+<tr>
+<td><code>retrieval.py</code></td>
+<td>检索调试、来源、trace</td>
+<td><code>retrieval:debug</code></td>
+</tr>
+<tr>
+<td><code>domain.py</code></td>
+<td>故障诊断、相似案例、两票</td>
+<td><code>domain:diagnose</code></td>
+</tr>
+<tr>
+<td><code>system.py</code></td>
+<td>用户、配置、备份、运行时信息</td>
+<td><code>system:admin</code>, <code>system:config</code></td>
+</tr>
+<tr>
+<td><code>knowledge_governance.py</code></td>
+<td>知识治理（撤回/过期/传播）</td>
+<td><code>governance:manage</code></td>
+</tr>
+<tr>
+<td><code>knowledge_evolution.py</code></td>
+<td>知识自进化扫描与回流</td>
+<td><code>evolution:manage</code></td>
+</tr>
+<tr>
+<td><code>task_center.py</code></td>
+<td>持久化任务与事件中心</td>
+<td><code>task:manage</code></td>
+</tr>
+<tr>
+<td><code>quality_event.py</code></td>
+<td>质量事件总线</td>
+<td><code>quality:view</code></td>
+</tr>
+<tr>
+<td><code>realtime_event.py</code></td>
+<td>实时事件/主动运维接入</td>
+<td><code>realtime:manage</code></td>
+</tr>
+<tr>
+<td><code>workflow.py</code></td>
+<td>DAG 工作流编排</td>
+<td><code>workflow:manage</code>（需 <code>WORKFLOW_ENABLE</code>）</td>
+</tr>
+<tr>
+<td><code>ops_report.py</code></td>
+<td>运维报告生成</td>
+<td><code>ops_report:manage</code>（需 <code>OPS_REPORT_ENABLE</code>）</td>
+</tr>
+<tr>
+<td><code>doc_collab.py</code></td>
+<td>文档协作批注与电子签批</td>
+<td><code>doc_collab:manage</code>（需 <code>DOC_COLLAB_ENABLE</code>）</td>
+</tr>
+<tr>
+<td><code>drill.py</code></td>
+<td>故障仿真演练沙箱</td>
+<td><code>drill:manage</code>（需 <code>DRILL_SANDBOX_ENABLE</code>）</td>
+</tr>
+<tr>
+<td><code>twin.py</code></td>
+<td>数字孪生变电站 3D</td>
+<td><code>twin:view</code></td>
+</tr>
+<tr>
+<td><code>memory.py</code></td>
+<td>Agent 长期记忆</td>
+<td><code>memory:manage</code></td>
+</tr>
+</tbody>
+</table>
+<h4 id="352-services">3.5.2 Services</h4>
+<table>
+<thead>
+<tr>
+<th>Service</th>
+<th>核心职责</th>
+<th>关键方法</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>qa_service.py</code></td>
+<td>问答编排核心</td>
+<td><code>answer()</code>, <code>_crag_correct()</code>, <code>_cache_knowledge_valid()</code></td>
+</tr>
+<tr>
+<td><code>retrieval_service.py</code></td>
+<td>混合检索与精排</td>
+<td><code>mixed_search()</code></td>
+</tr>
+<tr>
+<td><code>document_service.py</code></td>
+<td>文档生命周期</td>
+<td><code>upload_document()</code>, <code>reindex_document()</code>, <code>grant_document_acl()</code></td>
+</tr>
+<tr>
+<td><code>chunk_service.py</code></td>
+<td>分块与父块管理</td>
+<td><code>chunk_document()</code>, <code>get_parent_chunk()</code></td>
+</tr>
+<tr>
+<td><code>parse_service.py</code></td>
+<td>文档解析</td>
+<td><code>parse_pdf()</code>, <code>parse_docx()</code>, <code>parse_excel()</code>, <code>parse_image_ocr()</code></td>
+</tr>
+<tr>
+<td><code>conversation_service.py</code></td>
+<td>多轮会话</td>
+<td><code>get_messages()</code>, <code>add_message()</code>, <code>soft_delete_conversation()</code></td>
+</tr>
+<tr>
+<td><code>feedback_service.py</code></td>
+<td>用户反馈</td>
+<td><code>submit_feedback()</code>, <code>aggregate_feedback()</code></td>
+</tr>
+<tr>
+<td><code>feedback_optimizer_service.py</code></td>
+<td>反馈驱动的缓存优化</td>
+<td><code>optimize_from_feedback()</code></td>
+</tr>
+<tr>
+<td><code>standalone_query.py</code></td>
+<td>多轮指代消解</td>
+<td><code>rewrite_standalone()</code></td>
+</tr>
+<tr>
+<td><code>query_rewrite.py</code></td>
+<td>query 改写</td>
+<td><code>rewrite_query()</code>, <code>rewrite_for_gap()</code></td>
+</tr>
+<tr>
+<td><code>config_service.py</code></td>
+<td>运行时热配置</td>
+<td><code>rt_crag_high()</code>, <code>rt_crag_low()</code>, <code>rt_*</code></td>
+</tr>
+<tr>
+<td><code>kg_service.py</code></td>
+<td>知识图谱查询</td>
+<td><code>graph_context()</code>, <code>search_entities()</code></td>
+</tr>
+<tr>
+<td><code>kg_reconcile_service.py</code></td>
+<td>KG 对账</td>
+<td><code>reconcile_mysql_to_neo4j()</code></td>
+</tr>
+<tr>
+<td><code>cache_warmup.py</code></td>
+<td>缓存预热</td>
+<td><code>warmup_loop()</code></td>
+</tr>
+<tr>
+<td><code>cache_persist.py</code></td>
+<td>缓存持久化清理</td>
+<td><code>cleanup_loop()</code></td>
+</tr>
+<tr>
+<td><code>evidence_gap_service.py</code></td>
+<td>证据缺口</td>
+<td><code>collect_gap()</code>, <code>deep_draft_loop()</code></td>
+</tr>
+<tr>
+<td><code>knowledge_evolution_service.py</code></td>
+<td>知识自进化</td>
+<td><code>run_scan()</code>, <code>retest_indexed()</code></td>
+</tr>
+<tr>
+<td><code>knowledge_governance_service.py</code></td>
+<td>知识治理</td>
+<td><code>withdraw_document()</code>, <code>supersede_document()</code></td>
+</tr>
+<tr>
+<td><code>online_eval_service.py</code></td>
+<td>线上评估</td>
+<td><code>sample_eval()</code>, <code>judge_faithfulness()</code></td>
+</tr>
+<tr>
+<td><code>qa_trace_service.py</code></td>
+<td>QA trace</td>
+<td><code>save_trace()</code>, <code>get_trace()</code></td>
+</tr>
+<tr>
+<td><code>agent_runtime.py</code></td>
+<td>Agent 引擎</td>
+<td><code>run_agent()</code>, <code>run_tool()</code></td>
+</tr>
+<tr>
+<td><code>agent_personas.py</code></td>
+<td>Persona 定义</td>
+<td><code>get_persona()</code>, <code>list_personas()</code></td>
+</tr>
+<tr>
+<td><code>agent_tools.py</code></td>
+<td>Agent 工具注册</td>
+<td><code>register_mcp_tools()</code>, <code>list_tools()</code></td>
+</tr>
+<tr>
+<td><code>task_center_service.py</code></td>
+<td>任务调度</td>
+<td><code>enqueue()</code>, <code>poll()</code>, <code>claim()</code></td>
+</tr>
+<tr>
+<td><code>quality_event_service.py</code></td>
+<td>质量事件</td>
+<td><code>emit()</code>, <code>subscribe()</code></td>
+</tr>
+<tr>
+<td><code>rag_router.py</code></td>
+<td>双 RAG 热备</td>
+<td><code>answer_redundant()</code></td>
+</tr>
+</tbody>
+</table>
+<h4 id="353-rag">3.5.3 RAG 算法模块</h4>
+<table>
+<thead>
+<tr>
+<th>文件</th>
+<th>核心函数/类</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>crag.py</code></td>
+<td><code>grade(contexts, query)</code></td>
+<td>三档分级</td>
+</tr>
+<tr>
+<td><code>crag_v2.py</code></td>
+<td><code>evaluate_per_doc(docs, query)</code></td>
+<td>逐条 LLM 评估</td>
+</tr>
+<tr>
+<td><code>rrf.py</code></td>
+<td><code>rrf_fuse(lists, k=RRF_K, weights=...)</code></td>
+<td>排名融合</td>
+</tr>
+<tr>
+<td><code>mmr.py</code></td>
+<td><code>mmr_diverse(candidates, lambda=...)</code></td>
+<td>多样性重排</td>
+</tr>
+<tr>
+<td><code>citation.py</code></td>
+<td><code>auto_cite(answer, contexts)</code></td>
+<td>自动补标引用</td>
+</tr>
+<tr>
+<td><code>citation_verifier.py</code></td>
+<td><code>verify(answer, contexts)</code></td>
+<td>三层校验</td>
+</tr>
+<tr>
+<td><code>citation_index.py</code></td>
+<td><code>build_citation_index(contexts)</code></td>
+<td>引用索引</td>
+</tr>
+<tr>
+<td><code>prompt_templates.py</code></td>
+<td><code>build_messages_with_history(...)</code></td>
+<td>prompt 组装</td>
+</tr>
+<tr>
+<td><code>semantic_cache.py</code></td>
+<td><code>search_similar(query_embedding)</code></td>
+<td>语义缓存</td>
+</tr>
+<tr>
+<td><code>judge.py</code></td>
+<td><code>judge_faithfulness(...)</code>, <code>answerability(...)</code></td>
+<td>LLM-judge</td>
+</tr>
+<tr>
+<td><code>hyde.py</code></td>
+<td><code>generate_hypothetical_document(query)</code></td>
+<td>HyDE</td>
+</tr>
+<tr>
+<td><code>multi_query.py</code></td>
+<td><code>decompose_query(query)</code></td>
+<td>多查询分解</td>
+</tr>
+<tr>
+<td><code>raptor.py</code></td>
+<td><code>build_raptor_tree(chunks)</code></td>
+<td>RAPTOR 摘要树</td>
+</tr>
+</tbody>
+</table>
+<h4 id="354-provider">3.5.4 Provider 模块</h4>
+<table>
+<thead>
+<tr>
+<th>文件</th>
+<th>类/函数</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>factory.py</code></td>
+<td><code>get_llm_provider()</code>, <code>get_embedding_provider()</code></td>
+<td>工厂函数</td>
+</tr>
+<tr>
+<td><code>base.py</code></td>
+<td><code>BaseLLMProvider</code>, <code>BaseEmbeddingProvider</code></td>
+<td>抽象基类</td>
+</tr>
+<tr>
+<td><code>llm_router.py</code></td>
+<td><code>LLMRouter</code></td>
+<td>fallback + 熔断 + 分档</td>
+</tr>
+<tr>
+<td><code>llm/deepseek_llm.py</code></td>
+<td><code>DeepSeekLLMProvider</code></td>
+<td>DeepSeek API</td>
+</tr>
+<tr>
+<td><code>llm/qwen_llm.py</code></td>
+<td><code>QwenLLMProvider</code></td>
+<td>阿里百炼</td>
+</tr>
+<tr>
+<td><code>llm/doubao_llm.py</code></td>
+<td><code>DoubaoLLMProvider</code></td>
+<td>火山方舟</td>
+</tr>
+<tr>
+<td><code>llm/ollama_llm.py</code></td>
+<td><code>OllamaLLMProvider</code></td>
+<td>本地兜底</td>
+</tr>
+<tr>
+<td><code>embedding/qwen_embedding.py</code></td>
+<td><code>QwenEmbeddingProvider</code></td>
+<td>云 embedding 1024d</td>
+</tr>
+<tr>
+<td><code>embedding/doubao_embedding.py</code></td>
+<td><code>DoubaoEmbeddingProvider</code></td>
+<td>云 embedding</td>
+</tr>
+<tr>
+<td><code>embedding/bge_embedding.py</code></td>
+<td><code>BgeEmbeddingProvider</code></td>
+<td>本地 bge 512d</td>
+</tr>
+</tbody>
+</table>
+<h4 id="355">3.5.5 横切核心模块</h4>
+<table>
+<thead>
+<tr>
+<th>文件</th>
+<th>核心内容</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>permissions.py</code></td>
+<td><code>RES_QA_ANSWER</code> 等权限常量、角色矩阵</td>
+<td>RBAC 定义</td>
+</tr>
+<tr>
+<td><code>dependencies.py</code></td>
+<td><code>get_current_user()</code>, <code>require_perm()</code></td>
+<td>依赖注入</td>
+</tr>
+<tr>
+<td><code>response.py</code></td>
+<td><code>success()</code>, <code>error()</code>, <code>BizError</code></td>
+<td>统一响应</td>
+</tr>
+<tr>
+<td><code>obs.py</code></td>
+<td><code>degraded(name, exc, msg)</code></td>
+<td>降级观测</td>
+</tr>
+<tr>
+<td><code>metrics.py</code></td>
+<td><code>init_metric_series()</code>, 业务指标</td>
+<td>Prometheus</td>
+</tr>
+<tr>
+<td><code>limiter.py</code></td>
+<td>slowapi limiter</td>
+<td>限流</td>
+</tr>
+<tr>
+<td><code>safety.py</code></td>
+<td><code>guard_query()</code>, <code>mask_pii()</code></td>
+<td>安全</td>
+</tr>
+<tr>
+<td><code>security.py</code></td>
+<td>JWT encode/decode</td>
+<td>认证</td>
+</tr>
+<tr>
+<td><code>security_check.py</code></td>
+<td><code>run_startup_check()</code></td>
+<td>启动自检</td>
+</tr>
+<tr>
+<td><code>qa_trace.py</code></td>
+<td><code>QATraceCollector</code></td>
+<td>请求 trace</td>
+</tr>
+<tr>
+<td><code>otel_genai.py</code></td>
+<td><code>init_otel()</code></td>
+<td>OTel → Langfuse</td>
+</tr>
+<tr>
+<td><code>logging.py</code></td>
+<td><code>setup_logging()</code></td>
+<td>结构化日志</td>
+</tr>
+<tr>
+<td><code>ws_manager.py</code></td>
+<td><code>WSManager</code></td>
+<td>WebSocket 连接</td>
+</tr>
+</tbody>
+</table>
+<h3 id="36-models">3.6 数据模型（models/）</h3>
+<h4 id="361">3.6.1 核心实体关系</h4>
+<pre><code class="language-text">User (1) ───&lt; Permission &gt;─── (N) ResourceAction
+User (1) ───&lt; Conversation &gt;─── (N) Message
+User (1) ───&lt; Feedback &gt;─── (N) QARecord
+Document (1) ───&lt; DocumentVersion &gt;─── (N)
+Document (1) ───&lt; Chunk &gt;─── (N)
+Chunk (N) ───&lt; parent_chunk_id &gt;─── Chunk (1)   # small-to-big
+Document (1) ───&lt; KgTriple &gt;─── (N)   # MySQL 镜像
+KgTriple ───同步─── Neo4j (Entity)-[:REL]-&gt;(Entity)
+QARecord ───&lt; QACache &gt;─── (1)   # L2 缓存
+User ───&lt; Favorite &gt;─── QARecord
+</code></pre>
+<h4 id="362">3.6.2 关键模型字段</h4>
+<p><strong>Document</strong></p>
+<table>
+<thead>
+<tr>
+<th>字段</th>
+<th>类型</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>id</td>
+<td>int</td>
+<td>主键</td>
+</tr>
+<tr>
+<td>title</td>
+<td>str</td>
+<td>文档标题</td>
+</tr>
+<tr>
+<td>filename</td>
+<td>str</td>
+<td>原文件名</td>
+</tr>
+<tr>
+<td>minio_path</td>
+<td>str</td>
+<td>MinIO 对象路径</td>
+</tr>
+<tr>
+<td>doc_type</td>
+<td>str</td>
+<td>文档类型（手册/案例/规程等）</td>
+</tr>
+<tr>
+<td>dept</td>
+<td>str</td>
+<td>所属部门</td>
+</tr>
+<tr>
+<td>tenant</td>
+<td>str</td>
+<td>租户</td>
+</tr>
+<tr>
+<td>status</td>
+<td>str</td>
+<td>active / withdrawn / superseded</td>
+</tr>
+<tr>
+<td>version_id</td>
+<td>int</td>
+<td>当前版本</td>
+</tr>
+<tr>
+<td>created_by</td>
+<td>int</td>
+<td>上传用户</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Chunk</strong></p>
+<table>
+<thead>
+<tr>
+<th>字段</th>
+<th>类型</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>id</td>
+<td>int</td>
+<td>主键</td>
+</tr>
+<tr>
+<td>document_id</td>
+<td>int</td>
+<td>所属文档</td>
+</tr>
+<tr>
+<td>content</td>
+<td>text</td>
+<td>chunk 文本</td>
+</tr>
+<tr>
+<td>chunk_idx</td>
+<td>int</td>
+<td>文档内序号</td>
+</tr>
+<tr>
+<td>parent_chunk_id</td>
+<td>int</td>
+<td>父块 ID（small-to-big）</td>
+</tr>
+<tr>
+<td>embedding_cloud</td>
+<td>vector</td>
+<td>云 embedding（1024d）</td>
+</tr>
+<tr>
+<td>embedding_bge</td>
+<td>vector</td>
+<td>本地 bge embedding（512d）</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Conversation / Message</strong></p>
+<table>
+<thead>
+<tr>
+<th>字段</th>
+<th>类型</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>id</td>
+<td>int</td>
+<td>主键</td>
+</tr>
+<tr>
+<td>user_id</td>
+<td>int</td>
+<td>用户</td>
+</tr>
+<tr>
+<td>title</td>
+<td>str</td>
+<td>会话标题</td>
+</tr>
+<tr>
+<td>is_deleted</td>
+<td>bool</td>
+<td>软删标记</td>
+</tr>
+<tr>
+<td>role</td>
+<td>str</td>
+<td>user / assistant</td>
+</tr>
+<tr>
+<td>content</td>
+<td>text</td>
+<td>消息内容</td>
+</tr>
+<tr>
+<td>retrieval_sources</td>
+<td>json</td>
+<td>检索来源快照</td>
+</tr>
+<tr>
+<td>trace_id</td>
+<td>str</td>
+<td>QA trace ID</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Feedback</strong></p>
+<table>
+<thead>
+<tr>
+<th>字段</th>
+<th>类型</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>id</td>
+<td>int</td>
+<td>主键</td>
+</tr>
+<tr>
+<td>qa_record_id</td>
+<td>int</td>
+<td>问答记录</td>
+</tr>
+<tr>
+<td>rating</td>
+<td>int</td>
+<td>1=like, -1=dislike</td>
+</tr>
+<tr>
+<td>comment</td>
+<td>text</td>
+<td>文字反馈</td>
+</tr>
+<tr>
+<td>tags</td>
+<td>json</td>
+<td>标签</td>
+</tr>
+</tbody>
+</table>
+<p><strong>KgTriple</strong></p>
+<table>
+<thead>
+<tr>
+<th>字段</th>
+<th>类型</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>id</td>
+<td>int</td>
+<td>主键</td>
+</tr>
+<tr>
+<td>subject</td>
+<td>str</td>
+<td>主语（设备/故障）</td>
+</tr>
+<tr>
+<td>predicate</td>
+<td>str</td>
+<td>关系</td>
+</tr>
+<tr>
+<td>object</td>
+<td>str</td>
+<td>宾语（故障/处置）</td>
+</tr>
+<tr>
+<td>document_id</td>
+<td>int</td>
+<td>来源文档</td>
+</tr>
+<tr>
+<td>chunk_id</td>
+<td>int</td>
+<td>来源 chunk</td>
+</tr>
+</tbody>
+</table>
+<h3 id="37-schemaspydantic">3.7 Schemas（Pydantic 模型）</h3>
+<table>
+<thead>
+<tr>
+<th>Schema 文件</th>
+<th>主要职责</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>qa.py</code></td>
+<td><code>QuestionRequest</code>, <code>AnswerResponse</code>, <code>FeedbackRequest</code>, <code>StreamChunk</code></td>
+</tr>
+<tr>
+<td><code>document.py</code></td>
+<td><code>DocumentUploadRequest</code>, <code>DocumentResponse</code>, <code>ReindexRequest</code></td>
+</tr>
+<tr>
+<td><code>auth.py</code></td>
+<td><code>LoginRequest</code>, <code>TokenResponse</code>, <code>UserResponse</code></td>
+</tr>
+<tr>
+<td><code>retrieval.py</code></td>
+<td><code>SearchRequest</code>, <code>RetrievalResult</code>, <code>RetrievalSource</code></td>
+</tr>
+<tr>
+<td><code>kg.py</code></td>
+<td><code>TripleCreateRequest</code>, <code>GraphQueryRequest</code></td>
+</tr>
+<tr>
+<td><code>knowledge_governance.py</code></td>
+<td><code>WithdrawRequest</code>, <code>GovernancePropagationRequest</code></td>
+</tr>
+<tr>
+<td><code>knowledge_evolution.py</code></td>
+<td><code>EvolutionScanRequest</code>, <code>DraftReviewRequest</code></td>
+</tr>
+<tr>
+<td><code>task_center.py</code></td>
+<td><code>TaskEnqueueRequest</code>, <code>TaskClaimRequest</code></td>
+</tr>
+<tr>
+<td><code>system.py</code></td>
+<td><code>ConfigUpdateRequest</code>, <code>RuntimeInfoResponse</code></td>
+</tr>
+<tr>
+<td><code>quality_event.py</code></td>
+<td><code>QualityEventCreate</code>, <code>QualityEventResponse</code></td>
+</tr>
+<tr>
+<td><code>ops_workbench.py</code></td>
+<td>运维工作台相关 schema</td>
+</tr>
+<tr>
+<td><code>ops_report.py</code></td>
+<td>运维报告相关 schema</td>
+</tr>
+<tr>
+<td><code>doc_collab.py</code></td>
+<td>文档协作批注/签批 schema</td>
+</tr>
+<tr>
+<td><code>drill.py</code></td>
+<td>演练沙箱 schema</td>
+</tr>
+<tr>
+<td><code>workflow.py</code></td>
+<td>工作流编排 schema</td>
+</tr>
+<tr>
+<td><code>domain.py</code></td>
+<td>故障诊断/两票 schema</td>
+</tr>
+<tr>
+<td><code>realtime_event.py</code></td>
+<td>实时事件 schema</td>
+</tr>
+<tr>
+<td><code>llm_user.py</code></td>
+<td>LLM User 套件回调 schema</td>
+</tr>
+<tr>
+<td><code>citation.py</code></td>
+<td>引用校验结果 schema</td>
+</tr>
+<tr>
+<td><code>common.py</code></td>
+<td>通用分页/列表 schema</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="4-frontendsrc">4. 前端架构（frontend/src）</h2>
+<h3 id="41">4.1 技术栈详解</h3>
+<table>
+<thead>
+<tr>
+<th>类别</th>
+<th>选型</th>
+<th>版本</th>
+<th>用途</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>框架</td>
+<td>Vue</td>
+<td>3.4.38</td>
+<td>响应式 UI</td>
+</tr>
+<tr>
+<td>路由</td>
+<td>Vue Router</td>
+<td>4.4.3</td>
+<td>SPA 路由与守卫</td>
+</tr>
+<tr>
+<td>状态</td>
+<td>Pinia</td>
+<td>2.2.4</td>
+<td>全局状态管理</td>
+</tr>
+<tr>
+<td>构建</td>
+<td>Vite</td>
+<td>5.4.3</td>
+<td>开发与生产构建</td>
+</tr>
+<tr>
+<td>HTTP</td>
+<td>axios</td>
+<td>1.7.7</td>
+<td>REST API 调用</td>
+</tr>
+<tr>
+<td>工具</td>
+<td>@vueuse/core</td>
+<td>14.3.0</td>
+<td>暗色模式、响应式工具</td>
+</tr>
+<tr>
+<td>图表</td>
+<td>echarts</td>
+<td>6.1.0</td>
+<td>统计看板</td>
+</tr>
+<tr>
+<td>3D</td>
+<td>three</td>
+<td>0.128.0</td>
+<td>数字孪生/3D 图谱</td>
+</tr>
+<tr>
+<td>Markdown</td>
+<td>markdown-it</td>
+<td>14.2.0</td>
+<td>答案渲染</td>
+</tr>
+<tr>
+<td>高亮</td>
+<td>highlight.js</td>
+<td>11.11.1</td>
+<td>代码块高亮</td>
+</tr>
+</tbody>
+</table>
+<h3 id="42">4.2 目录职责</h3>
+<pre><code class="language-text">frontend/src/
+├── api/
+│   ├── request.js          # axios 实例 + 拦截器
+│   ├── index.js            # 按业务域导出 API 函数
+│   └── opsWorkbench.js     # 运维工作台独立接口
+├── views/                  # 页面组件
+├── components/             # 复用组件
+│   ├── AgentTrace.vue
+│   └── QaTraceChart.vue
+├── router/
+│   └── index.js            # 路由表 + 鉴权守卫
+├── stores/
+│   └── auth.js             # Pinia：登录态
+├── utils/
+│   └── perm.js             # 前端 RBAC 镜像
+├── three/                  # Three.js 3D 场景
+├── App.vue                 # 根组件
+├── main.js                 # 应用入口
+└── style.css               # 全局样式
+</code></pre>
+<h3 id="43">4.3 路由与权限守卫</h3>
+<p><code>frontend/src/router/index.js</code> 定义全部路由，支持：</p>
+<ul>
+<li><code>meta.auth: true</code> — 需登录</li>
+<li><code>meta.admin: true</code> — 需管理员</li>
+<li><code>meta.roles: ['admin', 'editor']</code> — 角色白名单</li>
+</ul>
+<p>路由守卫流程：</p>
+<pre><code class="language-text">beforeEach
+  ├── 无 token 且需登录 → /login
+  ├── token 过期 → 清空 store → /login
+  ├── meta.admin 但非 admin → 403 提示
+  └── meta.roles 不匹配 → 403 提示
+</code></pre>
+<h3 id="44-api">4.4 API 封装</h3>
+<p><code>request.js</code> 配置：</p>
+<pre><code class="language-javascript">const service = axios.create({
+  baseURL: '/api',
+  timeout: 60000,
+});
+</code></pre>
+<p>拦截器：</p>
+<ul>
+<li>请求：注入 <code>Authorization: Bearer &lt;token&gt;</code>。</li>
+<li>响应：解包 <code>{code, message, data}</code>；401 触发全局登出；403 派发 <code>app:notify</code>。</li>
+</ul>
+<p><code>api/index.js</code> 按业务域导出函数，例如：</p>
+<pre><code class="language-javascript">export const streamAnswer = (data) =&gt; fetch('/api/qa/answer/stream', {...})
+export const submitFeedback = (data) =&gt; service.post('/qa/feedback', data)
+export const uploadDocs = (formData) =&gt; service.post('/document/upload', formData)
+</code></pre>
+<h3 id="45">4.5 主要页面映射</h3>
+<table>
+<thead>
+<tr>
+<th>页面</th>
+<th>路由</th>
+<th>核心功能</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Chat.vue</td>
+<td><code>/chat</code></td>
+<td>智能问答、流式答案、收藏、反馈</td>
+</tr>
+<tr>
+<td>Diagnose.vue</td>
+<td><code>/diagnose</code></td>
+<td>故障诊断、Agent 工具调用</td>
+</tr>
+<tr>
+<td>Documents.vue</td>
+<td><code>/documents</code></td>
+<td>知识库管理、上传、权限</td>
+</tr>
+<tr>
+<td>KgGraph.vue</td>
+<td><code>/kg</code></td>
+<td>知识图谱可视化</td>
+</tr>
+<tr>
+<td>KgGraph3D.vue</td>
+<td><code>/kg-3d</code></td>
+<td>3D 知识图谱</td>
+</tr>
+<tr>
+<td>DigitalTwin.vue</td>
+<td><code>/twin</code></td>
+<td>数字孪生变电站</td>
+</tr>
+<tr>
+<td>Dashboard.vue</td>
+<td><code>/dashboard</code></td>
+<td>统计看板、指标</td>
+</tr>
+<tr>
+<td>RetrievalDebug.vue</td>
+<td><code>/retrieval-debug</code></td>
+<td>检索调试、中间结果</td>
+</tr>
+<tr>
+<td>Admin.vue</td>
+<td><code>/admin</code></td>
+<td>系统管理、用户、配置</td>
+</tr>
+<tr>
+<td>KnowledgeGovernance.vue</td>
+<td><code>/knowledge-governance</code></td>
+<td>知识治理</td>
+</tr>
+<tr>
+<td>KnowledgeEvolution.vue</td>
+<td><code>/knowledge-evolution</code></td>
+<td>知识自进化</td>
+</tr>
+<tr>
+<td>OpsWorkbench.vue</td>
+<td><code>/ops-workbench</code></td>
+<td>运维工作台</td>
+</tr>
+<tr>
+<td>OpsReport.vue</td>
+<td><code>/ops-report</code></td>
+<td>运维报告</td>
+</tr>
+<tr>
+<td>DocCollab.vue</td>
+<td><code>/doc-collab</code></td>
+<td>文档协作批注</td>
+</tr>
+<tr>
+<td>DrillSandbox.vue</td>
+<td><code>/drill</code></td>
+<td>演练沙箱</td>
+</tr>
+<tr>
+<td>WorkflowEditor.vue</td>
+<td><code>/workflow</code></td>
+<td>工作流编排</td>
+</tr>
+<tr>
+<td>TraceDiagnosis.vue</td>
+<td><code>/trace</code></td>
+<td>链路诊断</td>
+</tr>
+<tr>
+<td>QualityEvents.vue</td>
+<td><code>/quality-events</code></td>
+<td>质量事件</td>
+</tr>
+<tr>
+<td>FaultPrediction.vue</td>
+<td><code>/prediction</code></td>
+<td>故障预测</td>
+</tr>
+<tr>
+<td>TicketLifecycle.vue</td>
+<td><code>/ticket</code></td>
+<td>两票管理</td>
+</tr>
+<tr>
+<td>OperationsCenter.vue</td>
+<td><code>/operations</code></td>
+<td>主动运维/实时事件</td>
+</tr>
+<tr>
+<td>Login.vue</td>
+<td><code>/login</code></td>
+<td>登录</td>
+</tr>
+<tr>
+<td>AppLayout.vue</td>
+<td><code>/</code></td>
+<td>侧边栏+顶部栏布局</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="5">5. 数据存储职责</h2>
+<h3 id="51">5.1 存储矩阵</h3>
+<table>
+<thead>
+<tr>
+<th>存储</th>
+<th>核心职责</th>
+<th>关键数据</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>MySQL</strong></td>
+<td>结构化元数据、持久化、审计</td>
+<td>用户、文档、chunk、会话、反馈、缓存、任务、治理记录</td>
+</tr>
+<tr>
+<td><strong>Milvus</strong></td>
+<td>向量检索</td>
+<td><code>grid_chunks</code>(1024d)、<code>grid_chunks_bge</code>(512d)、<code>memory_collection</code></td>
+</tr>
+<tr>
+<td><strong>Neo4j</strong></td>
+<td>知识图谱多跳推理</td>
+<td>设备-故障-处置三元组</td>
+</tr>
+<tr>
+<td><strong>Redis</strong></td>
+<td>热点缓存、运行时配置、队列</td>
+<td>L1 缓存、热配置 <code>config:*</code>、任务队列、Langfuse 队列</td>
+</tr>
+<tr>
+<td><strong>MinIO</strong></td>
+<td>源文档对象存储</td>
+<td>PDF/DOCX/图片/报告对象</td>
+</tr>
+</tbody>
+</table>
+<h3 id="52">5.2 缓存三级架构</h3>
+<pre><code class="language-text">L1 Redis（热点）
+    ├── hotqa:{nq}                 # 用户 like 的高频问答，永不过期
+    └── qa:{tenant}:{nq_hash}:{cv} # TTL 3 天
+L2 MySQL（持久）
+    └── qa_cache 表                # Write-Through，Redis LRU 淘汰后备
+L1.5 Semantic（语义相似）
+    └── semantic:{tenant}:{embedding_hash}
+</code></pre>
+<p>缓存命中规则：</p>
+<ul>
+<li>仅单轮问答走缓存；多轮跳过。</li>
+<li>命中后调用 <code>_cache_knowledge_valid()</code> 复核文档是否被撤回/过期。</li>
+<li>缓存 key 包含 <code>citation_cache_version()</code>，开关变化自动失效。</li>
+</ul>
+<h3 id="53-embedding-collection">5.3 双 Embedding Collection</h3>
+<table>
+<thead>
+<tr>
+<th>Collection</th>
+<th>维度</th>
+<th>Provider</th>
+<th>用途</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>grid_chunks</code></td>
+<td>1024</td>
+<td>云（qwen/doubao）</td>
+<td>大文档（&gt;5000 字）</td>
+</tr>
+<tr>
+<td><code>grid_chunks_bge</code></td>
+<td>512</td>
+<td>本地 bge-small-zh-v1.5</td>
+<td>小文档、离线环境</td>
+</tr>
+<tr>
+<td><code>memory_collection</code></td>
+<td>-</td>
+<td>云/本地</td>
+<td>Agent 长期记忆</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p>切换 embedding provider 或维度必须重建 collection。</p>
+</blockquote>
+<hr />
+<h2 id="6">6. 基础设施与服务编排</h2>
+<h3 id="61-docker-compose">6.1 Docker Compose 服务清单</h3>
+<table>
+<thead>
+<tr>
+<th>服务</th>
+<th>镜像</th>
+<th>容器名</th>
+<th>端口</th>
+<th>依赖</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>MySQL</td>
+<td>mysql:8.0</td>
+<td>grid-mysql</td>
+<td>3307:3306</td>
+<td>-</td>
+</tr>
+<tr>
+<td>MinIO</td>
+<td>minio/minio</td>
+<td>grid-minio</td>
+<td>9000, 9001</td>
+<td>-</td>
+</tr>
+<tr>
+<td>etcd</td>
+<td>quay.io/coreos/etcd:v3.5.5</td>
+<td>grid-etcd</td>
+<td>2379（内）</td>
+<td>-</td>
+</tr>
+<tr>
+<td>milvus-minio</td>
+<td>minio/minio</td>
+<td>grid-milvus-minio</td>
+<td>9000（内）</td>
+<td>-</td>
+</tr>
+<tr>
+<td>Milvus</td>
+<td>milvusdb/milvus:v2.4.10</td>
+<td>grid-milvus</td>
+<td>19530, 9091</td>
+<td>etcd, milvus-minio</td>
+</tr>
+<tr>
+<td>Redis</td>
+<td>redis:7-alpine</td>
+<td>grid-redis</td>
+<td>6379</td>
+<td>-</td>
+</tr>
+<tr>
+<td>Neo4j</td>
+<td>neo4j:5-community</td>
+<td>grid-neo4j</td>
+<td>7474, 7687</td>
+<td>-</td>
+</tr>
+<tr>
+<td>Ollama</td>
+<td>ollama/ollama</td>
+<td>grid-ollama</td>
+<td>11434</td>
+<td>-</td>
+</tr>
+<tr>
+<td>Nacos</td>
+<td>nacos/nacos-server:v2.4.3</td>
+<td>grid-nacos</td>
+<td>8848, 9848</td>
+<td>-</td>
+</tr>
+<tr>
+<td>backend</td>
+<td>本地构建</td>
+<td>grid-backend</td>
+<td>8001</td>
+<td>mysql, minio, milvus, redis, neo4j</td>
+</tr>
+<tr>
+<td>mock-scada</td>
+<td>复用 backend</td>
+<td>grid-mock-scada</td>
+<td>9100</td>
+<td>-</td>
+</tr>
+<tr>
+<td>frontend</td>
+<td>本地构建</td>
+<td>grid-frontend</td>
+<td>5173:80</td>
+<td>backend</td>
+</tr>
+<tr>
+<td>prometheus</td>
+<td>prom/prometheus</td>
+<td>grid-prometheus</td>
+<td>9090</td>
+<td>-</td>
+</tr>
+<tr>
+<td>grafana</td>
+<td>grafana/grafana</td>
+<td>grid-grafana</td>
+<td>3000</td>
+<td>prometheus</td>
+</tr>
+<tr>
+<td>langfuse</td>
+<td>langfuse/langfuse</td>
+<td>grid-langfuse</td>
+<td>3001:3000</td>
+<td>postgres-langfuse, clickhouse, redis</td>
+</tr>
+<tr>
+<td>postgres-langfuse</td>
+<td>postgres:15-alpine</td>
+<td>grid-langfuse-db</td>
+<td>5432（内）</td>
+<td>-</td>
+</tr>
+<tr>
+<td>clickhouse</td>
+<td>clickhouse/clickhouse-server:24.8-alpine</td>
+<td>grid-langfuse-clickhouse</td>
+<td>8123/9000（内）</td>
+<td>-</td>
+</tr>
+<tr>
+<td>langfuse-worker</td>
+<td>langfuse/langfuse-worker</td>
+<td>-</td>
+<td>-</td>
+<td>postgres-langfuse, clickhouse, redis</td>
+</tr>
+</tbody>
+</table>
+<h3 id="62">6.2 部署脚本</h3>
+<table>
+<thead>
+<tr>
+<th>脚本</th>
+<th>用途</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>start.sh</code></td>
+<td>本地开发一键启动：<code>start|stop|restart|status|logs &lt;svc&gt;|import-mysql|export-mysql</code></td>
+</tr>
+<tr>
+<td><code>install.sh</code></td>
+<td>接收方部署：<code>up|stop|restart|status|logs [svc]|reset-data</code></td>
+</tr>
+<tr>
+<td><code>deploy/k8s/single-pod/</code></td>
+<td>K8s 单 Pod 10 容器演示部署</td>
+</tr>
+</tbody>
+</table>
+<h3 id="63">6.3 端口速查</h3>
+<table>
+<thead>
+<tr>
+<th>服务</th>
+<th>端口</th>
+<th>默认凭据/备注</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>前端</td>
+<td>5173</td>
+<td>admin / admin123（默认管理员）</td>
+</tr>
+<tr>
+<td>后端</td>
+<td>8001</td>
+<td>API 前缀 <code>/api</code></td>
+</tr>
+<tr>
+<td>MySQL</td>
+<td>3307</td>
+<td>grid / grid123456</td>
+</tr>
+<tr>
+<td>Redis</td>
+<td>6379</td>
+<td>requirepass: grid-langfuse-pass</td>
+</tr>
+<tr>
+<td>MinIO</td>
+<td>9000/9001</td>
+<td>minioadmin / minioadmin</td>
+</tr>
+<tr>
+<td>Milvus</td>
+<td>19530</td>
+<td>-</td>
+</tr>
+<tr>
+<td>Neo4j</td>
+<td>7474/7687</td>
+<td>neo4j / neo123456</td>
+</tr>
+<tr>
+<td>Grafana</td>
+<td>3000</td>
+<td>admin / admin</td>
+</tr>
+<tr>
+<td>Prometheus</td>
+<td>9090</td>
+<td>-</td>
+</tr>
+<tr>
+<td>Langfuse</td>
+<td>3001</td>
+<td>首次需初始化项目</td>
+</tr>
+<tr>
+<td>Nacos</td>
+<td>8848</td>
+<td>nacos / nacos</td>
+</tr>
+<tr>
+<td>Ollama</td>
+<td>11434</td>
+<td>-</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="7">7. 关键类与函数说明</h2>
+<h3 id="71">7.1 配置类</h3>
+<h4 id="settingsbackendappconfigpy"><code>Settings</code>（backend/app/config.py）</h4>
+<pre><code class="language-python">class Settings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_file=&quot;.env&quot;,
+        env_file_encoding=&quot;utf-8&quot;,
+        extra=&quot;ignore&quot;,
+        case_sensitive=False,
+    )
+    # ... 全部配置字段
+
+settings = get_settings()
+</code></pre>
+<h4 id="citation_cache_version-str"><code>citation_cache_version() -&gt; str</code></h4>
+<p>生成缓存 key 版本串。返回示例：<code>cv1010R0P0F1S0</code>。</p>
+<h3 id="72">7.2 入口函数</h3>
+<h4 id="lifespanapp-fastapibackendappmainpy"><code>lifespan(app: FastAPI)</code>（backend/app/main.py）</h4>
+<p>异步上下文管理器，装配启动与关闭逻辑。</p>
+<h3 id="73">7.3 问答核心函数</h3>
+<h4 id="qa_serviceanswer"><code>qa_service.answer(...)</code></h4>
+<pre><code class="language-python">async def answer(
+    question: str,
+    user: User,
+    conversation_id: Optional[str] = None,
+    stream: bool = False,
+    regen: bool = False,
+    extra: Optional[dict] = None,
+) -&gt; Union[dict, AsyncGenerator[str, None]]
+</code></pre>
+<p>参数说明：</p>
+<table>
+<thead>
+<tr>
+<th>参数</th>
+<th>类型</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>question</code></td>
+<td>str</td>
+<td>用户原始问题</td>
+</tr>
+<tr>
+<td><code>user</code></td>
+<td>User</td>
+<td>当前登录用户（含 tenant/role/dept）</td>
+</tr>
+<tr>
+<td><code>conversation_id</code></td>
+<td>Optional[str]</td>
+<td>多轮会话 ID</td>
+</tr>
+<tr>
+<td><code>stream</code></td>
+<td>bool</td>
+<td>是否 SSE 流式返回</td>
+</tr>
+<tr>
+<td><code>regen</code></td>
+<td>bool</td>
+<td>是否强制重新生成（绕过缓存）</td>
+</tr>
+<tr>
+<td><code>extra</code></td>
+<td>Optional[dict]</td>
+<td>扩展字段（如 route hint）</td>
+</tr>
+</tbody>
+</table>
+<p>返回：非流式返回 <code>AnswerResponse</code> dict；流式返回 SSE chunk generator。</p>
+<h4 id="retrieval_servicemixed_search"><code>retrieval_service.mixed_search(...)</code></h4>
+<pre><code class="language-python">async def mixed_search(
+    query: str,
+    route: RoutingDecision,
+    user: User,
+    top_k: int = 10,
+    conversation_id: Optional[str] = None,
+) -&gt; RetrievalResult
+</code></pre>
+<h3 id="74">7.4 路由与分类</h3>
+<h4 id="query_classifierextract_featuresquery-str-queryfeatures"><code>query_classifier.extract_features(query: str) -&gt; QueryFeatures</code></h4>
+<p>提取 6 维特征：</p>
+<ol>
+<li>术语密度（电网专业词占比）</li>
+<li>故障词命中</li>
+<li>标准号 / 规程号命中</li>
+<li>数值参数存在性</li>
+<li>问句长度</li>
+<li>疑问词模式</li>
+</ol>
+<h4 id="routing_serviceroute_query-routingdecision"><code>routing_service.route_query(...) -&gt; RoutingDecision</code></h4>
+<p>根据特征返回 <code>route ∈ {sparse, dense, hybrid, sparse_first}</code>。</p>
+<h3 id="75-crag">7.5 CRAG 函数</h3>
+<h4 id="craggradecontexts-query-graderesult"><code>crag.grade(contexts, query) -&gt; GradeResult</code></h4>
+<pre><code class="language-python">@dataclass
+class GradeResult:
+    action: str          # &quot;correct&quot; | &quot;ambiguous&quot; | &quot;incorrect&quot;
+    confidence: float    # 0~1 连续置信度
+    top_score: float     # rerank top1 分数
+</code></pre>
+<h3 id="76">7.6 引用函数</h3>
+<h4 id="citationauto_citeanswer-contexts-citedanswer"><code>citation.auto_cite(answer, contexts) -&gt; CitedAnswer</code></h4>
+<p>为答案中无角标的句子按向量相似度自动补引用。</p>
+<h4 id="citation_verifierverifyanswer-contexts-verifyresult"><code>citation_verifier.verify(answer, contexts) -&gt; VerifyResult</code></h4>
+<p>返回格式/向量/NLI 三层校验结果。</p>
+<h3 id="77-provider">7.7 Provider 函数</h3>
+<h4 id="factoryget_llm_providerprovidernone-basellmprovider"><code>factory.get_llm_provider(provider=None) -&gt; BaseLLMProvider</code></h4>
+<p>按 <code>LLM_PROVIDER</code> 环境变量或参数返回 LLM provider。</p>
+<h4 id="factoryget_embedding_providerprovidernone-baseembeddingprovider"><code>factory.get_embedding_provider(provider=None) -&gt; BaseEmbeddingProvider</code></h4>
+<p>按 <code>EMB_PROVIDER</code> 返回 embedding provider。</p>
+<h3 id="78">7.8 缓存与配置</h3>
+<h4 id="config_servicert_"><code>config_service.rt_*</code> 系列</h4>
+<p>运行时热配置读取，例如：</p>
+<pre><code class="language-python">rt_crag_high() -&gt; float
+rt_crag_low() -&gt; float
+rt_mmr_lambda() -&gt; float
+</code></pre>
+<p>均优先读 Redis <code>config:*</code>，miss 则回退 <code>settings</code> 默认值。</p>
+<h3 id="79">7.9 权限函数</h3>
+<h4 id="dependenciesrequire_permresource_action-str"><code>dependencies.require_perm(resource_action: str)</code></h4>
+<p>FastAPI 依赖装饰器。</p>
+<pre><code class="language-python">@router.post(&quot;/answer&quot;)
+async def answer(req: QuestionRequest, user=Depends(require_perm(&quot;qa:answer&quot;))):
+    ...
+</code></pre>
+<hr />
+<h2 id="8">8. 依赖关系</h2>
+<h3 id="81-python">8.1 Python 后端依赖</h3>
+<table>
+<thead>
+<tr>
+<th>类别</th>
+<th>关键包</th>
+<th>版本约束</th>
+<th>用途</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Web</td>
+<td>fastapi</td>
+<td>&gt;=0.115,&lt;0.116</td>
+<td>Web 框架</td>
+</tr>
+<tr>
+<td>Web</td>
+<td>uvicorn[standard]</td>
+<td>&gt;=0.34,&lt;0.35</td>
+<td>ASGI 服务器</td>
+</tr>
+<tr>
+<td>数据验证</td>
+<td>pydantic</td>
+<td>&gt;=2.9,&lt;3</td>
+<td>模型/schema</td>
+</tr>
+<tr>
+<td>配置</td>
+<td>pydantic-settings</td>
+<td>&gt;=2.5,&lt;3</td>
+<td>.env 读取</td>
+</tr>
+<tr>
+<td>ORM</td>
+<td>SQLAlchemy[asyncio]</td>
+<td>&gt;=2.0,&lt;3</td>
+<td>异步数据库</td>
+</tr>
+<tr>
+<td>MySQL</td>
+<td>aiomysql</td>
+<td>&gt;=0.2,&lt;0.3</td>
+<td>MySQL 异步驱动</td>
+</tr>
+<tr>
+<td>SQLite</td>
+<td>aiosqlite</td>
+<td>&gt;=0.20,&lt;1</td>
+<td>测试用 SQLite</td>
+</tr>
+<tr>
+<td>认证</td>
+<td>bcrypt, PyJWT</td>
+<td>-</td>
+<td>密码/JWT</td>
+</tr>
+<tr>
+<td>对象存储</td>
+<td>minio</td>
+<td>&gt;=7.2,&lt;8</td>
+<td>MinIO</td>
+</tr>
+<tr>
+<td>文档解析</td>
+<td>pdfplumber, pypdf, python-docx, PyMuPDF, openpyxl</td>
+<td>-</td>
+<td>多格式解析</td>
+</tr>
+<tr>
+<td>OCR</td>
+<td>rapidocr-onnxruntime</td>
+<td>&gt;=1.2</td>
+<td>图片 OCR</td>
+</tr>
+<tr>
+<td>向量</td>
+<td>openai, pymilvus</td>
+<td>pymilvus&gt;=2.4,&lt;2.5</td>
+<td>云 API / Milvus</td>
+</tr>
+<tr>
+<td>工具依赖</td>
+<td>setuptools</td>
+<td>&lt;81</td>
+<td>pymilvus 需要 pkg_resources</td>
+</tr>
+<tr>
+<td>检索</td>
+<td>rank-bm25, jieba</td>
+<td>-</td>
+<td>BM25 / 分词</td>
+</tr>
+<tr>
+<td>缓存</td>
+<td>redis</td>
+<td>&gt;=5.0</td>
+<td>Redis 客户端</td>
+</tr>
+<tr>
+<td>日志</td>
+<td>loguru</td>
+<td>&gt;=0.7</td>
+<td>结构化日志</td>
+</tr>
+<tr>
+<td>限流</td>
+<td>slowapi</td>
+<td>&gt;=0.1</td>
+<td>API 限流</td>
+</tr>
+<tr>
+<td>监控</td>
+<td>prometheus-client</td>
+<td>&gt;=0.20</td>
+<td>指标</td>
+</tr>
+<tr>
+<td>Embedding</td>
+<td>sentence-transformers</td>
+<td>&gt;=3.0</td>
+<td>本地 bge</td>
+</tr>
+<tr>
+<td>图数据库</td>
+<td>neoj</td>
+<td>&gt;=5.23</td>
+<td>Neo4j 异步驱动</td>
+</tr>
+<tr>
+<td>OTel</td>
+<td>opentelemetry-sdk, opentelemetry-exporter-otlp</td>
+<td>&gt;=1.28,&lt;2</td>
+<td>链路追踪</td>
+</tr>
+<tr>
+<td>MCP</td>
+<td>mcp</td>
+<td>&gt;=1.0,&lt;2</td>
+<td>MCP 工具总线</td>
+</tr>
+<tr>
+<td>测试</td>
+<td>pytest, pytest-asyncio, httpx</td>
+<td>-</td>
+<td>测试</td>
+</tr>
+</tbody>
+</table>
+<h3 id="82">8.2 外部服务依赖矩阵</h3>
+<table>
+<thead>
+<tr>
+<th>依赖</th>
+<th>用途</th>
+<th>强依赖</th>
+<th>默认容器</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>MySQL</td>
+<td>结构化数据</td>
+<td>是</td>
+<td>grid-mysql</td>
+</tr>
+<tr>
+<td>Milvus</td>
+<td>向量检索</td>
+<td>是</td>
+<td>grid-milvus</td>
+</tr>
+<tr>
+<td>Redis</td>
+<td>缓存/队列/热配置</td>
+<td>是</td>
+<td>grid-redis</td>
+</tr>
+<tr>
+<td>Neo4j</td>
+<td>知识图谱</td>
+<td>是</td>
+<td>grid-neo4j</td>
+</tr>
+<tr>
+<td>MinIO</td>
+<td>对象存储</td>
+<td>是</td>
+<td>grid-minio</td>
+</tr>
+<tr>
+<td>DeepSeek API</td>
+<td>LLM</td>
+<td>否</td>
+<td>-</td>
+</tr>
+<tr>
+<td>阿里百炼 API</td>
+<td>LLM / Embedding</td>
+<td>否</td>
+<td>-</td>
+</tr>
+<tr>
+<td>火山方舟 API</td>
+<td>LLM / Embedding</td>
+<td>否</td>
+<td>-</td>
+</tr>
+<tr>
+<td>Ollama</td>
+<td>本地兜底 LLM</td>
+<td>否</td>
+<td>grid-ollama</td>
+</tr>
+<tr>
+<td>Prometheus</td>
+<td>指标采集</td>
+<td>否</td>
+<td>grid-prometheus</td>
+</tr>
+<tr>
+<td>Grafana</td>
+<td>监控可视化</td>
+<td>否</td>
+<td>grid-grafana</td>
+</tr>
+<tr>
+<td>Langfuse</td>
+<td>LLM trace</td>
+<td>否</td>
+<td>grid-langfuse</td>
+</tr>
+<tr>
+<td>Nacos</td>
+<td>配置中心</td>
+<td>否</td>
+<td>grid-nacos</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="9">9. 项目运行方式</h2>
+<h3 id="91">9.1 环境准备</h3>
+<ol>
+<li>安装 Docker Desktop / Docker Engine + Compose。</li>
+<li>复制 <code>.env.example</code> 为 <code>.env</code>，填写 API Key。</li>
+<li>确保宿主机 HuggingFace 缓存目录有 bge 模型（容器离线挂载）。</li>
+</ol>
+<h3 id="92">9.2 全栈启动</h3>
+<pre><code class="language-bash"># 一键启动并构建
+docker compose up -d --build
+
+# 或使用 start.sh 助手
+bash start.sh start
+bash start.sh status
+bash start.sh logs backend
+</code></pre>
+<h3 id="93">9.3 后端本地开发</h3>
+<pre><code class="language-bash"># 项目根目录
+uvicorn app.main:app --reload --host 127.0.0.1 --port 8001 --app-dir backend
+</code></pre>
+<p>需本地启动 MySQL(3307)、Redis(6379)、Milvus(19530)、Neo4j(7687)、MinIO(9000)。</p>
+<h3 id="94">9.4 前端本地开发</h3>
+<pre><code class="language-bash">cd frontend
+npm install
+npm run dev
+</code></pre>
+<h3 id="95">9.5 数据库迁移</h3>
+<pre><code class="language-bash">cd backend
+alembic upgrade head
+
+# 自动生成迁移
+elembic revision --autogenerate -m &quot;describe migration&quot;
+</code></pre>
+<h3 id="96">9.6 初始化数据</h3>
+<pre><code class="language-bash"># 灌入演示数据
+python scripts/seed_demo.py
+
+# 预热线程/缓存
+python prewarm_cache.py
+</code></pre>
+<h3 id="97">9.7 配置热更新</h3>
+<p>通过 <code>/api/system/config/*</code> 修改 Redis <code>config:*</code>，例如：</p>
+<pre><code class="language-bash">curl -X POST http://localhost:8001/api/system/config/crag_high \
+  -H &quot;Authorization: Bearer $TOKEN&quot; \
+  -H &quot;Content-Type: application/json&quot; \
+  -d '{&quot;value&quot;: 0.75}'
+</code></pre>
+<h3 id="98">9.8 关键调试点</h3>
+<table>
+<thead>
+<tr>
+<th>调试目标</th>
+<th>端点/文件</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>查看 feature flags</td>
+<td><code>GET /api/system/config/feature-flags</code></td>
+</tr>
+<tr>
+<td>查看运行时信息</td>
+<td><code>GET /api/system/runtime-info</code></td>
+</tr>
+<tr>
+<td>查看 citation_cache_version</td>
+<td><code>GET /api/system/runtime-info</code>（含 cite_version）</td>
+</tr>
+<tr>
+<td>查看 QA trace</td>
+<td><code>GET /api/qa/trace/{trace_id}</code></td>
+</tr>
+<tr>
+<td>检索调试</td>
+<td><code>POST /api/retrieval/debug-search</code></td>
+</tr>
+<tr>
+<td>Prometheus 指标</td>
+<td><code>GET http://localhost:8001/metrics</code></td>
+</tr>
+<tr>
+<td>Langfuse trace</td>
+<td>http://localhost:3001</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="10">10. 测试体系</h2>
+<h3 id="101">10.1 测试结构</h3>
+<pre><code class="language-text">tests/
+├── conftest.py              # pytest 全局 fixtures
+├── fixtures/                # 测试数据
+├── test_*.py                # 各模块测试
+└── redteam/                 # 红队测试
+</code></pre>
+<h3 id="102">10.2 测试命令</h3>
+<pre><code class="language-bash"># CI 口径（无需外部服务，跳过 integration + test_api）
+python -m pytest tests/ -q --ignore=tests/test_api.py -m &quot;not integration&quot;
+
+# 单文件
+python -m pytest tests/test_crag.py -v
+
+# 单例
+python -m pytest tests/test_crag.py::test_name -v
+
+# 含集成测试（需 MySQL/Milvus/LLM 等）
+python -m pytest tests/ -v
+</code></pre>
+<h3 id="103">10.3 测试分类</h3>
+<table>
+<thead>
+<tr>
+<th>标记</th>
+<th>说明</th>
+<th>运行条件</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>无标记</td>
+<td>单元测试</td>
+<td>sqlite in-memory</td>
+</tr>
+<tr>
+<td><code>@pytest.mark.integration</code></td>
+<td>集成测试</td>
+<td>需真实 MySQL / 外部服务</td>
+</tr>
+<tr>
+<td><code>tests/test_api.py</code></td>
+<td>端到端 API 测试</td>
+<td>需完整后端栈</td>
+</tr>
+</tbody>
+</table>
+<h3 id="104-fixtures">10.4 核心 Fixtures</h3>
+<table>
+<thead>
+<tr>
+<th>Fixture</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>test_db</code></td>
+<td>sqlite in-memory async session</td>
+</tr>
+<tr>
+<td><code>client</code></td>
+<td>FastAPI TestClient</td>
+</tr>
+<tr>
+<td><code>admin_user</code> / <code>normal_user</code></td>
+<td>预置用户</td>
+</tr>
+<tr>
+<td><code>sample_document</code></td>
+<td>预置文档与 chunk</td>
+</tr>
+<tr>
+<td><code>mock_milvus</code></td>
+<td>Milvus client mock</td>
+</tr>
+<tr>
+<td><code>mock_redis</code></td>
+<td>Redis client mock</td>
+</tr>
+</tbody>
+</table>
+<h3 id="105">10.5 评测脚本</h3>
+<table>
+<thead>
+<tr>
+<th>脚本</th>
+<th>用途</th>
+<th>运行条件</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>validate_golden.py</code></td>
+<td>golden_qa.json 格式校验</td>
+<td>无服务</td>
+</tr>
+<tr>
+<td><code>eval_suite.py</code></td>
+<td>离线评测统一入口</td>
+<td>需 LLM / Milvus</td>
+</tr>
+<tr>
+<td><code>eval_retrieval.py</code></td>
+<td>检索 recall 评测</td>
+<td>需 Milvus+embedding</td>
+</tr>
+<tr>
+<td><code>eval_generation.py</code></td>
+<td>生成质量评测</td>
+<td>需 backend+LLM</td>
+</tr>
+<tr>
+<td><code>eval_citation.py</code></td>
+<td>引用支撑率评测</td>
+<td>需 backend+LLM</td>
+</tr>
+<tr>
+<td><code>eval_matrix.py</code></td>
+<td>能力矩阵产品化评测</td>
+<td>全栈</td>
+</tr>
+<tr>
+<td><code>benchmark.py</code></td>
+<td>性能压测</td>
+<td>后端</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="11_1">11. 关键设计约定</h2>
+<h3 id="111">11.1 降级而非崩溃</h3>
+<ul>
+<li>所有外部调用必须包 <code>try/except</code>。</li>
+<li>失败调用 <code>core/obs.degraded(name, exc, msg)</code>。</li>
+<li>禁止裸 <code>except: pass</code>。</li>
+</ul>
+<h3 id="112">11.2 响应约定</h3>
+<ul>
+<li><code>BizError</code> → HTTP 200，业务错误通过 body <code>{code, message, data}</code> 返回。</li>
+<li>成功：<code>{"code": 0, "message": "ok", "data": ...}</code></li>
+<li>失败：<code>{"code": 非0, "message": "错误信息", "data": null}</code></li>
+</ul>
+<h3 id="113">11.3 路由约定</h3>
+<ul>
+<li><code>routers/</code> 保持薄：参数校验 + <code>require_perm</code> + 调 service + 写操作日志。</li>
+<li>新增功能：逻辑进 <code>services/</code>，路由只转发。</li>
+</ul>
+<h3 id="114">11.4 缓存版本</h3>
+<ul>
+<li>所有影响答案语义的开关必须加入 <code>citation_cache_version()</code>。</li>
+<li>治理态变（withdraw/supersede/expire）会 bump <code>_gov_generation</code>，使缓存失效。</li>
+</ul>
+<h3 id="115-acl">11.5 多租户与 ACL</h3>
+<ul>
+<li><code>tenant</code> 贯穿检索、缓存、图谱、预览、文档 ACL。</li>
+<li>文档 ACL：按 <code>dept</code> / <code>role</code> / <code>tenant</code> 过滤。</li>
+<li>前端 <code>utils/perm.js</code> 仅做按钮隐藏，不是安全边界。</li>
+</ul>
+<h3 id="116-embedding-collection">11.6 双 Embedding Collection</h3>
+<ul>
+<li><code>grid_chunks</code>（1024d，云）与 <code>grid_chunks_bge</code>（512d，本地）独立 collection。</li>
+<li><code>DOC_SIZE_THRESHOLD=5000</code> 决定单篇文档走云还是本地 bge。</li>
+<li>切换 provider / 维度必须重建 collection。</li>
+</ul>
+<h3 id="117">11.7 容器构建注意</h3>
+<ul>
+<li>backend 源码 bake 进镜像，改代码/改 <code>.env</code> 后需重建容器。</li>
+<li>容器内 <code>HF_HUB_OFFLINE=1</code>，挂载宿主机 HF 缓存只读。</li>
+<li>容器内不设 <code>HTTPS_PROXY</code>（宿主机代理仅回环）。</li>
+<li>bge 启动期预热较慢，健康检查可能暂时为空。</li>
+</ul>
+<h3 id="118">11.8 代码风格</h3>
+<ul>
+<li>异步优先；snake_case 文件/函数，PascalCase 模型/schema。</li>
+<li>Lint：<code>ruff check backend tests</code>。</li>
+<li>提交：Conventional Commits（<code>feat(scope): ...</code>）。</li>
+</ul>
+<h3 id="119">11.9 安全红线</h3>
+<ul>
+<li>不提交真实 API Key。</li>
+<li>Grafana webhook token 必须独立配置，不复用内置值。</li>
+<li>实时事件接入凭据按租户隔离。</li>
+</ul>
+<hr />
+<h2 id="12_1">12. 常见问题排查</h2>
+<h3 id="121">12.1 "改了代码没生效"</h3>
+<p>backend 源码 bake 进镜像，需重建：</p>
+<pre><code class="language-bash">docker compose up -d --build backend
+</code></pre>
+<h3 id="122">12.2 缓存不命中</h3>
+<p>检查：</p>
+<ol>
+<li>是否多轮对话（多轮不走缓存）。</li>
+<li><code>citation_cache_version()</code> 是否变化导致 key 变化。</li>
+<li>Redis 是否命中但文档已被治理撤回。</li>
+<li><code>SEMANTIC_CACHE_ENABLE</code> 是否开启。</li>
+</ol>
+<h3 id="123">12.3 检索结果差</h3>
+<p>排查路径：</p>
+<ol>
+<li><code>/api/retrieval/debug-search</code> 查看每步中间结果。</li>
+<li>检查 <code>routing_decision.route</code> 是否合理。</li>
+<li>检查 RRF 权重、rerank 是否降级、MMR λ。</li>
+<li>检查 ACL 是否误过滤。</li>
+</ol>
+<h3 id="124-llm">12.4 LLM 返回空答案</h3>
+<p>检查：</p>
+<ol>
+<li><code>LLM_FALLBACK_ON_EMPTY=True</code> 是否生效。</li>
+<li><code>llm_router</code> 熔断状态。</li>
+<li>DeepSeek reasoning_effort 是否耗尽预算。</li>
+</ol>
+<h3 id="125-milvus">12.5 Milvus 写入失败</h3>
+<p>常见原因：</p>
+<ol>
+<li>MinIO 磁盘水位满 → datanode panic。</li>
+<li>etcd 或 milvus-minio 未健康启动。</li>
+<li>collection schema 与 embedding 维度不匹配。</li>
+</ol>
+<h3 id="126-neo4j">12.6 Neo4j 启动失败</h3>
+<p>可能因断电导致事务日志损坏，已配置：</p>
+<pre><code class="language-text">NEO4J_internal_dbms_tx__log_fail__on__corrupted__log__files=false
+NEO4J_db_recovery_fail__on__missing__files=false
+</code></pre>
+<p>如仍失败，可从 MySQL <code>KgTriple</code> 镜像重建：</p>
+<pre><code class="language-bash">python scripts/rebuild_kg_from_mysql.py
+</code></pre>
+<hr />
+<h2 id="13_1">13. 附录：完整目录结构</h2>
+<pre><code class="language-text">.
+├── AGENTS.md
+├── CLAUDE.md
+├── README.md
+├── docker-compose.yml
+├── docker-compose.deploy.yml
+├── start.sh
+├── install.sh
+├── prometheus.yml
+├── ruff.toml
+├── backend/
+│   ├── app/
+│   │   ├── main.py
+│   │   ├── config.py
+│   │   ├── dependencies.py
+│   │   ├── routers/
+│   │   ├── services/
+│   │   ├── rag/
+│   │   ├── providers/
+│   │   ├── routing/
+│   │   ├── clients/
+│   │   ├── core/
+│   │   ├── models/
+│   │   ├── schemas/
+│   │   ├── db/
+│   │   ├── tasks/
+│   │   ├── events/
+│   │   ├── mcp/
+│   │   └── data/
+│   ├── requirements.txt
+│   ├── alembic.ini
+│   └── Dockerfile
+├── frontend/
+│   ├── src/
+│   │   ├── api/
+│   │   ├── views/
+│   │   ├── components/
+│   │   ├── router/
+│   │   ├── stores/
+│   │   ├── utils/
+│   │   ├── three/
+│   │   ├── App.vue
+│   │   ├── main.js
+│   │   └── style.css
+│   ├── package.json
+│   ├── Dockerfile
+│   └── nginx.conf
+├── tests/
+├── scripts/
+├── docs/
+├── data/
+├── kb_seed/
+├── deploy/
+├── reports/
+├── grafana/
+└── llm-user-suite/
+</code></pre>
+<hr />
+<blockquote>
+<p>文档生成时间：2026-10-01<br />
+基于当前代码库 HEAD 状态生成。</p>
+</blockquote>
+            <footer>
+                文档生成时间：2026-10-01 · 基于当前代码库 HEAD 状态生成
+            </footer>
+        </div>
+    </main>
+
+    <button class="back-to-top" id="backToTop" title="返回顶部">↑</button>
+
+    <script>
+        (function() {
+            // Theme toggle
+            const themeBtn = document.getElementById('themeBtn');
+            const savedTheme = localStorage.getItem('wiki-theme');
+            if (savedTheme) {
+                document.documentElement.setAttribute('data-theme', savedTheme);
+                themeBtn.textContent = savedTheme === 'dark' ? '☀️' : '🌙';
+            }
+            themeBtn.addEventListener('click', () => {
+                const current = document.documentElement.getAttribute('data-theme');
+                const next = current === 'dark' ? 'light' : 'dark';
+                document.documentElement.setAttribute('data-theme', next);
+                localStorage.setItem('wiki-theme', next);
+                themeBtn.textContent = next === 'dark' ? '☀️' : '🌙';
+            });
+
+            // Generate TOC
+            const content = document.getElementById('content');
+            const headings = content.querySelectorAll('h1, h2, h3');
+            const toc = document.getElementById('toc');
+            const ul = document.createElement('ul');
+            headings.forEach((h, idx) => {
+                if (!h.id) h.id = 'heading-' + idx;
+                const li = document.createElement('li');
+                const a = document.createElement('a');
+                a.href = '#' + h.id;
+                a.textContent = h.textContent;
+                a.className = 'toc-' + h.tagName.toLowerCase();
+                a.dataset.text = h.textContent.toLowerCase();
+                a.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    h.scrollIntoView({ behavior: 'smooth' });
+                    if (window.innerWidth <= 900) {
+                        document.getElementById('sidebar').classList.remove('open');
+                    }
+                });
+                li.appendChild(a);
+                ul.appendChild(li);
+            });
+            toc.appendChild(ul);
+
+            // Active heading highlight
+            const tocLinks = toc.querySelectorAll('a');
+            const observer = new IntersectionObserver((entries) => {
+                entries.forEach(entry => {
+                    if (entry.isIntersecting) {
+                        tocLinks.forEach(a => a.classList.remove('active'));
+                        const active = toc.querySelector('a[href="#' + entry.target.id + '"]');
+                        if (active) active.classList.add('active');
+                    }
+                });
+            }, { rootMargin: '-80px 0px -70% 0px', threshold: 0 });
+            headings.forEach(h => observer.observe(h));
+
+            // Mobile menu toggle
+            const menuToggle = document.getElementById('menuToggle');
+            const sidebar = document.getElementById('sidebar');
+            menuToggle.addEventListener('click', () => {
+                sidebar.classList.toggle('open');
+            });
+
+            // Back to top
+            const backToTop = document.getElementById('backToTop');
+            window.addEventListener('scroll', () => {
+                if (window.scrollY > 400) {
+                    backToTop.classList.add('visible');
+                } else {
+                    backToTop.classList.remove('visible');
+                }
+            });
+            backToTop.addEventListener('click', () => {
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+            });
+
+            // Copy code buttons
+            document.querySelectorAll('pre').forEach(pre => {
+                const btn = document.createElement('button');
+                btn.className = 'copy-btn';
+                btn.textContent = '复制';
+                btn.addEventListener('click', () => {
+                    const code = pre.querySelector('code') || pre;
+                    navigator.clipboard.writeText(code.textContent).then(() => {
+                        btn.textContent = '已复制';
+                        setTimeout(() => btn.textContent = '复制', 1500);
+                    });
+                });
+                pre.appendChild(btn);
+            });
+
+            // Search
+            const searchInput = document.getElementById('searchInput');
+            let originalContent = content.innerHTML;
+            searchInput.addEventListener('input', (e) => {
+                const term = e.target.value.trim().toLowerCase();
+                // Filter TOC
+                tocLinks.forEach(a => {
+                    if (!term) {
+                        a.classList.remove('hidden-match');
+                        return;
+                    }
+                    if (a.dataset.text.includes(term)) {
+                        a.classList.remove('hidden-match');
+                    } else {
+                        a.classList.add('hidden-match');
+                    }
+                });
+                // Highlight in content
+                if (!term) {
+                    content.innerHTML = originalContent;
+                    // Re-attach copy buttons after restore
+                    document.querySelectorAll('pre').forEach(pre => {
+                        const btn = document.createElement('button');
+                        btn.className = 'copy-btn';
+                        btn.textContent = '复制';
+                        btn.addEventListener('click', () => {
+                            const code = pre.querySelector('code') || pre;
+                            navigator.clipboard.writeText(code.textContent).then(() => {
+                                btn.textContent = '已复制';
+                                setTimeout(() => btn.textContent = '复制', 1500);
+                            });
+                        });
+                        pre.appendChild(btn);
+                    });
+                    return;
+                }
+                const walker = document.createTreeWalker(content, NodeFilter.SHOW_TEXT, null, false);
+                const nodes = [];
+                while (walker.nextNode()) nodes.push(walker.currentNode);
+                nodes.forEach(node => {
+                    const text = node.textContent;
+                    const lower = text.toLowerCase();
+                    if (lower.includes(term)) {
+                        const parts = text.split(new RegExp('(' + escapeRegExp(term) + ')', 'gi'));
+                        const frag = document.createDocumentFragment();
+                        parts.forEach(part => {
+                            if (part.toLowerCase() === term) {
+                                const span = document.createElement('span');
+                                span.className = 'highlight';
+                                span.textContent = part;
+                                frag.appendChild(span);
+                            } else {
+                                frag.appendChild(document.createTextNode(part));
+                            }
+                        });
+                        node.parentNode.replaceChild(frag, node);
+                    }
+                });
+            });
+
+            function escapeRegExp(string) {
+                return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            }
+
+            // Collapse/expand details
+            const collapseBtn = document.getElementById('collapseBtn');
+            let allOpen = false;
+            collapseBtn.addEventListener('click', () => {
+                allOpen = !allOpen;
+                document.querySelectorAll('details').forEach(d => d.open = allOpen);
+                collapseBtn.title = allOpen ? '折叠详情' : '展开详情';
+            });
+        })();
+    </script>
+</body>
+</html>

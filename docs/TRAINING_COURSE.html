@@ -1,0 +1,2709 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>电网运维 RAG 项目 · 企业级培训课程</title>
+    <style>
+        :root {
+            --bg: #ffffff;
+            --fg: #1f2328;
+            --muted: #656d76;
+            --border: #d0d7de;
+            --code-bg: #f6f8fa;
+            --accent: #0969da;
+            --accent-soft: #ddf4ff;
+            --accent-hover: #0550ae;
+            --table-stripe: #f6f8fa;
+            --sidebar-bg: #f6f8fa;
+            --sidebar-width: 330px;
+            --topbar-height: 56px;
+            --shadow: 0 1px 2px rgba(31, 35, 40, 0.04), 0 1px 3px rgba(31, 35, 40, 0.08);
+            --task-bg: #fff8c5;
+            --task-border: #d4a72c;
+            --tip-bg: #e6f3ff;
+            --tip-border: #84b8ff;
+            --goal-bg: #dafbe1;
+            --goal-border: #2da44e;
+            --exam-bg: #fff0f3;
+            --exam-border: #cf222e;
+        }
+        [data-theme="dark"] {
+            --bg: #0d1117;
+            --fg: #c9d1d9;
+            --muted: #8b949e;
+            --border: #30363d;
+            --code-bg: #161b22;
+            --accent: #58a6ff;
+            --accent-soft: #388bfd26;
+            --accent-hover: #79c0ff;
+            --table-stripe: #161b22;
+            --sidebar-bg: #161b22;
+            --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 1px 3px rgba(0, 0, 0, 0.4);
+            --task-bg: #3d2802;
+            --task-border: #9e6a03;
+            --tip-bg: #0d2244;
+            --tip-border: #1f6feb;
+            --goal-bg: #0f2d1c;
+            --goal-border: #3fb950;
+            --exam-bg: #3d0c11;
+            --exam-border: #f85149;
+        }
+        * { box-sizing: border-box; }
+        html { scroll-behavior: smooth; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+            line-height: 1.8;
+            color: var(--fg);
+            background: var(--bg);
+            margin: 0;
+            padding: 0;
+            transition: background 0.2s, color 0.2s;
+        }
+        .topbar {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: var(--topbar-height);
+            background: var(--bg);
+            border-bottom: 1px solid var(--border);
+            box-shadow: var(--shadow);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 20px;
+            z-index: 1000;
+        }
+        .topbar-left { display: flex; align-items: center; gap: 16px; }
+        .menu-toggle {
+            display: none;
+            background: none;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 6px 10px;
+            cursor: pointer;
+            color: var(--fg);
+        }
+        .topbar-title { font-weight: 600; font-size: 1.05em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .topbar-actions { display: flex; align-items: center; gap: 10px; }
+        .btn {
+            background: var(--code-bg);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 6px 12px;
+            cursor: pointer;
+            color: var(--fg);
+            font-size: 0.9em;
+            transition: background 0.15s;
+        }
+        .btn:hover { background: var(--accent-soft); border-color: var(--accent); }
+        .search-box { position: relative; width: 260px; }
+        .search-box input {
+            width: 100%;
+            padding: 7px 12px 7px 34px;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            background: var(--code-bg);
+            color: var(--fg);
+            font-size: 0.9em;
+        }
+        .search-box input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+        .search-icon { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: var(--muted); font-size: 0.9em; }
+        .sidebar {
+            position: fixed;
+            top: var(--topbar-height);
+            left: 0;
+            width: var(--sidebar-width);
+            bottom: 0;
+            background: var(--sidebar-bg);
+            border-right: 1px solid var(--border);
+            overflow-y: auto;
+            padding: 16px 0;
+            z-index: 900;
+            transition: transform 0.25s;
+        }
+        .toc-title { padding: 0 20px 10px; font-weight: 600; color: var(--muted); font-size: 0.85em; text-transform: uppercase; letter-spacing: 0.5px; }
+        .toc ul { list-style: none; padding: 0; margin: 0; }
+        .toc li { margin: 0; }
+        .toc a {
+            display: block;
+            padding: 5px 20px;
+            color: var(--fg);
+            text-decoration: none;
+            font-size: 0.86em;
+            border-left: 3px solid transparent;
+            transition: background 0.15s, border-color 0.15s;
+        }
+        .toc a:hover { background: var(--accent-soft); color: var(--accent-hover); }
+        .toc a.active { border-left-color: var(--accent); background: var(--accent-soft); color: var(--accent-hover); font-weight: 500; }
+        .toc a.hidden-match { display: none; }
+        .toc-l1 { padding-left: 0; font-weight: 600; }
+        .toc-l2 { padding-left: 14px !important; font-size: 0.83em !important; }
+        .toc-l3 { padding-left: 28px !important; font-size: 0.8em !important; color: var(--muted); }
+        .main { margin-left: var(--sidebar-width); margin-top: var(--topbar-height); min-height: calc(100vh - var(--topbar-height)); }
+        .container { max-width: 840px; margin: 0 auto; padding: 32px 28px 120px; }
+        h1, h2, h3, h4 {
+            font-weight: 600;
+            line-height: 1.35;
+            margin-top: 2.4em;
+            margin-bottom: 0.9em;
+            scroll-margin-top: calc(var(--topbar-height) + 20px);
+        }
+        h1 { font-size: 1.85em; border-bottom: 1px solid var(--border); padding-bottom: 0.3em; margin-top: 0; }
+        h2 { font-size: 1.45em; border-bottom: 1px solid var(--border); padding-bottom: 0.3em; }
+        h3 { font-size: 1.22em; }
+        h4 { font-size: 1.05em; }
+        p { margin: 1em 0; }
+        a { color: var(--accent); text-decoration: none; }
+        a:hover { text-decoration: underline; }
+        code {
+            font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+            background: var(--code-bg);
+            padding: 0.15em 0.4em;
+            border-radius: 4px;
+            font-size: 0.88em;
+            border: 1px solid var(--border);
+        }
+        pre {
+            background: var(--code-bg);
+            padding: 16px;
+            border-radius: 8px;
+            overflow-x: auto;
+            border: 1px solid var(--border);
+            position: relative;
+            margin: 1.1em 0;
+        }
+        pre code { background: none; padding: 0; border: none; font-size: 0.9em; }
+        .copy-btn {
+            position: absolute;
+            top: 8px;
+            right: 8px;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 5px;
+            padding: 4px 10px;
+            font-size: 0.78em;
+            cursor: pointer;
+            color: var(--muted);
+            opacity: 0.7;
+            transition: opacity 0.15s;
+        }
+        pre:hover .copy-btn { opacity: 1; }
+        .copy-btn:hover { color: var(--accent); border-color: var(--accent); }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 1.1em 0;
+            border: 1px solid var(--border);
+            display: block;
+            overflow-x: auto;
+            border-radius: 8px;
+        }
+        th, td { border: 1px solid var(--border); padding: 8px 12px; text-align: left; vertical-align: top; }
+        th { background: var(--accent-soft); font-weight: 600; }
+        tr:nth-child(even) { background: var(--table-stripe); }
+        ul, ol { padding-left: 1.8em; }
+        li { margin: 0.35em 0; }
+        blockquote {
+            border-left: 4px solid var(--accent);
+            background: var(--accent-soft);
+            margin: 1.2em 0;
+            padding: 0.6em 1.2em;
+            border-radius: 0 8px 8px 0;
+        }
+        hr { border: 0; border-top: 1px solid var(--border); margin: 2.5em 0; }
+        details {
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 12px 16px;
+            margin: 1em 0;
+            background: var(--code-bg);
+        }
+        summary { cursor: pointer; font-weight: 600; outline: none; }
+        details[open] summary { margin-bottom: 10px; }
+        .back-to-top {
+            position: fixed;
+            right: 24px;
+            bottom: 24px;
+            width: 44px;
+            height: 44px;
+            border-radius: 50%;
+            background: var(--accent);
+            color: #fff;
+            border: none;
+            cursor: pointer;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            box-shadow: var(--shadow);
+            z-index: 1100;
+        }
+        .back-to-top.visible { display: flex; }
+        .back-to-top:hover { background: var(--accent-hover); }
+        .highlight { background: yellow; color: black; border-radius: 2px; padding: 0 2px; }
+        [data-theme="dark"] .highlight { background: #f9c513; color: #000; }
+        .task-box, .tip-box, .goal-box, .exam-box {
+            border-radius: 8px;
+            padding: 14px 18px;
+            margin: 1.2em 0;
+        }
+        .task-box { background: var(--task-bg); border: 1px solid var(--task-border); }
+        .task-box::before { content: "📝 动手实验："; font-weight: 700; }
+        .tip-box { background: var(--tip-bg); border: 1px solid var(--tip-border); }
+        .tip-box::before { content: "💡 提示："; font-weight: 700; }
+        .goal-box { background: var(--goal-bg); border: 1px solid var(--goal-border); }
+        .goal-box::before { content: "🎯 学习目标："; font-weight: 700; }
+        .exam-box { background: var(--exam-bg); border: 1px solid var(--exam-border); }
+        .exam-box::before { content: "❓ 面试题："; font-weight: 700; }
+        footer { margin-top: 4em; padding-top: 1.5em; border-top: 1px solid var(--border); color: var(--muted); font-size: 0.9em; }
+        @media (max-width: 1100px) { .search-box { width: 180px; } }
+        @media (max-width: 900px) {
+            .menu-toggle { display: block; }
+            .sidebar { transform: translateX(-100%); }
+            .sidebar.open { transform: translateX(0); }
+            .main { margin-left: 0; }
+            .search-box { display: none; }
+        }
+        @media (max-width: 600px) {
+            .container { padding: 24px 16px 80px; }
+            h1 { font-size: 1.5em; }
+            h2 { font-size: 1.25em; }
+        }
+        @media print {
+            .topbar, .sidebar, .back-to-top { display: none; }
+            .main { margin-left: 0; margin-top: 0; }
+        }
+    </style>
+</head>
+<body>
+    <div class="topbar">
+        <div class="topbar-left">
+            <button class="menu-toggle" id="menuToggle" aria-label="切换目录">☰</button>
+            <div class="topbar-title">电网运维 RAG · 企业级培训课程</div>
+        </div>
+        <div class="topbar-actions">
+            <div class="search-box">
+                <span class="search-icon">🔍</span>
+                <input type="text" id="searchInput" placeholder="搜索标题或内容..." autocomplete="off">
+            </div>
+            <button class="btn" id="collapseBtn" title="展开/折叠详情">⛶</button>
+            <button class="btn" id="themeBtn" title="切换主题">🌙</button>
+        </div>
+    </div>
+
+    <aside class="sidebar" id="sidebar">
+        <div class="toc" id="toc">
+            <div class="toc-title">目录</div>
+        </div>
+    </aside>
+
+    <main class="main">
+        <div class="container" id="content">
+<h1 id="rag">电网运维 RAG 智能问答系统 · 企业级培训课程</h1>
+<blockquote>
+<p>本课程对标国内培训机构（如黑马程序员）的实战课标准，覆盖从项目跑通到独立开发的全流程。课程以"原理 → 代码 → 项目 → 面试"为主线，每章包含学习目标、重难点、课前预习、案例演示、动手实验、常见错误、课后作业、面试题。</p>
+</blockquote>
+<hr />
+<h2 id="_1">课程导学</h2>
+<h3 id="_2">课程定位</h3>
+<p>本课程面向希望掌握企业级 RAG 系统开发的学员。学完本课程后，你能够：</p>
+<ol>
+<li>独立搭建和部署一个 RAG 智能问答系统。</li>
+<li>理解并修改 FastAPI + Vue 3 全栈项目。</li>
+<li>掌握 Embedding、向量检索、BM25、RRF、rerank、MMR、CRAG、引用校验等核心技术。</li>
+<li>具备排查缓存、检索、LLM、图谱问题的能力。</li>
+<li>能够应对 RAG 相关岗位的技术面试。</li>
+</ol>
+<h3 id="_3">课程适合人群</h3>
+<ul>
+<li>有 Python/JavaScript 基础，希望进入 AI 应用开发领域的学员。</li>
+<li>有 Web 开发经验，希望学习大模型应用落地的工程师。</li>
+<li>对 RAG、Agent、知识图谱感兴趣的在校学生或转行者。</li>
+</ul>
+<h3 id="_4">前置知识</h3>
+<table>
+<thead>
+<tr>
+<th>知识领域</th>
+<th>要求</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Python</td>
+<td>熟悉基础语法、函数、类、异步</td>
+</tr>
+<tr>
+<td>JavaScript</td>
+<td>熟悉 ES6+、Promise、async/await</td>
+</tr>
+<tr>
+<td>数据库</td>
+<td>了解 SQL、表、索引基本概念</td>
+</tr>
+<tr>
+<td>Docker</td>
+<td>了解容器、镜像、Compose 基本概念</td>
+</tr>
+<tr>
+<td>大模型</td>
+<td>了解 ChatGPT/文心一言等基本使用</td>
+</tr>
+</tbody>
+</table>
+<h3 id="_5">课程总览</h3>
+<table>
+<thead>
+<tr>
+<th>模块</th>
+<th>章节数</th>
+<th>核心目标</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>模块一：项目导论与环境搭建</td>
+<td>5</td>
+<td>理解项目、跑通全栈</td>
+</tr>
+<tr>
+<td>模块二：后端核心技术栈</td>
+<td>12</td>
+<td>掌握 FastAPI、Pydantic、SQLAlchemy、权限、响应、配置</td>
+</tr>
+<tr>
+<td>模块三：前端核心技术栈</td>
+<td>8</td>
+<td>掌握 Vue 3、Pinia、Router、axios、组件化</td>
+</tr>
+<tr>
+<td>模块四：RAG 核心算法与工程实现</td>
+<td>12</td>
+<td>掌握 Embedding、检索、CRAG、引用、缓存、图谱、Agent</td>
+</tr>
+<tr>
+<td>模块五：工程化与企业级特性</td>
+<td>8</td>
+<td>掌握测试、可观测、部署、治理、任务调度</td>
+</tr>
+<tr>
+<td>模块六：企业实战与就业指导</td>
+<td>5</td>
+<td>综合项目、面试、简历、常见问题</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h1 id="_6">模块一：项目导论与环境搭建</h1>
+<hr />
+<h2 id="1">第 1 章：课程导学与项目整体介绍</h2>
+<h3 id="_7">课时安排</h3>
+<ul>
+<li>理论：1.5 小时</li>
+<li>演示：0.5 小时</li>
+</ul>
+<h3 id="_8">学习目标</h3>
+<ol>
+<li>了解 RAG 技术在电网运维领域的应用价值。</li>
+<li>清楚本课程的学习路径和最终产出。</li>
+<li>认识项目的主要功能模块和技术栈。</li>
+</ol>
+<h3 id="_9">重难点</h3>
+<ul>
+<li>重点：RAG 的基本思想、项目核心能力。</li>
+<li>难点：理解为什么需要多技术栈协同。</li>
+</ul>
+<h3 id="_10">课前预习</h3>
+<ol>
+<li>阅读 <code>README.md</code>。</li>
+<li>浏览 <code>docker-compose.yml</code>，列出所有服务名。</li>
+<li>思考：如果你要做一个"公司制度问答机器人"，需要哪些技术？</li>
+</ol>
+<h3 id="_11">正课内容</h3>
+<h4 id="11-rag">1.1 什么是 RAG</h4>
+<p>RAG = Retrieval-Augmented Generation（检索增强生成）。</p>
+<p>传统大模型的问题：</p>
+<ul>
+<li>知识截止：不知道企业最新制度。</li>
+<li>幻觉：可能编造答案。</li>
+<li>不可溯源：无法说明答案来源。</li>
+</ul>
+<p>RAG 的解决思路：把企业文档转成向量，检索相关片段后让大模型基于片段回答，并标注来源。</p>
+<h4 id="12">1.2 电网运维场景</h4>
+<p>电网运维涉及大量规程、案例、设备参数。一线人员遇到问题时，需要快速查资料。RAG 系统可以：</p>
+<ul>
+<li>秒级返回答案。</li>
+<li>减少翻阅 PDF 的时间。</li>
+<li>降低因记忆偏差导致的误操作风险。</li>
+</ul>
+<h4 id="13">1.3 项目功能演示</h4>
+<p>教师演示：</p>
+<ol>
+<li>打开前端聊天页面。</li>
+<li>输入"主变重瓦斯动作后怎么处理？"</li>
+<li>展示答案、引用角标、来源文档。</li>
+<li>展示检索调试结果。</li>
+<li>展示 Langfuse trace。</li>
+</ol>
+<h3 id="_12">案例演示</h3>
+<p>问题："倒闸操作的安全组织措施有哪些？"</p>
+<p>系统返回：</p>
+<ul>
+<li>答案正文</li>
+<li>引用 [1] [2]</li>
+<li>来源文档：某省电力公司《变电运行规程》</li>
+</ul>
+<h3 id="_13">动手实验</h3>
+<p><strong>实验 1-1</strong>：访问 <code>http://localhost:5173</code>，用默认账号登录，发送一条问题，截图保存。</p>
+<h3 id="_14">常见错误</h3>
+<ul>
+<li>登录失败：检查 backend 是否 healthy。</li>
+<li>页面空白：检查浏览器控制台网络请求。</li>
+</ul>
+<h3 id="_15">课后作业</h3>
+<ol>
+<li>写出 RAG 的三个核心优势。</li>
+<li>列出本项目的 5 个核心服务及其作用。</li>
+<li>截图一次完整的问答流程。</li>
+</ol>
+<h3 id="_16">面试题</h3>
+<ol>
+<li>什么是 RAG？它解决了大模型的哪些问题？</li>
+<li>你认为 RAG 适合哪些业务场景？</li>
+</ol>
+<h3 id="_17">扩展阅读</h3>
+<ul>
+<li>《Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks》</li>
+<li>项目 <code>README.md</code></li>
+</ul>
+<hr />
+<h2 id="2">第 2 章：项目架构与技术栈全景</h2>
+<h3 id="_18">课时安排</h3>
+<ul>
+<li>理论：2 小时</li>
+<li>演示：0.5 小时</li>
+</ul>
+<h3 id="_19">学习目标</h3>
+<ol>
+<li>掌握项目的六层架构。</li>
+<li>理解每个技术栈在项目中的职责。</li>
+<li>能画出项目架构图。</li>
+</ol>
+<h3 id="_20">重难点</h3>
+<ul>
+<li>重点：各层职责、数据流向。</li>
+<li>难点：理解双 embedding collection、双 RAG 热备等设计。</li>
+</ul>
+<h3 id="_21">课前预习</h3>
+<ol>
+<li>查看 <code>backend/app</code> 目录结构。</li>
+<li>查看 <code>frontend/src</code> 目录结构。</li>
+<li>思考：前后端分离项目的数据是如何流转的？</li>
+</ol>
+<h3 id="_22">正课内容</h3>
+<h4 id="21">2.1 六层架构</h4>
+<pre><code class="language-text">接入层：Vue3 前端 + nginx
+应用层：FastAPI routers + RBAC + 限流
+RAG 引擎层：检索 → 增强 → 生成
+模型层：LLM + Embedding + Rerank Provider 工厂
+存储层：MySQL + Milvus + Neo4j + Redis + MinIO
+基础设施层：Docker Compose + Prometheus + Grafana + Langfuse
+</code></pre>
+<h4 id="22">2.2 数据流</h4>
+<p>用户提问 → 前端 → <code>/api/qa/answer/stream</code> → router → qa_service → 缓存/检索/CRAG/图谱/LLM → 流式返回 → 前端渲染。</p>
+<h4 id="23">2.3 技术栈职责</h4>
+<table>
+<thead>
+<tr>
+<th>技术</th>
+<th>职责</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>FastAPI</td>
+<td>后端 API 框架</td>
+</tr>
+<tr>
+<td>Vue 3</td>
+<td>前端框架</td>
+</tr>
+<tr>
+<td>Pinia</td>
+<td>全局状态管理</td>
+</tr>
+<tr>
+<td>SQLAlchemy</td>
+<td>ORM</td>
+</tr>
+<tr>
+<td>Milvus</td>
+<td>向量数据库</td>
+</tr>
+<tr>
+<td>Neo4j</td>
+<td>图数据库</td>
+</tr>
+<tr>
+<td>Redis</td>
+<td>缓存、队列、热配置</td>
+</tr>
+<tr>
+<td>MinIO</td>
+<td>对象存储</td>
+</tr>
+<tr>
+<td>Docker Compose</td>
+<td>服务编排</td>
+</tr>
+</tbody>
+</table>
+<h3 id="_23">案例演示</h3>
+<p>展示 <code>backend/app/main.py</code> 的 lifespan，解释启动顺序。</p>
+<h3 id="_24">动手实验</h3>
+<p><strong>实验 2-1</strong>：用 processon 或 draw.io 画出项目架构图。</p>
+<p><strong>实验 2-2</strong>：在 <code>docker-compose.yml</code> 中找出 <code>backend</code> 依赖哪些服务。</p>
+<h3 id="_25">常见错误</h3>
+<ul>
+<li>分不清 MySQL 和 Milvus 的区别：MySQL 存结构化元数据，Milvus 存向量。</li>
+<li>以为 Redis 只存缓存：它还存热配置和任务队列。</li>
+</ul>
+<h3 id="_26">课后作业</h3>
+<ol>
+<li>画出项目六层架构图。</li>
+<li>解释一次问答请求的数据流。</li>
+<li>为什么项目要同时用 MySQL 和 Neo4j？</li>
+</ol>
+<h3 id="_27">面试题</h3>
+<ol>
+<li>你们项目的架构是怎么设计的？</li>
+<li>为什么选择 Milvus 而不是直接用 PostgreSQL 存向量？</li>
+<li>Redis 在这个项目中有哪些用途？</li>
+</ol>
+<hr />
+<h2 id="3">第 3 章：开发环境搭建与项目启动</h2>
+<h3 id="_28">课时安排</h3>
+<ul>
+<li>理论：1 小时</li>
+<li>实操：2 小时</li>
+</ul>
+<h3 id="_29">学习目标</h3>
+<ol>
+<li>能在本地成功启动项目全栈。</li>
+<li>理解 <code>.env</code> 配置的作用。</li>
+<li>掌握常用 Docker Compose 命令。</li>
+</ol>
+<h3 id="_30">重难点</h3>
+<ul>
+<li>重点：<code>.env</code> 配置、服务启动顺序。</li>
+<li>难点：Milvus 启动失败排查。</li>
+</ul>
+<h3 id="_31">课前预习</h3>
+<ol>
+<li>安装 Docker Desktop。</li>
+<li>注册至少一个 LLM API（DeepSeek/百炼/火山）。</li>
+<li>学习 Docker Compose 基础命令。</li>
+</ol>
+<h3 id="_32">正课内容</h3>
+<h4 id="31">3.1 环境准备</h4>
+<ul>
+<li>Docker Desktop 安装与配置。</li>
+<li>内存建议 16GB+。</li>
+<li>WSL2 设置（Windows 用户）。</li>
+</ul>
+<h4 id="32-api-key">3.2 配置 API Key</h4>
+<pre><code class="language-bash">cp .env.example .env
+# 编辑 .env
+DEEPSEEK_API_KEY=sk-xxx
+DASHSCOPE_API_KEY=sk-xxx
+</code></pre>
+<h4 id="33">3.3 启动项目</h4>
+<pre><code class="language-bash">docker compose up -d --build
+bash start.sh status
+</code></pre>
+<h4 id="34">3.4 常见问题排查</h4>
+<ul>
+<li>Milvus 起不来：检查 etcd、minio、milvus-standalone 日志。</li>
+<li>backend 健康检查失败：bge 模型预热慢，等待 1~2 分钟。</li>
+<li>前端空白：backend 未 ready。</li>
+</ul>
+<h3 id="_33">案例演示</h3>
+<p>教师演示一次完整的启动过程，并故意制造一个错误（如 API Key 缺失），展示如何排查。</p>
+<h3 id="_34">动手实验</h3>
+<p><strong>实验 3-1</strong>：独立启动项目，确保所有核心服务 healthy。</p>
+<p><strong>实验 3-2</strong>：修改 <code>.env</code> 中的 <code>LLM_PROVIDER</code>，重启 backend，观察运行时信息变化。</p>
+<h3 id="_35">常见错误</h3>
+<ul>
+<li>API Key 填错：LLM 调用返回 401。</li>
+<li>端口被占用：3307/8001/5173 等被其他程序占用。</li>
+<li>磁盘空间不足：Milvus/MinIO 需要空间。</li>
+</ul>
+<h3 id="_36">课后作业</h3>
+<ol>
+<li>写出启动项目的完整命令。</li>
+<li>如果 <code>grid-milvus</code> 起不来，你应该查哪些日志？</li>
+<li>解释 <code>docker compose up -d --build</code> 每个参数的含义。</li>
+</ol>
+<h3 id="_37">面试题</h3>
+<ol>
+<li>你如何排查 Docker 容器启动失败？</li>
+<li><code>.env</code> 文件在项目中的作用是什么？</li>
+</ol>
+<hr />
+<h2 id="4">第 4 章：项目目录结构与代码规范</h2>
+<h3 id="_38">课时安排</h3>
+<ul>
+<li>理论：1 小时</li>
+<li>实操：1 小时</li>
+</ul>
+<h3 id="_39">学习目标</h3>
+<ol>
+<li>熟悉后端和前端的目录结构。</li>
+<li>理解项目分层约定。</li>
+<li>掌握代码规范（ruff、提交规范）。</li>
+</ol>
+<h3 id="_40">重难点</h3>
+<ul>
+<li>重点：<code>routers</code> 薄、<code>services</code> 厚、<code>rag</code> 算法独立。</li>
+<li>难点：理解各目录的边界。</li>
+</ul>
+<h3 id="_41">课前预习</h3>
+<ol>
+<li>阅读 <code>AGENTS.md</code>。</li>
+<li>学习 Conventional Commits 规范。</li>
+</ol>
+<h3 id="_42">正课内容</h3>
+<h4 id="41">4.1 后端目录</h4>
+<pre><code class="language-text">backend/app/
+├── main.py
+├── config.py
+├── dependencies.py
+├── routers/        # 路由（薄）
+├── services/       # 业务逻辑（厚）
+├── rag/            # RAG 算法
+├── providers/      # LLM/Embedding/Rerank 工厂
+├── routing/        # 查询路由
+├── clients/        # 外部客户端
+├── core/           # 横切能力
+├── models/         # ORM 模型
+├── schemas/        # Pydantic 模型
+└── db/             # session 与迁移
+</code></pre>
+<h4 id="42">4.2 前端目录</h4>
+<pre><code class="language-text">frontend/src/
+├── api/            # API 封装
+├── views/          # 页面
+├── components/     # 组件
+├── router/         # 路由
+├── stores/         # Pinia
+├── utils/          # 工具函数
+└── main.js
+</code></pre>
+<h4 id="43">4.3 代码规范</h4>
+<ul>
+<li>Lint：<code>ruff check backend tests</code></li>
+<li>提交：<code>feat(scope): description</code></li>
+<li>文件命名：snake_case</li>
+<li>类命名：PascalCase</li>
+</ul>
+<h3 id="_43">动手实验</h3>
+<p><strong>实验 4-1</strong>：用 <code>ruff check backend/app/routers/qa.py</code> 检查代码规范。</p>
+<p><strong>实验 4-2</strong>：在 <code>backend/app/services/</code> 下新建一个空文件 <code>demo_service.py</code>，运行 ruff。</p>
+<h3 id="_44">课后作业</h3>
+<ol>
+<li>解释为什么 router 要"薄"。</li>
+<li>写出一个符合规范的提交信息。</li>
+<li>列出 <code>core/</code> 目录下的 5 个文件及其职责。</li>
+</ol>
+<h3 id="_45">面试题</h3>
+<ol>
+<li>你们项目是怎么分层的？</li>
+<li>为什么要把 schemas 和 models 分开？</li>
+</ol>
+<hr />
+<h2 id="5-swagger-api">第 5 章：Swagger 与 API 调试入门</h2>
+<h3 id="_46">课时安排</h3>
+<ul>
+<li>理论：0.5 小时</li>
+<li>实操：1.5 小时</li>
+</ul>
+<h3 id="_47">学习目标</h3>
+<ol>
+<li>熟练使用 Swagger UI 调试后端 API。</li>
+<li>理解统一响应格式。</li>
+<li>会使用 curl/postman 调用 API。</li>
+</ol>
+<h3 id="_48">重难点</h3>
+<ul>
+<li>重点：Swagger 的使用、统一响应格式。</li>
+<li>难点：JWT token 的获取与使用。</li>
+</ul>
+<h3 id="_49">正课内容</h3>
+<h4 id="51-swagger-ui">5.1 Swagger UI</h4>
+<p>访问 <code>http://localhost:8001/docs</code>。</p>
+<h4 id="52">5.2 统一响应格式</h4>
+<pre><code class="language-json">{
+  &quot;code&quot;: 0,
+  &quot;message&quot;: &quot;ok&quot;,
+  &quot;data&quot;: {...}
+}
+</code></pre>
+<p>业务错误也返回 200，通过 code 区分。</p>
+<h4 id="53-token">5.3 获取 Token</h4>
+<pre><code class="language-bash">curl -X POST http://localhost:8001/api/auth/login \
+  -H &quot;Content-Type: application/json&quot; \
+  -d '{&quot;username&quot;:&quot;admin&quot;,&quot;password&quot;:&quot;admin123&quot;}'
+</code></pre>
+<h4 id="54">5.4 调用问答接口</h4>
+<pre><code class="language-bash">curl -X POST http://localhost:8001/api/qa/answer \
+  -H &quot;Authorization: Bearer $TOKEN&quot; \
+  -H &quot;Content-Type: application/json&quot; \
+  -d '{&quot;question&quot;:&quot;什么是倒闸操作？&quot;}'
+</code></pre>
+<h3 id="_50">动手实验</h3>
+<p><strong>实验 5-1</strong>：用 Swagger 完成登录、问答、查看 runtime-info。</p>
+<p><strong>实验 5-2</strong>：用 curl 完成同样操作。</p>
+<h3 id="_51">课后作业</h3>
+<ol>
+<li>解释统一响应格式中 <code>code</code> 的含义。</li>
+<li>用 curl 调用 <code>/api/system/config/feature-flags</code>。</li>
+</ol>
+<hr />
+<h1 id="_52">模块二：后端核心技术栈</h1>
+<hr />
+<h2 id="6-fastapi">第 6 章：FastAPI 基础——路由、请求与响应</h2>
+<h3 id="_53">课时安排</h3>
+<ul>
+<li>理论：2 小时</li>
+<li>实操：2 小时</li>
+</ul>
+<h3 id="_54">学习目标</h3>
+<ol>
+<li>掌握 FastAPI 的基本用法。</li>
+<li>理解路由、请求模型、响应模型。</li>
+<li>能写出简单的 CRUD 接口。</li>
+</ol>
+<h3 id="_55">重难点</h3>
+<ul>
+<li>重点：<code>@app.get</code>、<code>@app.post</code>、Pydantic 模型。</li>
+<li>难点：异步路由、路径参数与查询参数的区别。</li>
+</ul>
+<h3 id="_56">课前预习</h3>
+<ol>
+<li>学习 Python 类型注解。</li>
+<li>学习 HTTP 方法（GET/POST/PUT/DELETE）。</li>
+</ol>
+<h3 id="_57">正课内容</h3>
+<h4 id="61-fastapi">6.1 最小 FastAPI 应用</h4>
+<pre><code class="language-python">from fastapi import FastAPI
+
+app = FastAPI()
+
+@app.get(&quot;/&quot;)
+async def root():
+    return {&quot;message&quot;: &quot;Hello&quot;}
+</code></pre>
+<h4 id="62">6.2 路径参数与查询参数</h4>
+<pre><code class="language-python">@app.get(&quot;/items/{item_id}&quot;)
+async def read_item(item_id: int, q: str | None = None):
+    return {&quot;item_id&quot;: item_id, &quot;q&quot;: q}
+</code></pre>
+<ul>
+<li><code>item_id</code> 是路径参数。</li>
+<li><code>q</code> 是查询参数。</li>
+</ul>
+<h4 id="63">6.3 请求体</h4>
+<pre><code class="language-python">from pydantic import BaseModel
+
+class Item(BaseModel):
+    name: str
+    price: float
+
+@app.post(&quot;/items&quot;)
+async def create_item(item: Item):
+    return item
+</code></pre>
+<h4 id="64">6.4 项目中的应用</h4>
+<p>看 <code>backend/app/routers/system.py</code>：</p>
+<pre><code class="language-python">@router.get(&quot;/runtime-info&quot;)
+async def runtime_info(user=Depends(require_perm(&quot;system:admin&quot;))):
+    return success({...})
+</code></pre>
+<h3 id="_58">动手实验</h3>
+<p><strong>实验 6-1</strong>：在 <code>routers/system.py</code> 新增 <code>GET /api/system/ping</code>，返回 <code>{"pong": true}</code>。</p>
+<p><strong>实验 6-2</strong>：新增 <code>POST /api/system/echo</code>，接收 <code>{"msg": "hello"}</code>，返回相同内容。</p>
+<h3 id="_59">常见错误</h3>
+<ul>
+<li>路径参数和函数参数名不一致。</li>
+<li>忘记给 POST 请求加请求体模型。</li>
+</ul>
+<h3 id="_60">课后作业</h3>
+<ol>
+<li>路径参数和查询参数的区别是什么？</li>
+<li>写出一个带请求体验证的 POST 接口。</li>
+</ol>
+<h3 id="_61">面试题</h3>
+<ol>
+<li>FastAPI 相比 Flask/Django 有什么优势？</li>
+<li>什么是 ASGI？</li>
+</ol>
+<hr />
+<h2 id="7-fastapi">第 7 章：FastAPI 生命周期与后台任务</h2>
+<h3 id="_62">课时安排</h3>
+<ul>
+<li>理论：1.5 小时</li>
+<li>实操：1.5 小时</li>
+</ul>
+<h3 id="_63">学习目标</h3>
+<ol>
+<li>理解 <code>lifespan</code> 的作用。</li>
+<li>掌握项目启动时的初始化流程。</li>
+<li>了解后台 cron 的实现方式。</li>
+</ol>
+<h3 id="_64">重难点</h3>
+<ul>
+<li>重点：<code>lifespan</code> 启动顺序。</li>
+<li>难点：后台任务的启动与关闭。</li>
+</ul>
+<h3 id="_65">正课内容</h3>
+<h4 id="71-lifespan">7.1 lifespan</h4>
+<pre><code class="language-python">from contextlib import asynccontextmanager
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # 启动
+    setup_logging()
+    await init_db()
+    yield
+    # 关闭
+</code></pre>
+<h4 id="72">7.2 项目启动顺序</h4>
+<ol>
+<li>日志</li>
+<li>安全检查</li>
+<li>数据库建表</li>
+<li>MinIO bucket</li>
+<li>Milvus collection</li>
+<li>bge 预热</li>
+<li>Neo4j 约束</li>
+<li>OTel</li>
+<li>MCP 加载</li>
+<li>后台 cron</li>
+</ol>
+<h4 id="73-cron">7.3 后台 cron</h4>
+<pre><code class="language-python">def start_background_loops():
+    asyncio.create_task(health_probe_loop())
+    asyncio.create_task(cache_warmup_loop())
+</code></pre>
+<h3 id="_66">动手实验</h3>
+<p><strong>实验 7-1</strong>：在 <code>main.py</code> lifespan 中加一行启动日志。</p>
+<p><strong>实验 7-2</strong>：列出所有后台 cron 及其周期。</p>
+<h3 id="_67">课后作业</h3>
+<ol>
+<li>为什么要在 lifespan 里初始化数据库？</li>
+<li>后台任务和普通 HTTP 请求有什么区别？</li>
+</ol>
+<hr />
+<h2 id="8-pydantic">第 8 章：Pydantic 数据模型与校验</h2>
+<h3 id="_68">课时安排</h3>
+<ul>
+<li>理论：2 小时</li>
+<li>实操：2 小时</li>
+</ul>
+<h3 id="_69">学习目标</h3>
+<ol>
+<li>掌握 Pydantic 基础模型。</li>
+<li>理解请求/响应 schema 的设计。</li>
+<li>掌握字段校验与默认值。</li>
+</ol>
+<h3 id="_70">重难点</h3>
+<ul>
+<li>重点：<code>BaseModel</code>、<code>Field</code>、可选字段。</li>
+<li>难点：嵌套模型、自定义校验。</li>
+</ul>
+<h3 id="_71">正课内容</h3>
+<h4 id="81-basemodel">8.1 BaseModel</h4>
+<pre><code class="language-python">from pydantic import BaseModel
+
+class User(BaseModel):
+    name: str
+    age: int
+</code></pre>
+<h4 id="82-field">8.2 Field</h4>
+<pre><code class="language-python">from pydantic import Field
+
+class DocumentUploadRequest(BaseModel):
+    title: str = Field(..., min_length=1, max_length=200)
+    doc_type: str = &quot;manual&quot;
+</code></pre>
+<h4 id="83">8.3 嵌套模型</h4>
+<pre><code class="language-python">class Address(BaseModel):
+    city: str
+    street: str
+
+class User(BaseModel):
+    name: str
+    address: Address
+</code></pre>
+<h4 id="84">8.4 项目中的应用</h4>
+<p><code>backend/app/schemas/qa.py</code>：</p>
+<pre><code class="language-python">class QuestionRequest(BaseModel):
+    question: str
+    conversation_id: Optional[str] = None
+    stream: bool = False
+</code></pre>
+<h3 id="_72">动手实验</h3>
+<p><strong>实验 8-1</strong>：为 <code>QuestionRequest</code> 增加 <code>source: str = "web"</code> 字段。</p>
+<p><strong>实验 8-2</strong>：写一个嵌套 schema <code>UserProfileResponse</code>，包含用户和部门信息。</p>
+<h3 id="_73">课后作业</h3>
+<ol>
+<li><code>Field(...)</code> 中的 <code>...</code> 是什么意思？</li>
+<li>如何给字段加默认值？</li>
+</ol>
+<h3 id="_74">面试题</h3>
+<ol>
+<li>Pydantic 相比 Python dataclass 有什么优势？</li>
+<li>如何做自定义字段校验？</li>
+</ol>
+<hr />
+<h2 id="9-pydantic-settings">第 9 章：Pydantic Settings 与项目配置</h2>
+<h3 id="_75">课时安排</h3>
+<ul>
+<li>理论：1.5 小时</li>
+<li>实操：1.5 小时</li>
+</ul>
+<h3 id="_76">学习目标</h3>
+<ol>
+<li>掌握 <code>pydantic-settings</code> 的用法。</li>
+<li>理解 <code>.env</code> 与配置优先级。</li>
+<li>理解 feature flag 的设计。</li>
+</ol>
+<h3 id="_77">重难点</h3>
+<ul>
+<li>重点：<code>Settings</code> 类、<code>.env</code> 读取。</li>
+<li>难点：feature flag 默认值与缓存版本串。</li>
+</ul>
+<h3 id="_78">正课内容</h3>
+<h4 id="91-settings">9.1 Settings 类</h4>
+<pre><code class="language-python">from pydantic_settings import BaseSettings
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(env_file=&quot;.env&quot;)
+    APP_NAME: str = &quot;Grid RAG&quot;
+    BACKEND_PORT: int = 8001
+
+settings = Settings()
+</code></pre>
+<h4 id="92">9.2 配置优先级</h4>
+<ol>
+<li>环境变量</li>
+<li><code>.env</code></li>
+<li>Nacos（如果启用）</li>
+<li>默认值</li>
+</ol>
+<h4 id="93-feature-flag">9.3 Feature Flag</h4>
+<pre><code class="language-python">CRAG_ENABLE: bool = True
+CRAG_V3_ENABLE: bool = False
+CITATION_VERIFIER_ENABLE: bool = True
+</code></pre>
+<p>新增能力默认关闭，前端零改动。</p>
+<h4 id="94">9.4 缓存版本串</h4>
+<pre><code class="language-python">def citation_cache_version():
+    return f&quot;cv...R{CRAG_V3_ENABLE}P{CRAG_PERDOC_ENABLE}&quot;
+</code></pre>
+<h3 id="_79">动手实验</h3>
+<p><strong>实验 9-1</strong>：在 <code>config.py</code> 新增一个配置项 <code>DEMO_MODE: bool = False</code>。</p>
+<p><strong>实验 9-2</strong>：在 <code>.env</code> 中覆盖它，验证是否生效。</p>
+<h3 id="_80">课后作业</h3>
+<ol>
+<li>配置读取优先级是什么？</li>
+<li>为什么要用 feature flag？</li>
+<li>缓存版本串的作用是什么？</li>
+</ol>
+<hr />
+<h2 id="10-sqlalchemy-20">第 10 章：SQLAlchemy 2.0 模型与关系</h2>
+<h3 id="_81">课时安排</h3>
+<ul>
+<li>理论：2.5 小时</li>
+<li>实操：2.5 小时</li>
+</ul>
+<h3 id="_82">学习目标</h3>
+<ol>
+<li>掌握 SQLAlchemy 2.0 的 <code>Mapped</code> 语法。</li>
+<li>理解模型关系（一对多、多对多）。</li>
+<li>能设计新的数据表。</li>
+</ol>
+<h3 id="_83">重难点</h3>
+<ul>
+<li>重点：<code>Mapped</code>、<code>mapped_column</code>、<code>relationship</code>。</li>
+<li>难点：异步 session、懒加载问题。</li>
+</ul>
+<h3 id="_84">正课内容</h3>
+<h4 id="101">10.1 基础模型</h4>
+<pre><code class="language-python">from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+
+class Base(DeclarativeBase):
+    pass
+
+class User(Base):
+    __tablename__ = &quot;user&quot;
+    id: Mapped[int] = mapped_column(primary_key=True)
+    username: Mapped[str]
+</code></pre>
+<h4 id="102">10.2 关系</h4>
+<pre><code class="language-python">class Document(Base):
+    id: Mapped[int] = mapped_column(primary_key=True)
+    chunks: Mapped[List[&quot;Chunk&quot;]] = relationship(&quot;Chunk&quot;, back_populates=&quot;document&quot;)
+
+class Chunk(Base):
+    id: Mapped[int] = mapped_column(primary_key=True)
+    document_id: Mapped[int] = mapped_column(ForeignKey(&quot;document.id&quot;))
+    document: Mapped[&quot;Document&quot;] = relationship(&quot;Document&quot;, back_populates=&quot;chunks&quot;)
+</code></pre>
+<h4 id="103">10.3 项目中的应用</h4>
+<p>看 <code>backend/app/models/document.py</code> 和 <code>chunk.py</code>。</p>
+<h3 id="_85">动手实验</h3>
+<p><strong>实验 10-1</strong>：查看 <code>document.py</code>，列出所有字段。</p>
+<p><strong>实验 10-2</strong>：新增一个 <code>Tag</code> 模型，并与 <code>Document</code> 建立多对多关系。</p>
+<h3 id="_86">课后作业</h3>
+<ol>
+<li><code>relationship</code> 的作用是什么？</li>
+<li>一对多关系怎么设计？</li>
+</ol>
+<h3 id="_87">面试题</h3>
+<ol>
+<li>SQLAlchemy 1.x 和 2.0 有什么区别？</li>
+<li>异步 ORM 有什么注意事项？</li>
+</ol>
+<hr />
+<h2 id="11-session">第 11 章：异步 Session 与数据库操作</h2>
+<h3 id="_88">课时安排</h3>
+<ul>
+<li>理论：2 小时</li>
+<li>实操：2 小时</li>
+</ul>
+<h3 id="_89">学习目标</h3>
+<ol>
+<li>掌握异步 session 的创建与使用。</li>
+<li>理解依赖注入获取 session。</li>
+<li>能完成 CRUD 操作。</li>
+</ol>
+<h3 id="_90">重难点</h3>
+<ul>
+<li>重点：<code>AsyncSession</code>、<code>get_session</code>。</li>
+<li>难点：事务、并发、连接池。</li>
+</ul>
+<h3 id="_91">正课内容</h3>
+<h4 id="111">11.1 创建异步引擎</h4>
+<pre><code class="language-python">from sqlalchemy.ext.asyncio import create_async_engine
+
+engine = create_async_engine(&quot;mysql+aiomysql://user:pass@host/db&quot;)
+</code></pre>
+<h4 id="112-session">11.2 Session 依赖</h4>
+<pre><code class="language-python">async def get_session():
+    async with AsyncSession(engine) as session:
+        yield session
+</code></pre>
+<h4 id="113-crud">11.3 CRUD</h4>
+<pre><code class="language-python"># 查询
+result = await session.execute(select(Document))
+docs = result.scalars().all()
+
+# 新增
+session.add(doc)
+await session.commit()
+
+# 更新
+doc.status = &quot;active&quot;
+await session.commit()
+</code></pre>
+<h3 id="_92">动手实验</h3>
+<p><strong>实验 11-1</strong>：在 router 中写 <code>GET /api/documents/list</code>，返回文档列表。</p>
+<p><strong>实验 11-2</strong>：写 <code>POST /api/documents/update-status</code> 更新文档状态。</p>
+<h3 id="_93">课后作业</h3>
+<ol>
+<li>为什么用异步 session？</li>
+<li><code>yield</code> 在 <code>get_session</code> 中的作用是什么？</li>
+</ol>
+<hr />
+<h2 id="12-alembic">第 12 章：Alembic 数据库迁移</h2>
+<h3 id="_94">课时安排</h3>
+<ul>
+<li>理论：1 小时</li>
+<li>实操：1.5 小时</li>
+</ul>
+<h3 id="_95">学习目标</h3>
+<ol>
+<li>理解数据库迁移的作用。</li>
+<li>掌握 Alembic 常用命令。</li>
+<li>能生成并应用迁移。</li>
+</ol>
+<h3 id="_96">重难点</h3>
+<ul>
+<li>重点：<code>alembic revision</code>、<code>alembic upgrade</code>。</li>
+<li>难点：自动迁移的局限性。</li>
+</ul>
+<h3 id="_97">正课内容</h3>
+<h4 id="121">12.1 迁移是什么</h4>
+<p>当模型变化时，需要同步数据库表结构。迁移脚本记录这些变更。</p>
+<h4 id="122">12.2 常用命令</h4>
+<pre><code class="language-bash">alembic upgrade head
+alembic revision --autogenerate -m &quot;add column&quot;
+alembic downgrade -1
+</code></pre>
+<h4 id="123">12.3 项目中的应用</h4>
+<p><code>backend/alembic.ini</code> 是配置文件。迁移脚本在 <code>backend/alembic/versions/</code>。</p>
+<h3 id="_98">动手实验</h3>
+<p><strong>实验 12-1</strong>：给 <code>Document</code> 模型加一个 <code>description</code> 字段，生成迁移并应用。</p>
+<h3 id="_99">课后作业</h3>
+<ol>
+<li>为什么要用迁移工具？</li>
+<li><code>alembic upgrade head</code> 是什么意思？</li>
+</ol>
+<hr />
+<h2 id="13-rbac">第 13 章：RBAC 权限系统</h2>
+<h3 id="_100">课时安排</h3>
+<ul>
+<li>理论：2 小时</li>
+<li>实操：2 小时</li>
+</ul>
+<h3 id="_101">学习目标</h3>
+<ol>
+<li>理解 RBAC 模型。</li>
+<li>掌握项目中的权限实现。</li>
+<li>能给新接口加权限。</li>
+</ol>
+<h3 id="_102">重难点</h3>
+<ul>
+<li>重点：权限常量、<code>require_perm</code>。</li>
+<li>难点：角色与权限的映射。</li>
+</ul>
+<h3 id="_103">正课内容</h3>
+<h4 id="131-rbac">13.1 RBAC 模型</h4>
+<ul>
+<li>User（用户）</li>
+<li>Role（角色）</li>
+<li>Permission（权限）</li>
+<li>Resource:Action（资源:动作）</li>
+</ul>
+<h4 id="132">13.2 权限常量</h4>
+<pre><code class="language-python"># backend/app/core/permissions.py
+RES_QA_ANSWER = &quot;qa:answer&quot;
+RES_DOC_UPLOAD = &quot;document:upload&quot;
+RES_SYSTEM_ADMIN = &quot;system:admin&quot;
+</code></pre>
+<h4 id="133-require_perm">13.3 require_perm</h4>
+<pre><code class="language-python">@router.post(&quot;/answer&quot;)
+async def answer(user=Depends(require_perm(&quot;qa:answer&quot;))):
+    ...
+</code></pre>
+<h3 id="_104">动手实验</h3>
+<p><strong>实验 13-1</strong>：新增一个权限常量 <code>demo:view</code>。</p>
+<p><strong>实验 13-2</strong>：给 <code>GET /api/system/ping</code> 加上该权限。</p>
+<h3 id="_105">课后作业</h3>
+<ol>
+<li>RBAC 是什么？</li>
+<li>前端 <code>utils/perm.js</code> 为什么不能作为安全边界？</li>
+</ol>
+<hr />
+<h2 id="14-jwt">第 14 章：JWT 认证与依赖注入</h2>
+<h3 id="_106">课时安排</h3>
+<ul>
+<li>理论：1.5 小时</li>
+<li>实操：1.5 小时</li>
+</ul>
+<h3 id="_107">学习目标</h3>
+<ol>
+<li>理解 JWT 认证流程。</li>
+<li>掌握 <code>Depends</code> 的高级用法。</li>
+<li>能写出认证依赖。</li>
+</ol>
+<h3 id="_108">重难点</h3>
+<ul>
+<li>重点：JWT encode/decode、<code>get_current_user</code>。</li>
+<li>难点：token 过期与刷新。</li>
+</ul>
+<h3 id="_109">正课内容</h3>
+<h4 id="141-jwt">14.1 JWT 结构</h4>
+<p>JWT = Header.Payload.Signature</p>
+<h4 id="142-token">14.2 登录生成 Token</h4>
+<pre><code class="language-python">access_token = jwt.encode({&quot;sub&quot;: user.id, &quot;exp&quot;: expire}, SECRET_KEY)
+</code></pre>
+<h4 id="143">14.3 依赖注入</h4>
+<pre><code class="language-python">async def get_current_user(token: str = Depends(oauth2_scheme)):
+    payload = jwt.decode(token, SECRET_KEY)
+    return await get_user_by_id(payload[&quot;sub&quot;])
+</code></pre>
+<h3 id="_110">动手实验</h3>
+<p><strong>实验 14-1</strong>：用 Python 手动生成一个 JWT，并用项目密钥验证。</p>
+<p><strong>实验 14-2</strong>：修改 token 过期时间为 2 小时，验证效果。</p>
+<hr />
+<h2 id="15">第 15 章：统一响应与错误处理</h2>
+<h3 id="_111">课时安排</h3>
+<ul>
+<li>理论：1.5 小时</li>
+<li>实操：1.5 小时</li>
+</ul>
+<h3 id="_112">学习目标</h3>
+<ol>
+<li>理解项目的统一响应格式。</li>
+<li>掌握 <code>BizError</code> 的使用。</li>
+<li>理解"BizError → HTTP 200"的约定。</li>
+</ol>
+<h3 id="_113">重难点</h3>
+<ul>
+<li>重点：<code>success()</code>、<code>error()</code>、<code>BizError</code>。</li>
+<li>难点：全局异常处理。</li>
+</ul>
+<h3 id="_114">正课内容</h3>
+<h4 id="151">15.1 统一响应</h4>
+<pre><code class="language-python">{
+  &quot;code&quot;: 0,
+  &quot;message&quot;: &quot;ok&quot;,
+  &quot;data&quot;: {...}
+}
+</code></pre>
+<h4 id="152-bizerror">15.2 BizError</h4>
+<pre><code class="language-python">class BizError(Exception):
+    def __init__(self, code, message):
+        self.code = code
+        self.message = message
+</code></pre>
+<h4 id="153">15.3 项目中的应用</h4>
+<pre><code class="language-python"># backend/app/core/response.py
+def success(data=None, message=&quot;ok&quot;):
+    return {&quot;code&quot;: 0, &quot;message&quot;: message, &quot;data&quot;: data}
+
+def error(message, code=1):
+    return {&quot;code&quot;: code, &quot;message&quot;: message, &quot;data&quot;: None}
+</code></pre>
+<h3 id="_115">动手实验</h3>
+<p><strong>实验 15-1</strong>：在 router 中抛出一个 BizError，观察响应。</p>
+<p><strong>实验 15-2</strong>：新增一个全局异常处理函数。</p>
+<hr />
+<h2 id="16">第 16 章：降级观测与核心横切能力</h2>
+<h3 id="_116">课时安排</h3>
+<ul>
+<li>理论：1.5 小时</li>
+<li>实操：1 小时</li>
+</ul>
+<h3 id="_117">学习目标</h3>
+<ol>
+<li>理解"降级而非崩溃"的约定。</li>
+<li>掌握 <code>core/obs.degraded</code> 的使用。</li>
+<li>了解 metrics、limiter、safety 等模块。</li>
+</ol>
+<h3 id="_118">重难点</h3>
+<ul>
+<li>重点：<code>degraded()</code>。</li>
+<li>难点：何时降级、何时抛错。</li>
+</ul>
+<h3 id="_119">正课内容</h3>
+<h4 id="161">16.1 降级原则</h4>
+<p>外部服务失败时：</p>
+<ul>
+<li>记录降级指标。</li>
+<li>返回兜底结果。</li>
+<li>禁止裸 <code>except: pass</code>。</li>
+</ul>
+<h4 id="162-degraded">16.2 degraded 函数</h4>
+<pre><code class="language-python"># backend/app/core/obs.py
+from prometheus_client import Counter
+
+DEGRADED = Counter(&quot;DEGRADED&quot;, &quot;Degraded counter&quot;, [&quot;tag&quot;])
+
+def degraded(name, exc, msg=None):
+    DEGRADED.labels(tag=name).inc()
+    logger.warning(f&quot;Degraded {name}: {exc} {msg}&quot;)
+</code></pre>
+<h3 id="_120">动手实验</h3>
+<p><strong>实验 16-1</strong>：在代码中模拟一次 rerank 失败，观察 <code>DEGRADED{tag="rerank"}</code> 指标。</p>
+<h3 id="_121">课后作业</h3>
+<ol>
+<li>为什么要降级而不是直接抛异常？</li>
+<li><code>DEGRADED</code> 指标有什么用？</li>
+</ol>
+<hr />
+<h2 id="17-minio">第 17 章：文件上传与 MinIO 对象存储</h2>
+<h3 id="_122">课时安排</h3>
+<ul>
+<li>理论：1.5 小时</li>
+<li>实操：2 小时</li>
+</ul>
+<h3 id="_123">学习目标</h3>
+<ol>
+<li>理解 MinIO 的作用。</li>
+<li>掌握 FastAPI 文件上传。</li>
+<li>理解文档上传后的处理流程。</li>
+</ol>
+<h3 id="_124">重难点</h3>
+<ul>
+<li>重点：<code>UploadFile</code>、MinIO client。</li>
+<li>难点：大文件分片、进度反馈。</li>
+</ul>
+<h3 id="_125">正课内容</h3>
+<h4 id="171-uploadfile">17.1 UploadFile</h4>
+<pre><code class="language-python">from fastapi import UploadFile, File
+
+@router.post(&quot;/upload&quot;)
+async def upload(file: UploadFile = File(...)):
+    content = await file.read()
+    return {&quot;filename&quot;: file.filename}
+</code></pre>
+<h4 id="172-minio">17.2 MinIO</h4>
+<pre><code class="language-python">from minio import Minio
+
+client = Minio(&quot;localhost:9000&quot;, access_key=&quot;minioadmin&quot;, secret_key=&quot;minioadmin&quot;, secure=False)
+client.put_object(&quot;grid-docs&quot;, object_name, data, length)
+</code></pre>
+<h3 id="_126">动手实验</h3>
+<p><strong>实验 17-1</strong>：用 Python 脚本上传一个文件到 MinIO。</p>
+<p><strong>实验 17-2</strong>：在前端上传一个 PDF，观察 MinIO 中是否出现该对象。</p>
+<hr />
+<h1 id="_127">模块三：前端核心技术栈</h1>
+<hr />
+<h2 id="18-vue-3-composition-api">第 18 章：Vue 3  Composition API 精讲</h2>
+<h3 id="_128">课时安排</h3>
+<ul>
+<li>理论：3 小时</li>
+<li>实操：3 小时</li>
+</ul>
+<h3 id="_129">学习目标</h3>
+<ol>
+<li>掌握 <code>ref</code>、<code>reactive</code>、<code>computed</code>、<code>watch</code>。</li>
+<li>理解 <code>&lt;script setup&gt;</code> 语法。</li>
+<li>能写出响应式组件。</li>
+</ol>
+<h3 id="_130">重难点</h3>
+<ul>
+<li>重点：<code>ref</code> 与 <code>reactive</code> 的区别。</li>
+<li>难点：响应式丢失问题。</li>
+</ul>
+<h3 id="_131">正课内容</h3>
+<h4 id="181-ref">18.1 ref</h4>
+<pre><code class="language-vue">&lt;script setup&gt;
+import { ref } from 'vue'
+const count = ref(0)
+const increment = () =&gt; count.value++
+&lt;/script&gt;
+</code></pre>
+<h4 id="182-reactive">18.2 reactive</h4>
+<pre><code class="language-javascript">const state = reactive({ count: 0 })
+state.count++
+</code></pre>
+<h4 id="183-computed">18.3 computed</h4>
+<pre><code class="language-javascript">const double = computed(() =&gt; count.value * 2)
+</code></pre>
+<h4 id="184-watch">18.4 watch</h4>
+<pre><code class="language-javascript">watch(count, (newVal, oldVal) =&gt; {
+  console.log(newVal, oldVal)
+})
+</code></pre>
+<h3 id="_132">动手实验</h3>
+<p><strong>实验 18-1</strong>：实现一个 TodoList 组件。</p>
+<p><strong>实验 18-2</strong>：在 <code>Chat.vue</code> 中找到 3 个 <code>ref</code> 的使用。</p>
+<hr />
+<h2 id="19-vue-router">第 19 章：Vue Router 与导航守卫</h2>
+<h3 id="_133">课时安排</h3>
+<ul>
+<li>理论：2 小时</li>
+<li>实操：2 小时</li>
+</ul>
+<h3 id="_134">学习目标</h3>
+<ol>
+<li>掌握路由配置。</li>
+<li>理解导航守卫。</li>
+<li>能根据权限控制路由访问。</li>
+</ol>
+<h3 id="_135">正课内容</h3>
+<h4 id="191">19.1 基础路由</h4>
+<pre><code class="language-javascript">const routes = [
+  { path: '/', redirect: '/chat' },
+  { path: '/chat', component: Chat, meta: { auth: true } },
+  { path: '/login', component: Login },
+]
+</code></pre>
+<h4 id="192">19.2 导航守卫</h4>
+<pre><code class="language-javascript">router.beforeEach((to, from, next) =&gt; {
+  const auth = useAuthStore()
+  if (to.meta.auth &amp;&amp; !auth.token) next('/login')
+  else next()
+})
+</code></pre>
+<h3 id="_136">动手实验</h3>
+<p><strong>实验 19-1</strong>：新增 <code>/about</code> 页面，不需要登录即可访问。</p>
+<p><strong>实验 19-2</strong>：给 <code>/admin</code> 路由加角色守卫。</p>
+<hr />
+<h2 id="20-pinia">第 20 章：Pinia 状态管理实战</h2>
+<h3 id="_137">课时安排</h3>
+<ul>
+<li>理论：2 小时</li>
+<li>实操：2 小时</li>
+</ul>
+<h3 id="_138">学习目标</h3>
+<ol>
+<li>掌握 Pinia 的 setup store 写法。</li>
+<li>理解状态持久化。</li>
+<li>能在组件中使用 store。</li>
+</ol>
+<h3 id="_139">正课内容</h3>
+<h4 id="201-setup-store">20.1 Setup Store</h4>
+<pre><code class="language-javascript">export const useAuthStore = defineStore('auth', () =&gt; {
+  const token = ref(localStorage.getItem('token') || '')
+  const username = ref('')
+
+  function setToken(t) {
+    token.value = t
+    localStorage.setItem('token', t)
+  }
+
+  return { token, username, setToken }
+})
+</code></pre>
+<h4 id="202">20.2 在组件中使用</h4>
+<pre><code class="language-vue">&lt;script setup&gt;
+import { useAuthStore } from '@/stores/auth'
+const auth = useAuthStore()
+&lt;/script&gt;
+</code></pre>
+<h3 id="_140">动手实验</h3>
+<p><strong>实验 20-1</strong>：新建一个 <code>useAppStore</code>，保存当前主题。</p>
+<p><strong>实验 20-2</strong>：在 <code>App.vue</code> 中切换主题并持久化。</p>
+<hr />
+<h2 id="21-axios-api">第 21 章：axios 封装与 API 调用</h2>
+<h3 id="_141">课时安排</h3>
+<ul>
+<li>理论：1.5 小时</li>
+<li>实操：2 小时</li>
+</ul>
+<h3 id="_142">学习目标</h3>
+<ol>
+<li>掌握 axios 实例配置。</li>
+<li>理解请求/响应拦截器。</li>
+<li>能封装项目 API。</li>
+</ol>
+<h3 id="_143">正课内容</h3>
+<h4 id="211-axios">21.1 axios 实例</h4>
+<pre><code class="language-javascript">// frontend/src/api/request.js
+import axios from 'axios'
+
+const service = axios.create({
+  baseURL: '/api',
+  timeout: 60000,
+})
+</code></pre>
+<h4 id="212">21.2 拦截器</h4>
+<pre><code class="language-javascript">service.interceptors.request.use(config =&gt; {
+  const auth = useAuthStore()
+  if (auth.token) config.headers.Authorization = `Bearer ${auth.token}`
+  return config
+})
+
+service.interceptors.response.use(
+  response =&gt; response.data,
+  error =&gt; {
+    if (error.response?.status === 401) {
+      auth.clear()
+      router.push('/login')
+    }
+    return Promise.reject(error)
+  }
+)
+</code></pre>
+<h3 id="_144">动手实验</h3>
+<p><strong>实验 21-1</strong>：在 <code>api/index.js</code> 新增 <code>getRuntimeInfo</code> 函数。</p>
+<p><strong>实验 21-2</strong>：在组件中调用该函数并显示结果。</p>
+<hr />
+<h2 id="22_1">第 22 章：组件化开发与聊天页面实战</h2>
+<h3 id="_145">课时安排</h3>
+<ul>
+<li>理论：2 小时</li>
+<li>实操：3 小时</li>
+</ul>
+<h3 id="_146">学习目标</h3>
+<ol>
+<li>掌握组件拆分原则。</li>
+<li>理解 props 与 emits。</li>
+<li>能独立开发聊天消息组件。</li>
+</ol>
+<h3 id="_147">正课内容</h3>
+<h4 id="221">22.1 组件拆分</h4>
+<p><code>Chat.vue</code> 可以拆分为：</p>
+<ul>
+<li><code>ChatInput.vue</code>：输入框</li>
+<li><code>ChatMessage.vue</code>：单条消息</li>
+<li><code>ChatSidebar.vue</code>：会话列表</li>
+<li><code>CitationLink.vue</code>：引用链接</li>
+</ul>
+<h4 id="222-props-emits">22.2 props 与 emits</h4>
+<pre><code class="language-vue">&lt;script setup&gt;
+const props = defineProps(['message'])
+const emit = defineEmits(['retry'])
+&lt;/script&gt;
+</code></pre>
+<h3 id="_148">动手实验</h3>
+<p><strong>实验 22-1</strong>：把 <code>Chat.vue</code> 的消息展示部分拆成 <code>ChatMessage.vue</code>。</p>
+<p><strong>实验 22-2</strong>：给消息添加"重新生成"按钮，点击后 emit 事件。</p>
+<hr />
+<h2 id="23-sse">第 23 章：流式答案渲染与 SSE</h2>
+<h3 id="_149">课时安排</h3>
+<ul>
+<li>理论：2 小时</li>
+<li>实操：2 小时</li>
+</ul>
+<h3 id="_150">学习目标</h3>
+<ol>
+<li>理解 SSE（Server-Sent Events）。</li>
+<li>掌握前端流式渲染。</li>
+<li>能处理流式文本和元数据。</li>
+</ol>
+<h3 id="_151">正课内容</h3>
+<h4 id="231-sse">23.1 SSE 基础</h4>
+<p>SSE 是服务器向客户端单向推送的技术。每个消息格式：</p>
+<pre><code class="language-text">event: token
+data: {&quot;delta&quot;: &quot;好&quot;}
+</code></pre>
+<h4 id="232">23.2 前端接收</h4>
+<pre><code class="language-javascript">const eventSource = new EventSource('/api/qa/answer/stream')
+eventSource.onmessage = (e) =&gt; {
+  const data = JSON.parse(e.data)
+  answer.value += data.delta
+}
+</code></pre>
+<h3 id="_152">动手实验</h3>
+<p><strong>实验 23-1</strong>：用原生 JavaScript 写一个 SSE 客户端。</p>
+<p><strong>实验 23-2</strong>：在 <code>Chat.vue</code> 中给流式答案添加打字机效果。</p>
+<hr />
+<h2 id="24">第 24 章：前端权限与按钮级控制</h2>
+<h3 id="_153">课时安排</h3>
+<ul>
+<li>理论：1 小时</li>
+<li>实操：1.5 小时</li>
+</ul>
+<h3 id="_154">学习目标</h3>
+<ol>
+<li>理解前端权限只是展示控制。</li>
+<li>掌握 <code>utils/perm.js</code> 的使用。</li>
+<li>能根据权限隐藏按钮。</li>
+</ol>
+<h3 id="_155">正课内容</h3>
+<h4 id="241-permjs">24.1 perm.js</h4>
+<pre><code class="language-javascript">// frontend/src/utils/perm.js
+export function hasPerm(action) {
+  const auth = useAuthStore()
+  return auth.permissions.includes(action)
+}
+</code></pre>
+<h4 id="242">24.2 按钮控制</h4>
+<pre><code class="language-vue">&lt;template&gt;
+  &lt;button v-if=&quot;hasPerm('document:upload')&quot;&gt;上传&lt;/button&gt;
+&lt;/template&gt;
+</code></pre>
+<h3 id="_156">动手实验</h3>
+<p><strong>实验 24-1</strong>：在管理后台页面根据权限显示/隐藏按钮。</p>
+<h3 id="_157">课后作业</h3>
+<ol>
+<li>为什么前端权限不是安全边界？</li>
+<li>后端还需要做哪些控制？</li>
+</ol>
+<hr />
+<h2 id="25">第 25 章：前端打包与部署</h2>
+<h3 id="_158">课时安排</h3>
+<ul>
+<li>理论：1 小时</li>
+<li>实操：1.5 小时</li>
+</ul>
+<h3 id="_159">学习目标</h3>
+<ol>
+<li>理解 Vite 构建流程。</li>
+<li>掌握 <code>npm run build</code>。</li>
+<li>理解 nginx 部署。</li>
+</ol>
+<h3 id="_160">正课内容</h3>
+<h4 id="251-vite">25.1 Vite 构建</h4>
+<pre><code class="language-bash">cd frontend
+npm run build
+</code></pre>
+<p>生成 <code>dist/</code> 目录。</p>
+<h4 id="252-nginx">25.2 nginx 配置</h4>
+<pre><code class="language-nginx">server {
+  listen 80;
+  location / {
+    root /usr/share/nginx/html;
+    try_files $uri $uri/ /index.html;
+  }
+  location /api {
+    proxy_pass http://backend:8001;
+  }
+}
+</code></pre>
+<h3 id="_161">动手实验</h3>
+<p><strong>实验 25-1</strong>：执行 <code>npm run build</code>，查看 <code>dist/</code> 目录。</p>
+<p><strong>实验 25-2</strong>：修改 <code>frontend/nginx.conf</code>，添加一个静态资源缓存头。</p>
+<hr />
+<h1 id="rag_1">模块四：RAG 核心算法与工程实现</h1>
+<hr />
+<h2 id="26-embedding">第 26 章：Embedding 原理与模型选择</h2>
+<h3 id="_162">课时安排</h3>
+<ul>
+<li>理论：2.5 小时</li>
+<li>实操：2 小时</li>
+</ul>
+<h3 id="_163">学习目标</h3>
+<ol>
+<li>理解 Embedding 是什么。</li>
+<li>掌握常见 Embedding 模型。</li>
+<li>能在项目中切换 Embedding provider。</li>
+</ol>
+<h3 id="_164">重难点</h3>
+<ul>
+<li>重点：向量空间、语义相似度。</li>
+<li>难点：不同模型的维度差异。</li>
+</ul>
+<h3 id="_165">正课内容</h3>
+<h4 id="261-embedding">26.1 Embedding 是什么</h4>
+<p>把文本映射成稠密向量，语义相近的文本向量距离近。</p>
+<h4 id="262">26.2 余弦相似度</h4>
+<pre><code class="language-python">import numpy as np
+
+def cosine_similarity(a, b):
+    return np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b))
+</code></pre>
+<h4 id="263">26.3 模型选择</h4>
+<table>
+<thead>
+<tr>
+<th>模型</th>
+<th>维度</th>
+<th>场景</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>bge-small-zh</td>
+<td>512</td>
+<td>本地、资源受限</td>
+</tr>
+<tr>
+<td>qwen-embedding</td>
+<td>1024</td>
+<td>云端、高质量</td>
+</tr>
+</tbody>
+</table>
+<h3 id="_166">动手实验</h3>
+<p><strong>实验 26-1</strong>：用 <code>sentence-transformers</code> 计算三句话的相似度。</p>
+<p><strong>实验 26-2</strong>：切换 <code>.env</code> 中的 <code>EMB_PROVIDER</code>，重建 backend。</p>
+<hr />
+<h2 id="27-milvus">第 27 章：Milvus 向量数据库实战</h2>
+<h3 id="_167">课时安排</h3>
+<ul>
+<li>理论：2 小时</li>
+<li>实操：2.5 小时</li>
+</ul>
+<h3 id="_168">学习目标</h3>
+<ol>
+<li>理解 Milvus 的核心概念。</li>
+<li>掌握 collection、partition、index。</li>
+<li>能用 Python 操作 Milvus。</li>
+</ol>
+<h3 id="_169">正课内容</h3>
+<h4 id="271">27.1 核心概念</h4>
+<ul>
+<li>Collection：类似表。</li>
+<li>Entity：一条记录。</li>
+<li>Field：字段。</li>
+<li>Index：加速检索。</li>
+<li>Partition：数据分区。</li>
+</ul>
+<h4 id="272-python-sdk">27.2 Python SDK</h4>
+<pre><code class="language-python">from pymilvus import MilvusClient
+
+client = MilvusClient(&quot;http://localhost:19530&quot;)
+client.search(
+    collection_name=&quot;grid_chunks&quot;,
+    data=[query_vector],
+    limit=10,
+)
+</code></pre>
+<h3 id="_170">动手实验</h3>
+<p><strong>实验 27-1</strong>：用 pymilvus 查询 <code>grid_chunks</code> collection 的 schema。</p>
+<p><strong>实验 27-2</strong>：手动插入几条向量数据并检索。</p>
+<hr />
+<h2 id="28-small-to-big">第 28 章：文档切分与 small-to-big 策略</h2>
+<h3 id="_171">课时安排</h3>
+<ul>
+<li>理论：1.5 小时</li>
+<li>实操：2 小时</li>
+</ul>
+<h3 id="_172">学习目标</h3>
+<ol>
+<li>理解文档切分的重要性。</li>
+<li>掌握常见切分策略。</li>
+<li>理解 small-to-big 的作用。</li>
+</ol>
+<h3 id="_173">正课内容</h3>
+<h4 id="281">28.1 切分策略</h4>
+<ul>
+<li>固定长度切分。</li>
+<li>按段落切分。</li>
+<li>按语义切分。</li>
+<li>滑动窗口。</li>
+</ul>
+<h4 id="282">28.2 重叠</h4>
+<p>相邻 chunk 之间保留一定重叠，避免信息截断。</p>
+<h4 id="283-small-to-big">28.3 small-to-big</h4>
+<p>小块用于精确匹配，命中后召回父块获得完整上下文。</p>
+<pre><code class="language-python">class Chunk(Base):
+    parent_chunk_id: Mapped[Optional[int]]
+</code></pre>
+<h3 id="_174">动手实验</h3>
+<p><strong>实验 28-1</strong>：用 Python 写一个按段落切分 PDF 的脚本。</p>
+<p><strong>实验 28-2</strong>：在项目中找到 small-to-big 的实现代码。</p>
+<hr />
+<h2 id="29-bm25">第 29 章：BM25 稀疏检索实现</h2>
+<h3 id="_175">课时安排</h3>
+<ul>
+<li>理论：2 小时</li>
+<li>实操：2 小时</li>
+</ul>
+<h3 id="_176">学习目标</h3>
+<ol>
+<li>理解 BM25 算法。</li>
+<li>掌握 jieba 分词。</li>
+<li>能在项目中使用 BM25。</li>
+</ol>
+<h3 id="_177">正课内容</h3>
+<h4 id="291-bm25">29.1 BM25 公式</h4>
+<p>BM25 综合考虑词频、逆文档频率、文档长度。</p>
+<h4 id="292-jieba">29.2 jieba 分词</h4>
+<pre><code class="language-python">import jieba
+print(list(jieba.cut(&quot;主变压器重瓦斯动作&quot;)))
+</code></pre>
+<h4 id="293">29.3 项目实现</h4>
+<p><code>backend/app/services/bm25_service.py</code>。</p>
+<h3 id="_178">动手实验</h3>
+<p><strong>实验 29-1</strong>：手写一个 BM25 检索 demo。</p>
+<p><strong>实验 29-2</strong>：对比 BM25 和向量检索在同一问题上的表现。</p>
+<hr />
+<h2 id="30-rrf">第 30 章：RRF 多路召回融合</h2>
+<h3 id="_179">课时安排</h3>
+<ul>
+<li>理论：1.5 小时</li>
+<li>实操：1.5 小时</li>
+</ul>
+<h3 id="_180">学习目标</h3>
+<ol>
+<li>理解多路召回的必要性。</li>
+<li>掌握 RRF 公式。</li>
+<li>能调整 RRF 权重。</li>
+</ol>
+<h3 id="_181">正课内容</h3>
+<h4 id="301">30.1 多路召回</h4>
+<ul>
+<li>dense：云 embedding。</li>
+<li>sparse：BM25。</li>
+<li>bge：本地 embedding。</li>
+</ul>
+<h4 id="302-rrf">30.2 RRF 公式</h4>
+<pre><code>score(d) = Σ 1 / (k + rank_i(d))
+</code></pre>
+<h3 id="_182">动手实验</h3>
+<p><strong>实验 30-1</strong>：手动计算 RRF 分数。</p>
+<p><strong>实验 30-2</strong>：调整 <code>RRF_DENSE_WEIGHT</code> 和 <code>RRF_SPARSE_WEIGHT</code>。</p>
+<hr />
+<h2 id="31-rerank-mmr">第 31 章：Rerank 与 MMR</h2>
+<h3 id="_183">课时安排</h3>
+<ul>
+<li>理论：2 小时</li>
+<li>实操：2 小时</li>
+</ul>
+<h3 id="_184">学习目标</h3>
+<ol>
+<li>理解 rerank 的作用。</li>
+<li>理解 MMR 的多样性平衡。</li>
+<li>掌握降级策略。</li>
+</ol>
+<h3 id="_185">正课内容</h3>
+<h4 id="311-rerank">31.1 Rerank</h4>
+<p>用更强的模型判断 query 和 chunk 的相关性。</p>
+<h4 id="312-mmr">31.2 MMR</h4>
+<pre><code>MMR = λ * Sim(query, doc) - (1-λ) * max Sim(doc, selected)
+</code></pre>
+<h4 id="313">31.3 降级</h4>
+<p>rerank 失败时回退到 RRF 原序。</p>
+<h3 id="_186">动手实验</h3>
+<p><strong>实验 31-1</strong>：调整 <code>MMR_LAMBDA</code>，观察答案多样性。</p>
+<p><strong>实验 31-2</strong>：模拟 rerank 超时，验证降级是否生效。</p>
+<hr />
+<h2 id="32">第 32 章：查询分类与智能路由</h2>
+<h3 id="_187">课时安排</h3>
+<ul>
+<li>理论：2 小时</li>
+<li>实操：2 小时</li>
+</ul>
+<h3 id="_188">学习目标</h3>
+<ol>
+<li>理解为什么要做查询路由。</li>
+<li>掌握 6 维特征提取。</li>
+<li>能根据 query 选择检索策略。</li>
+</ol>
+<h3 id="_189">正课内容</h3>
+<h4 id="321">32.1 路由决策</h4>
+<table>
+<thead>
+<tr>
+<th>route</th>
+<th>场景</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>sparse</td>
+<td>标准号、专业术语</td>
+</tr>
+<tr>
+<td>dense</td>
+<td>语义理解</td>
+</tr>
+<tr>
+<td>hybrid</td>
+<td>混合</td>
+</tr>
+<tr>
+<td>sparse_first</td>
+<td>先精确后语义</td>
+</tr>
+</tbody>
+</table>
+<h4 id="322">32.2 特征提取</h4>
+<pre><code class="language-python">@dataclass
+class QueryFeatures:
+    term_density: float
+    has_fault_word: bool
+    has_standard_no: bool
+    has_numeric_param: bool
+    length: int
+    question_type: str
+</code></pre>
+<h3 id="_190">动手实验</h3>
+<p><strong>实验 32-1</strong>：用不同问题测试 <code>route</code> 结果。</p>
+<p><strong>实验 32-2</strong>：新增一个特征并修改路由逻辑。</p>
+<hr />
+<h2 id="33_1">第 33 章：混合检索服务实现</h2>
+<h3 id="_191">课时安排</h3>
+<ul>
+<li>理论：2.5 小时</li>
+<li>实操：3 小时</li>
+</ul>
+<h3 id="_192">学习目标</h3>
+<ol>
+<li>理解 <code>retrieval_service.mixed_search</code> 的完整流程。</li>
+<li>掌握 ACL 过滤。</li>
+<li>能调试检索问题。</li>
+</ol>
+<h3 id="_193">正课内容</h3>
+<h4 id="331-mixed_search">33.1 mixed_search 流程</h4>
+<pre><code class="language-text">query
+  ├── dense_search
+  ├── bge_search
+  ├── bm25_search
+  ├── RRF
+  ├── rerank
+  ├── MMR
+  ├── small-to-big
+  └── ACL filter
+</code></pre>
+<h4 id="332-acl">33.2 ACL 过滤</h4>
+<pre><code class="language-python">candidates = [c for c in candidates if can_access(user, c)]
+</code></pre>
+<h3 id="_194">动手实验</h3>
+<p><strong>实验 33-1</strong>：用 debug-search 查看完整检索链路。</p>
+<p><strong>实验 33-2</strong>：故意限制用户权限，验证 ACL 过滤。</p>
+<hr />
+<h2 id="34-crag">第 34 章：CRAG 自纠错机制</h2>
+<h3 id="_195">课时安排</h3>
+<ul>
+<li>理论：2.5 小时</li>
+<li>实操：2.5 小时</li>
+</ul>
+<h3 id="_196">学习目标</h3>
+<ol>
+<li>理解 CRAG 的三档分级。</li>
+<li>掌握改写重试机制。</li>
+<li>理解 CRAG V3 和逐文档评估。</li>
+</ol>
+<h3 id="_197">正课内容</h3>
+<h4 id="341">34.1 三档分级</h4>
+<table>
+<thead>
+<tr>
+<th>档位</th>
+<th>条件</th>
+<th>动作</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>correct</td>
+<td>&gt;= 0.72</td>
+<td>生成</td>
+</tr>
+<tr>
+<td>ambiguous</td>
+<td>0.3~0.72</td>
+<td>生成，降低置信</td>
+</tr>
+<tr>
+<td>incorrect</td>
+<td>&lt; 0.3</td>
+<td>改写重试或拒答</td>
+</tr>
+</tbody>
+</table>
+<h4 id="342">34.2 改写重试</h4>
+<pre><code class="language-python">rewritten = await query_rewrite.rewrite_query(query, force=True)
+</code></pre>
+<h3 id="_198">动手实验</h3>
+<p><strong>实验 34-1</strong>：调整 <code>CRAG_HIGH</code>，观察行为变化。</p>
+<p><strong>实验 34-2</strong>：开启 <code>CRAG_V3_ENABLE</code>，查看归因矩阵。</p>
+<hr />
+<h2 id="35">第 35 章：引用生成与校验</h2>
+<h3 id="_199">课时安排</h3>
+<ul>
+<li>理论：2.5 小时</li>
+<li>实操：2.5 小时</li>
+</ul>
+<h3 id="_200">学习目标</h3>
+<ol>
+<li>理解引用的重要性。</li>
+<li>掌握自动补标和三层校验。</li>
+<li>能排查引用问题。</li>
+</ol>
+<h3 id="_201">正课内容</h3>
+<h4 id="351">35.1 自动补标</h4>
+<p>对无角标句子按向量相似度补引用。</p>
+<h4 id="352">35.2 三层校验</h4>
+<ol>
+<li>格式校验</li>
+<li>向量校验</li>
+<li>NLI 校验</li>
+</ol>
+<h3 id="_202">动手实验</h3>
+<p><strong>实验 35-1</strong>：关闭 <code>CITATION_AUTO_ENABLE</code>，观察答案变化。</p>
+<p><strong>实验 35-2</strong>：开启 <code>CITATION_NLI_ENABLE</code>，测试校验严格度。</p>
+<hr />
+<h2 id="36">第 36 章：三级缓存与热配置</h2>
+<h3 id="_203">课时安排</h3>
+<ul>
+<li>理论：2 小时</li>
+<li>实操：2.5 小时</li>
+</ul>
+<h3 id="_204">学习目标</h3>
+<ol>
+<li>理解三级缓存架构。</li>
+<li>掌握缓存 key 设计。</li>
+<li>理解热配置原理。</li>
+</ol>
+<h3 id="_205">正课内容</h3>
+<h4 id="361">36.1 三级缓存</h4>
+<pre><code class="language-text">L1 Redis：精确匹配
+L2 MySQL：持久化
+L1.5 Semantic：语义相似
+</code></pre>
+<h4 id="362">36.2 缓存版本串</h4>
+<pre><code class="language-python">def citation_cache_version():
+    return f&quot;cv...R{CRAG_V3_ENABLE}&quot;
+</code></pre>
+<h4 id="363">36.3 热配置</h4>
+<pre><code class="language-python">async def rt_crag_high():
+    return await redis.get(&quot;config:crag_high&quot;) or settings.CRAG_HIGH
+</code></pre>
+<h3 id="_206">动手实验</h3>
+<p><strong>实验 36-1</strong>：同一个问题问两次，观察缓存命中。</p>
+<p><strong>实验 36-2</strong>：热更新 <code>crag_high</code>，验证立即生效。</p>
+<hr />
+<h2 id="37">第 37 章：问答主链路完整跟踪</h2>
+<h3 id="_207">课时安排</h3>
+<ul>
+<li>理论：3 小时</li>
+<li>实操：3 小时</li>
+</ul>
+<h3 id="_208">学习目标</h3>
+<ol>
+<li>能从头跟踪一次问答请求。</li>
+<li>理解每个阶段的作用。</li>
+<li>能用 Langfuse 看完整 trace。</li>
+</ol>
+<h3 id="_209">正课内容</h3>
+<h4 id="371-12">37.1 12 步流程</h4>
+<ol>
+<li>入口 router</li>
+<li>query 归一化与安全检查</li>
+<li>缓存检查</li>
+<li>多轮消解</li>
+<li>智能路由</li>
+<li>混合检索</li>
+<li>CRAG</li>
+<li>图谱增强</li>
+<li>LLM 生成</li>
+<li>引用处理</li>
+<li>落库与缓存</li>
+<li>异步闭环</li>
+</ol>
+<h3 id="_210">动手实验</h3>
+<p><strong>实验 37-1</strong>：在 <code>qa_service.answer()</code> 每步加日志。</p>
+<p><strong>实验 37-2</strong>：在 Langfuse 中查看 waterfall。</p>
+<hr />
+<h2 id="38-llm-provider">第 38 章：LLM Provider 工厂与路由</h2>
+<h3 id="_211">课时安排</h3>
+<ul>
+<li>理论：2 小时</li>
+<li>实操：2 小时</li>
+</ul>
+<h3 id="_212">学习目标</h3>
+<ol>
+<li>理解工厂模式。</li>
+<li>掌握 LLM Router 三层架构。</li>
+<li>能切换和 fallback LLM。</li>
+</ol>
+<h3 id="_213">正课内容</h3>
+<h4 id="381">38.1 工厂模式</h4>
+<pre><code class="language-python">def get_llm_provider(provider=None):
+    name = provider or settings.LLM_PROVIDER
+    if name == &quot;deepseek&quot;: return DeepSeekLLMProvider()
+    ...
+</code></pre>
+<h4 id="382-llm-router">38.2 LLM Router</h4>
+<ul>
+<li>L0：fallback 链</li>
+<li>L1：熔断</li>
+<li>L2：query 分档</li>
+</ul>
+<h3 id="_214">动手实验</h3>
+<p><strong>实验 38-1</strong>：切换 provider，观察答案风格。</p>
+<p><strong>实验 38-2</strong>：模拟 provider 失败，验证 fallback。</p>
+<hr />
+<h2 id="39-neo4j">第 39 章：知识图谱与 Neo4j</h2>
+<h3 id="_215">课时安排</h3>
+<ul>
+<li>理论：2.5 小时</li>
+<li>实操：2.5 小时</li>
+</ul>
+<h3 id="_216">学习目标</h3>
+<ol>
+<li>理解知识图谱的作用。</li>
+<li>掌握 Neo4j 基础。</li>
+<li>理解三元组抽取与查询。</li>
+</ol>
+<h3 id="_217">正课内容</h3>
+<h4 id="391">39.1 图模型</h4>
+<pre><code class="language-cypher">(:Entity)-[:REL]-&gt;(:Entity)
+</code></pre>
+<h4 id="392">39.2 三元组抽取</h4>
+<p>用 LLM 从文档中抽取 (subject, predicate, object)。</p>
+<h4 id="393">39.3 多跳查询</h4>
+<pre><code class="language-cypher">MATCH (e)-[r*1..2]-&gt;(related)
+WHERE e.name IN $entities
+RETURN related
+</code></pre>
+<h3 id="_218">动手实验</h3>
+<p><strong>实验 39-1</strong>：在 Neo4j Browser 中查询三元组。</p>
+<p><strong>实验 39-2</strong>：给一篇文档手动添加三元组。</p>
+<hr />
+<h2 id="40-agent-mcp">第 40 章：Agent 引擎与 MCP 工具总线</h2>
+<h3 id="_219">课时安排</h3>
+<ul>
+<li>理论：2.5 小时</li>
+<li>实操：2.5 小时</li>
+</ul>
+<h3 id="_220">学习目标</h3>
+<ol>
+<li>理解 Agent 的概念。</li>
+<li>掌握 Persona 设计。</li>
+<li>理解 MCP 协议。</li>
+</ol>
+<h3 id="_221">正课内容</h3>
+<h4 id="401-agent-runtime">40.1 Agent Runtime</h4>
+<pre><code class="language-python">async def run_agent(persona, user_input, tools, max_steps=10):
+    for step in range(max_steps):
+        action = await llm.decide(state, tools)
+        if action.type == &quot;answer&quot;: return action.content
+        result = await execute_tool(action.tool, action.params)
+        state.add_observation(result)
+</code></pre>
+<h4 id="402-mcp">40.2 MCP</h4>
+<p>MCP 标准化 LLM 与外部工具的连接。</p>
+<h3 id="_222">动手实验</h3>
+<p><strong>实验 40-1</strong>：查看 <code>agent_personas.py</code>，列出所有 persona。</p>
+<p><strong>实验 40-2</strong>：问一个设备遥测问题，观察 MCP 工具调用。</p>
+<hr />
+<h1 id="_223">模块五：工程化与企业级特性</h1>
+<hr />
+<h2 id="41-pytest">第 41 章：pytest 测试体系</h2>
+<h3 id="_224">课时安排</h3>
+<ul>
+<li>理论：2 小时</li>
+<li>实操：3 小时</li>
+</ul>
+<h3 id="_225">学习目标</h3>
+<ol>
+<li>掌握 pytest 基础。</li>
+<li>理解 fixtures 和 mock。</li>
+<li>能为项目写测试。</li>
+</ol>
+<h3 id="_226">正课内容</h3>
+<h4 id="411">41.1 测试分层</h4>
+<ul>
+<li>单元测试</li>
+<li>集成测试</li>
+<li>E2E 测试</li>
+</ul>
+<h4 id="412-fixtures">41.2 Fixtures</h4>
+<pre><code class="language-python">@pytest.fixture
+async def test_db():
+    engine = create_async_engine(&quot;sqlite+aiosqlite:///:memory:&quot;)
+    ...
+</code></pre>
+<h4 id="413-mock">41.3 Mock</h4>
+<pre><code class="language-python">monkeypatch.setattr(&quot;app.providers.llm.qwen_llm.QwenLLMProvider.generate&quot;, fake_generate)
+</code></pre>
+<h3 id="_227">动手实验</h3>
+<p><strong>实验 41-1</strong>：运行项目测试套件。</p>
+<p><strong>实验 41-2</strong>：为 <code>_cache_knowledge_valid</code> 写单元测试。</p>
+<hr />
+<h2 id="42-prometheus-grafana">第 42 章：Prometheus 与 Grafana 监控</h2>
+<h3 id="_228">课时安排</h3>
+<ul>
+<li>理论：1.5 小时</li>
+<li>实操：2 小时</li>
+</ul>
+<h3 id="_229">学习目标</h3>
+<ol>
+<li>理解 Prometheus 指标。</li>
+<li>能查看 Grafana 仪表盘。</li>
+<li>能添加自定义指标。</li>
+</ol>
+<h3 id="_230">正课内容</h3>
+<h4 id="421-prometheus">42.1 Prometheus 指标</h4>
+<pre><code class="language-text">qa_request_total 150
+DEGRADED{tag=&quot;rerank&quot;} 3
+</code></pre>
+<h4 id="422-grafana">42.2 Grafana</h4>
+<p>访问 <code>http://localhost:3000</code>，查看预设面板。</p>
+<h3 id="_231">动手实验</h3>
+<p><strong>实验 42-1</strong>：在 Grafana 中找到 QA 请求量面板。</p>
+<p><strong>实验 42-2</strong>：新增一个自定义 Counter 指标。</p>
+<hr />
+<h2 id="43-langfuse-llm-trace">第 43 章：Langfuse 与 LLM Trace</h2>
+<h3 id="_232">课时安排</h3>
+<ul>
+<li>理论：1.5 小时</li>
+<li>实操：2 小时</li>
+</ul>
+<h3 id="_233">学习目标</h3>
+<ol>
+<li>理解 Langfuse 的作用。</li>
+<li>能查看 LLM trace。</li>
+<li>理解 token 消耗和成本。</li>
+</ol>
+<h3 id="_234">正课内容</h3>
+<h4 id="431-trace">43.1 Trace</h4>
+<p>每次问答对应一个 trace，包含：</p>
+<ul>
+<li>prompt</li>
+<li>模型调用</li>
+<li>token 数</li>
+<li>latency</li>
+</ul>
+<h3 id="_235">动手实验</h3>
+<p><strong>实验 43-1</strong>：在 Langfuse 中查看一次完整问答。</p>
+<p><strong>实验 43-2</strong>：分析哪个阶段耗时最长。</p>
+<hr />
+<h2 id="44-docker">第 44 章：Docker 生产部署</h2>
+<h3 id="_236">课时安排</h3>
+<ul>
+<li>理论：2 小时</li>
+<li>实操：3 小时</li>
+</ul>
+<h3 id="_237">学习目标</h3>
+<ol>
+<li>理解生产部署与开发部署的区别。</li>
+<li>掌握 <code>install.sh</code> 的使用。</li>
+<li>理解 K8s 单 Pod 演示部署。</li>
+</ol>
+<h3 id="_238">正课内容</h3>
+<h4 id="441">44.1 生产部署</h4>
+<pre><code class="language-bash">bash install.sh up
+</code></pre>
+<h4 id="442">44.2 关键配置</h4>
+<ul>
+<li>JWT_SECRET</li>
+<li>ADMIN_PASSWORD</li>
+<li>API Key</li>
+</ul>
+<h3 id="_239">动手实验</h3>
+<p><strong>实验 44-1</strong>：用 <code>install.sh</code> 在一台新机器上部署。</p>
+<p><strong>实验 44-2</strong>：查看 <code>docker-compose.deploy.yml</code> 与开发版的区别。</p>
+<hr />
+<h2 id="45">第 45 章：知识治理与版本管理</h2>
+<h3 id="_240">课时安排</h3>
+<ul>
+<li>理论：2 小时</li>
+<li>实操：2 小时</li>
+</ul>
+<h3 id="_241">学习目标</h3>
+<ol>
+<li>理解知识治理的必要性。</li>
+<li>掌握 withdraw/supersede/expire。</li>
+<li>理解治理传播机制。</li>
+</ol>
+<h3 id="_242">正课内容</h3>
+<h4 id="451">45.1 治理动作</h4>
+<ul>
+<li>withdraw：撤回</li>
+<li>supersede：替代</li>
+<li>expire：过期</li>
+</ul>
+<h4 id="452">45.2 传播目标</h4>
+<ul>
+<li>MySQL</li>
+<li>Milvus</li>
+<li>Neo4j</li>
+<li>Redis 缓存</li>
+</ul>
+<h3 id="_243">动手实验</h3>
+<p><strong>实验 45-1</strong>：撤回一篇文档，验证答案不再引用。</p>
+<p><strong>实验 45-2</strong>：查看 <code>governance_propagate_service.py</code> 的实现。</p>
+<hr />
+<h2 id="46">第 46 章：任务中心与质量事件</h2>
+<h3 id="_244">课时安排</h3>
+<ul>
+<li>理论：1.5 小时</li>
+<li>实操：2 小时</li>
+</ul>
+<h3 id="_245">学习目标</h3>
+<ol>
+<li>理解持久化任务队列。</li>
+<li>理解质量事件总线。</li>
+<li>能新增一个异步任务。</li>
+</ol>
+<h3 id="_246">正课内容</h3>
+<h4 id="461">46.1 任务中心</h4>
+<pre><code class="language-python">async def enqueue(task_type, payload):
+    task = PersistentTask(type=task_type, payload=payload)
+    session.add(task)
+    await session.commit()
+</code></pre>
+<h4 id="462">46.2 质量事件</h4>
+<pre><code class="language-python">async def emit(event_type, payload):
+    event = QualityEvent(type=event_type, payload=payload)
+    await session.add(event)
+</code></pre>
+<h3 id="_247">动手实验</h3>
+<p><strong>实验 46-1</strong>：新增一个任务类型并消费它。</p>
+<p><strong>实验 46-2</strong>：订阅一个质量事件。</p>
+<hr />
+<h2 id="47">第 47 章：日志、限流与安全</h2>
+<h3 id="_248">课时安排</h3>
+<ul>
+<li>理论：1.5 小时</li>
+<li>实操：1.5 小时</li>
+</ul>
+<h3 id="_249">学习目标</h3>
+<ol>
+<li>理解结构化日志。</li>
+<li>掌握限流配置。</li>
+<li>理解 prompt injection 防护。</li>
+</ol>
+<h3 id="_250">正课内容</h3>
+<h4 id="471">47.1 日志</h4>
+<p>项目使用 loguru，支持结构化输出。</p>
+<h4 id="472">47.2 限流</h4>
+<p>使用 slowapi，基于 token bucket。</p>
+<h4 id="473">47.3 安全</h4>
+<p><code>safety.guard_query</code> 检测 prompt injection。</p>
+<h3 id="_251">动手实验</h3>
+<p><strong>实验 47-1</strong>：查看 backend 日志格式。</p>
+<p><strong>实验 47-2</strong>：尝试一个 prompt injection 问题，观察系统反应。</p>
+<hr />
+<h2 id="48">第 48 章：性能优化与容量规划</h2>
+<h3 id="_252">课时安排</h3>
+<ul>
+<li>理论：2 小时</li>
+<li>实操：2 小时</li>
+</ul>
+<h3 id="_253">学习目标</h3>
+<ol>
+<li>理解常见性能瓶颈。</li>
+<li>掌握缓存预热和索引优化。</li>
+<li>能进行简单的容量规划。</li>
+</ol>
+<h3 id="_254">正课内容</h3>
+<h4 id="481">48.1 性能瓶颈</h4>
+<ul>
+<li>LLM 调用慢：缓存、异步、批处理。</li>
+<li>检索慢：索引、topK 控制。</li>
+<li>数据库慢：索引、连接池。</li>
+</ul>
+<h4 id="482">48.2 优化手段</h4>
+<ul>
+<li>缓存预热</li>
+<li>向量索引 IVF_FLAT / HNSW</li>
+<li>数据库索引</li>
+</ul>
+<h3 id="_255">动手实验</h3>
+<p><strong>实验 48-1</strong>：运行 <code>scripts/benchmark.py</code> 压测。</p>
+<p><strong>实验 48-2</strong>：调整 <code>top_k</code> 观察延迟变化。</p>
+<hr />
+<h1 id="_256">模块六：企业实战与就业指导</h1>
+<hr />
+<h2 id="49">第 49 章：综合项目实战一——优化检索效果</h2>
+<h3 id="_257">课时安排</h3>
+<ul>
+<li>理论：1 小时</li>
+<li>实操：4 小时</li>
+</ul>
+<h3 id="_258">项目目标</h3>
+<p>针对一个具体业务问题，优化检索效果，使答案准确率提升。</p>
+<h3 id="_259">步骤</h3>
+<ol>
+<li>选择测试问题集。</li>
+<li>用 <code>eval_retrieval.py</code> 评测 baseline。</li>
+<li>分析 bad case。</li>
+<li>调整路由、RRF 权重、MMR λ。</li>
+<li>重新评测。</li>
+<li>写实验报告。</li>
+</ol>
+<h3 id="_260">产出</h3>
+<ul>
+<li>优化前后对比表。</li>
+<li>关键参数。</li>
+<li>实验报告。</li>
+</ul>
+<hr />
+<h2 id="50-agent-persona">第 50 章：综合项目实战二——新增一个 Agent Persona</h2>
+<h3 id="_261">课时安排</h3>
+<ul>
+<li>理论：1 小时</li>
+<li>实操：4 小时</li>
+</ul>
+<h3 id="_262">项目目标</h3>
+<p>新增一个"安全审计员" persona，在答案生成后检查安全合规性。</p>
+<h3 id="_263">步骤</h3>
+<ol>
+<li>定义 persona。</li>
+<li>实现审计逻辑。</li>
+<li>接入 <code>qa_service.answer()</code>。</li>
+<li>测试正常和违规答案。</li>
+<li>写单元测试。</li>
+</ol>
+<h3 id="_264">产出</h3>
+<ul>
+<li>新增代码。</li>
+<li>测试用例。</li>
+<li>演示视频或截图。</li>
+</ul>
+<hr />
+<h2 id="51">第 51 章：综合项目实战三——企业级部署与运维</h2>
+<h3 id="_265">课时安排</h3>
+<ul>
+<li>理论：1 小时</li>
+<li>实操：4 小时</li>
+</ul>
+<h3 id="_266">项目目标</h3>
+<p>在一台云服务器上完成生产部署，并配置监控告警。</p>
+<h3 id="_267">步骤</h3>
+<ol>
+<li>准备云服务器。</li>
+<li>安装 Docker。</li>
+<li>配置 <code>.env</code>。</li>
+<li>执行 <code>install.sh up</code>。</li>
+<li>配置 Grafana 告警。</li>
+<li>写部署文档。</li>
+</ol>
+<h3 id="_268">产出</h3>
+<ul>
+<li>部署文档。</li>
+<li>监控截图。</li>
+<li>服务健康检查脚本。</li>
+</ul>
+<hr />
+<h2 id="52_1">第 52 章：简历打造与面试技巧</h2>
+<h3 id="_269">课时安排</h3>
+<ul>
+<li>理论：2 小时</li>
+<li>模拟面试：1 小时</li>
+</ul>
+<h3 id="_270">内容</h3>
+<h4 id="521">52.1 简历写法</h4>
+<ul>
+<li>项目背景</li>
+<li>技术栈</li>
+<li>个人职责</li>
+<li>量化成果</li>
+</ul>
+<h4 id="522">52.2 面试高频题</h4>
+<ol>
+<li>什么是 RAG？</li>
+<li>你们是怎么做检索的？</li>
+<li>如何解决大模型幻觉？</li>
+<li>CRAG 是什么？</li>
+<li>引用校验怎么做？</li>
+<li>缓存怎么设计？</li>
+<li>多租户怎么实现？</li>
+<li>Agent 和 RAG 有什么区别？</li>
+</ol>
+<h3 id="_271">模拟面试</h3>
+<p>教师扮演面试官，学员回答。</p>
+<hr />
+<h2 id="53">第 53 章：课程总结与学习路线</h2>
+<h3 id="_272">课时安排</h3>
+<ul>
+<li>理论：1 小时</li>
+</ul>
+<h3 id="_273">内容</h3>
+<ol>
+<li>回顾 6 大模块核心知识点。</li>
+<li>总结学习方法和常见误区。</li>
+<li>给出后续深入学习路线：</li>
+<li>深入 LLM 微调</li>
+<li>多模态 RAG</li>
+<li>更复杂的 Agent 系统</li>
+<li>分布式部署</li>
+</ol>
+<h3 id="_274">结业要求</h3>
+<ol>
+<li>完成所有实验。</li>
+<li>提交三个综合项目报告。</li>
+<li>通过结业面试。</li>
+</ol>
+<hr />
+<h2 id="a">附录 A：常用命令速查表</h2>
+<pre><code class="language-bash"># 启动全栈
+docker compose up -d --build
+
+# 后端本地开发
+uvicorn app.main:app --reload --host 127.0.0.1 --port 8001 --app-dir backend
+
+# 前端本地开发
+cd frontend &amp;&amp; npm run dev
+
+# 测试
+python -m pytest tests/ -q --ignore=tests/test_api.py -m &quot;not integration&quot;
+
+# 迁移
+cd backend &amp;&amp; alembic upgrade head
+
+# lint
+ruff check backend tests
+
+# 日志
+bash start.sh logs backend
+</code></pre>
+<h2 id="b">附录 B：关键端点速查表</h2>
+<table>
+<thead>
+<tr>
+<th>端点</th>
+<th>用途</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>GET /api/system/runtime-info</td>
+<td>运行时信息</td>
+</tr>
+<tr>
+<td>GET /api/system/config/feature-flags</td>
+<td>feature flags</td>
+</tr>
+<tr>
+<td>POST /api/qa/answer</td>
+<td>非流式问答</td>
+</tr>
+<tr>
+<td>POST /api/qa/answer/stream</td>
+<td>流式问答</td>
+</tr>
+<tr>
+<td>POST /api/retrieval/debug-search</td>
+<td>检索调试</td>
+</tr>
+<tr>
+<td>GET /api/qa/trace/{trace_id}</td>
+<td>QA trace</td>
+</tr>
+<tr>
+<td>GET /metrics</td>
+<td>Prometheus 指标</td>
+</tr>
+</tbody>
+</table>
+<h2 id="c">附录 C：面试题汇总</h2>
+<ol>
+<li>什么是 RAG？解决了大模型哪些痛点？</li>
+<li>Embedding 是什么？常见的距离度量有哪些？</li>
+<li>BM25 和向量检索的区别？</li>
+<li>RRF 是什么？为什么要多路召回？</li>
+<li>CRAG 是什么？三档分级分别怎么处理？</li>
+<li>引用校验怎么做？为什么要做？</li>
+<li>三级缓存分别是什么？各自优缺点？</li>
+<li>热配置怎么实现？</li>
+<li>知识图谱在 RAG 中起什么作用？</li>
+<li>Agent 和 RAG 有什么区别和联系？</li>
+<li>你们项目是怎么做权限控制的？</li>
+<li>如何排查 LLM 返回空答案？</li>
+<li>Docker Compose 中服务怎么互相访问？</li>
+<li>FastAPI 的 Depends 有什么作用？</li>
+<li>Vue 3 的 Composition API 相比 Options API 有什么优势？</li>
+</ol>
+<hr />
+<blockquote>
+<p>培训课程生成时间：2026-10-01<br />
+配套文档：<a href="CODE_WIKI.html">CODE_WIKI.html</a> · <a href="LEARNING_GUIDE.html">LEARNING_GUIDE.html</a></p>
+</blockquote>
+            <footer>
+                培训课程生成时间：2026-10-01 · 配套文档：[CODE_WIKI.html](CODE_WIKI.html) · [LEARNING_GUIDE.html](LEARNING_GUIDE.html)
+            </footer>
+        </div>
+    </main>
+
+    <button class="back-to-top" id="backToTop" title="返回顶部">↑</button>
+
+    <script>
+        (function() {
+            const content = document.getElementById('content');
+            const paragraphs = content.querySelectorAll('p');
+            paragraphs.forEach(p => {
+                const text = p.textContent;
+                if (text.startsWith('实验 ')) p.classList.add('task-box');
+                if (text.startsWith('提示：') || text.startsWith('注意：')) p.classList.add('tip-box');
+                if (text.startsWith('学习目标') || text.startsWith('课程目标') || text.startsWith('项目目标')) p.classList.add('goal-box');
+                if (text.startsWith('面试题')) p.classList.add('exam-box');
+            });
+
+            const themeBtn = document.getElementById('themeBtn');
+            const savedTheme = localStorage.getItem('training-theme');
+            if (savedTheme) {
+                document.documentElement.setAttribute('data-theme', savedTheme);
+                themeBtn.textContent = savedTheme === 'dark' ? '☀️' : '🌙';
+            }
+            themeBtn.addEventListener('click', () => {
+                const current = document.documentElement.getAttribute('data-theme');
+                const next = current === 'dark' ? 'light' : 'dark';
+                document.documentElement.setAttribute('data-theme', next);
+                localStorage.setItem('training-theme', next);
+                themeBtn.textContent = next === 'dark' ? '☀️' : '🌙';
+            });
+
+            const headings = content.querySelectorAll('h1, h2, h3');
+            const toc = document.getElementById('toc');
+            const ul = document.createElement('ul');
+            headings.forEach((h, idx) => {
+                if (!h.id) h.id = 'heading-' + idx;
+                const li = document.createElement('li');
+                const a = document.createElement('a');
+                a.href = '#' + h.id;
+                a.textContent = h.textContent;
+                a.className = 'toc-' + h.tagName.toLowerCase();
+                a.dataset.text = h.textContent.toLowerCase();
+                a.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    h.scrollIntoView({ behavior: 'smooth' });
+                    if (window.innerWidth <= 900) {
+                        document.getElementById('sidebar').classList.remove('open');
+                    }
+                });
+                li.appendChild(a);
+                ul.appendChild(li);
+            });
+            toc.appendChild(ul);
+
+            const tocLinks = toc.querySelectorAll('a');
+            const observer = new IntersectionObserver((entries) => {
+                entries.forEach(entry => {
+                    if (entry.isIntersecting) {
+                        tocLinks.forEach(a => a.classList.remove('active'));
+                        const active = toc.querySelector('a[href="#' + entry.target.id + '"]');
+                        if (active) active.classList.add('active');
+                    }
+                });
+            }, { rootMargin: '-80px 0px -70% 0px', threshold: 0 });
+            headings.forEach(h => observer.observe(h));
+
+            const menuToggle = document.getElementById('menuToggle');
+            const sidebar = document.getElementById('sidebar');
+            menuToggle.addEventListener('click', () => sidebar.classList.toggle('open'));
+
+            const backToTop = document.getElementById('backToTop');
+            window.addEventListener('scroll', () => {
+                backToTop.classList.toggle('visible', window.scrollY > 400);
+            });
+            backToTop.addEventListener('click', () => window.scrollTo({ top: 0, behavior: 'smooth' }));
+
+            function addCopyButtons() {
+                document.querySelectorAll('pre').forEach(pre => {
+                    if (pre.querySelector('.copy-btn')) return;
+                    const btn = document.createElement('button');
+                    btn.className = 'copy-btn';
+                    btn.textContent = '复制';
+                    btn.addEventListener('click', () => {
+                        const code = pre.querySelector('code') || pre;
+                        navigator.clipboard.writeText(code.textContent).then(() => {
+                            btn.textContent = '已复制';
+                            setTimeout(() => btn.textContent = '复制', 1500);
+                        });
+                    });
+                    pre.appendChild(btn);
+                });
+            }
+            addCopyButtons();
+
+            const searchInput = document.getElementById('searchInput');
+            let originalContent = content.innerHTML;
+            searchInput.addEventListener('input', (e) => {
+                const term = e.target.value.trim().toLowerCase();
+                tocLinks.forEach(a => {
+                    a.classList.toggle('hidden-match', term && !a.dataset.text.includes(term));
+                });
+                if (!term) {
+                    content.innerHTML = originalContent;
+                    addCopyButtons();
+                    return;
+                }
+                const walker = document.createTreeWalker(content, NodeFilter.SHOW_TEXT, null, false);
+                const nodes = [];
+                while (walker.nextNode()) nodes.push(walker.currentNode);
+                nodes.forEach(node => {
+                    const text = node.textContent;
+                    const lower = text.toLowerCase();
+                    if (lower.includes(term)) {
+                        const parts = text.split(new RegExp('(' + term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'gi'));
+                        const frag = document.createDocumentFragment();
+                        parts.forEach(part => {
+                            if (part.toLowerCase() === term) {
+                                const span = document.createElement('span');
+                                span.className = 'highlight';
+                                span.textContent = part;
+                                frag.appendChild(span);
+                            } else {
+                                frag.appendChild(document.createTextNode(part));
+                            }
+                        });
+                        node.parentNode.replaceChild(frag, node);
+                    }
+                });
+            });
+
+            const collapseBtn = document.getElementById('collapseBtn');
+            let allOpen = false;
+            collapseBtn.addEventListener('click', () => {
+                allOpen = !allOpen;
+                document.querySelectorAll('details').forEach(d => d.open = allOpen);
+            });
+        })();
+    </script>
+</body>
+</html>

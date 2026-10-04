@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>机构版讲义｜电网运维 RAG 智能问答系统</title>
+<style>
+:root{--ink:#243447;--muted:#5b6b7a;--brand:#1769aa;--brand2:#0f4c81;--bg:#f4f7fb;--line:#d9e2ec;--accent:#eaf4ff;--ok:#e8f7ef;--warn:#fff7df}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.78 "Microsoft YaHei",Arial,sans-serif}main{max-width:1120px;margin:0 auto;padding:34px 28px 80px;background:#fff;box-shadow:0 0 28px #17324d12}h1,h2,h3,h4{line-height:1.35;color:var(--brand2);margin:1.6em 0 .55em}h1{font-size:34px;border-bottom:4px solid var(--brand);padding-bottom:14px}h2{font-size:26px;border-left:6px solid var(--brand);padding-left:12px}h3{font-size:21px}h4{font-size:18px}p{margin:.55em 0}a{color:var(--brand)}.cover{padding:30px 20px 18px;background:linear-gradient(135deg,#eaf4ff,#fff);border:1px solid var(--line);border-radius:14px}.subtitle{font-size:20px;color:var(--muted)}.meta{display:flex;flex-wrap:wrap;gap:10px;margin-top:18px}.tag{background:#fff;border:1px solid #b9d5ed;border-radius:999px;padding:4px 12px;color:var(--brand2);font-size:14px}.toc{background:#f8fbff;border:1px solid var(--line);padding:18px 24px;border-radius:10px}.toc ol{columns:2;margin:0}.callout{padding:14px 18px;border-left:5px solid var(--brand);background:var(--accent);margin:14px 0}.success{border-left-color:#1f9d61;background:var(--ok)}.warning{border-left-color:#d49a00;background:var(--warn)}table{width:100%;border-collapse:collapse;margin:14px 0;font-size:15px}th,td{border:1px solid var(--line);padding:9px 11px;vertical-align:top}th{background:#eef5fb;color:var(--brand2)}code{background:#eef2f5;padding:2px 5px;border-radius:4px;color:#a13b24}pre{background:#17202a;color:#e8f0f7;padding:16px 18px;border-radius:8px;overflow:auto;line-height:1.55}pre code{background:none;color:inherit;padding:0}.module{margin-top:46px;padding-top:8px;border-top:2px solid #dfeaf3}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:14px}.card{border:1px solid var(--line);border-radius:9px;padding:14px;background:#fff}.card h4{margin-top:0}.check{list-style:none;padding-left:0}.check li:before{content:'☐';color:var(--brand);margin-right:8px}.footer{margin-top:50px;border-top:1px solid var(--line);padding-top:18px;color:var(--muted);font-size:14px}@media(max-width:700px){main{padding:20px 15px}.toc ol{columns:1}h1{font-size:28px}}
+</style>
+</head>
+<body><main>
+<section class="cover">
+<h1>电网运维 RAG 智能问答系统</h1>
+<p class="subtitle">机构版项目实训讲义｜从业务问题到可核验答案的完整工程实践</p>
+<div class="meta"><span class="tag">建议 8 天 / 48 学时</span><span class="tag">讲授 + 演示 + 上机</span><span class="tag">Python / FastAPI / Vue 3</span><span class="tag">适合企业内训与项目制教学</span></div>
+<p>本讲义参考 EduRAG 课程“背景—工具—数据库—Milvus—评估—API”的递进结构，并按本项目的真实代码边界重写。学员最终要交付一个能够导入运维文档、完成混合检索、生成带引用答案、展示检索轨迹并通过评测的最小可用系统。</p>
+</section>
+<section class="toc"><h2>讲义导航</h2><ol><li>课程定位与教学设计</li><li>项目认知：为什么需要 RAG</li><li>环境搭建与服务拓扑</li><li>数据与知识库：MySQL、Redis、Milvus、MinIO</li><li>检索工程：BM25、Embedding、RRF、Rerank、MMR</li><li>问答增强：路由、改写、CRAG、GraphRAG、缓存</li><li>应用开发：FastAPI、Vue、SSE、权限</li><li>评测、可观测性与上线</li><li>综合实训、作业与考核</li></ol></section>
+<section class="module"><h2>一、课程定位与教学设计</h2>
+<h3>1.1 培训目标</h3><div class="grid"><div class="card"><h4>能讲清</h4><p>解释 LLM、Embedding、向量检索、RAG 与传统数据库查询的边界。</p></div><div class="card"><h4>能跑起来</h4><p>使用 Docker Compose 启动全栈，完成文档导入、登录、提问与引用查看。</p></div><div class="card"><h4>能改得动</h4><p>沿 routers → services → rag/providers 的边界定位代码并完成一个小功能。</p></div><div class="card"><h4>能验收</h4><p>用黄金问题集评估召回、引用、延迟和成本，形成可复盘的改进报告。</p></div></div>
+<h3>1.2 学员画像与前置知识</h3><p>适合 Python 后端、数据工程、算法应用、前端工程师及技术管理者。建议具备 Python 基础、HTTP/JSON、SQL 和 Git 使用经验；不要求先学过深度学习，但需理解“文本如何变成向量”。</p>
+<h3>1.3 机构授课节奏</h3><table><tr><th>阶段</th><th>学时</th><th>课堂产出</th></tr><tr><td>认知与环境</td><td>6</td><td>服务拓扑图、成功启动记录</td></tr><tr><td>数据与检索</td><td>16</td><td>知识库、BM25/向量/混合检索对比</td></tr><tr><td>增强与应用</td><td>16</td><td>带引用流式问答页面与调试轨迹</td></tr><tr><td>评测与综合实训</td><td>10</td><td>评测报告、演示视频、项目答辩</td></tr></table>
+<div class="callout"><b>讲师提示：</b>每个章节采用“概念 20% → 代码走读 30% → 演示 20% → 学员实训 30%”。不要只展示最终页面，要让学员看到一次请求如何经过路由、检索、证据、生成和缓存。</div>
+</section>
+<section class="module"><h2>二、项目认知：为什么需要 RAG</h2>
+<h3>2.1 业务问题</h3><p>电网运维知识分散在规程、缺陷记录、检修票、厂家手册和历史问答中。通用大模型知道“常识”，却不知道企业最新的设备台账、区域规程和内部权限；直接让模型回答会产生幻觉、过期结论和无法追责的答案。</p>
+<h3>2.2 RAG 的最小闭环</h3><pre><code>用户问题 → 问题规范化/路由 → 召回候选证据 → 重排与权限过滤
+→ 证据充分性检查 → 带引用生成 → 引用校验 → 记录与评测</code></pre>
+<h3>2.3 与传统搜索、纯 LLM 的比较</h3><table><tr><th>方案</th><th>优点</th><th>风险</th><th>本项目的取舍</th></tr><tr><td>关键词搜索</td><td>可解释、速度快</td><td>同义表达召回差</td><td>BM25 作为稀疏通道</td></tr><tr><td>纯向量搜索</td><td>语义泛化好</td><td>数字、型号、否定词易错</td><td>Embedding 双路并查</td></tr><tr><td>纯 LLM</td><td>表达自然</td><td>幻觉、知识过期</td><td>必须绑定证据与拒答</td></tr><tr><td>混合 RAG</td><td>兼顾语义与精确匹配</td><td>链路复杂、需评测</td><td>路由 + RRF + Rerank + CRAG</td></tr></table>
+<h3>2.4 课堂演示：同一个问题的三种答案</h3><p>示例问题：“10kV 线路跳闸后，现场巡视先检查哪些部位？”分别演示通用模型、关键词检索、RAG 答案，要求学员指出：是否有适用范围、是否引用原文、是否暴露文档版本与来源。</p>
+<div class="callout success"><b>本章验收：</b>学员能用一句话说明“RAG 不是把文档喂给模型”，而是将检索、证据治理、生成和验证组成可观测的应用链路。</div>
+</section>
+<section class="module"><h2>三、环境搭建与服务拓扑</h2>
+<h3>3.1 项目服务</h3><p>前端为 Vue 3，后端为 FastAPI；数据层按职责拆分：MySQL 保存用户、文档元数据、会话与持久化缓存；Redis 保存热点缓存和运行时配置；Milvus 保存向量；Neo4j 保存实体关系；MinIO 保存原文和附件。Prometheus/Grafana 负责指标与看板。</p>
+<h3>3.2 启动清单</h3><pre><code># 在项目根目录执行
+docker compose up -d --build
+docker compose ps
+# 后端健康检查
+curl http://127.0.0.1:8001/health
+# 前端
+浏览器访问 http://127.0.0.1:5173</code></pre>
+<h3>3.3 环境变量与安全</h3><p>至少配置一个模型服务密钥：<code>DEEPSEEK_API_KEY</code>、<code>DASHSCOPE_API_KEY</code> 或 <code>ARK_API_KEY</code>。密钥只放在本地 <code>.env</code>，不可提交 Git。容器内模型缓存采用离线模式时，不要把主机回环代理地址带入容器。</p>
+<h3>3.4 启动故障排查顺序</h3><ol><li>先看 <code>docker compose ps</code> 的健康状态。</li><li>再看 <code>docker compose logs backend</code> 是否为数据库、模型密钥或 Milvus 连接问题。</li><li>确认后端端口为 8001、MySQL 为 3307，避免与本机默认端口冲突。</li><li>修改后端代码或 <code>.env</code> 后重新构建 backend 镜像；前端页面改动可使用 Vite HMR。</li></ol>
+<div class="callout warning"><b>讲师提示：</b>把“能启动”作为第一个可见成果。学员如果在第一天卡在依赖安装，后续所有算法学习都会变成纸上谈兵。</div>
+</section>
+<section class="module"><h2>四、数据与知识库</h2>
+<h3>4.1 文档进入系统的生命周期</h3><pre><code>上传文件 → MinIO 保存原文 → 文档解析/清洗 → 分块与元数据
+→ Embedding → Milvus 入库 → MySQL 登记版本/权限 → 可检索</code></pre>
+<h3>4.2 分块不是“按固定字数切一刀”</h3><p>规程标题、章节、表格、步骤和注意事项决定语义边界。建议保留 <code>doc_id</code>、<code>chunk_idx</code>、标题路径、设备类型、部门、版本、生效时间和 ACL。小块适合召回，大块适合给模型理解；本项目支持 small-to-big 回填父块。</p>
+<h3>4.3 双 Embedding 集合</h3><table><tr><th>集合</th><th>维度</th><th>用途</th><th>注意事项</th></tr><tr><td><code>grid_chunks</code></td><td>云模型 1024</td><td>高质量语义检索</td><td>切换提供商需重建集合</td></tr><tr><td><code>grid_chunks_bge</code></td><td>本地 bge 512</td><td>离线/低成本并查</td><td>确保模型缓存与维度一致</td></tr></table>
+<h3>4.4 MySQL 与 Redis 的教学实验</h3><ul class="check"><li>建立一张 FAQ 表，记录问题、答案、关键词、版本和租户。</li><li>用 BM25 对“避雷器泄漏电流异常”做关键词召回。</li><li>把同一问题写入 Redis，观察命中、TTL 和失效。</li><li>比较“精确缓存”和“语义缓存”的命中边界。</li></ul>
+<h3>4.5 实训一：导入一组运维文档</h3><p>每组选择 5—10 份公开或脱敏文档，设计元数据字段，导入后抽查 20 个 chunk：不得出现空文本、跨章节拼接、缺失来源或权限字段。提交《知识库质量检查表》。</p>
+</section>
+<section class="module"><h2>五、检索工程：从召回到最终上下文</h2>
+<h3>5.1 查询路由</h3><p>先判断问题属于故障、规程、自然语言问答、精确型号或结构化查询。稀疏问题优先 BM25，语义问题使用向量，复杂问题走 hybrid；路由结果还会影响 <code>topk</code>、Milvus <code>ef</code>、RRF 权重和是否跳过 rerank。</p>
+<h3>5.2 混合检索主链路</h3><pre><code>query rewrite → BM25 / dense 双通道 → RRF 融合
+→ rerank → tenant/ACL/docType 过滤 → MMR 去重
+→ small-to-big / RAPTOR → 知识治理门禁 → 回填 chunk 元数据</code></pre>
+<h3>5.3 为什么需要 RRF、Rerank、MMR</h3><table><tr><th>组件</th><th>解决的问题</th><th>课堂观察指标</th></tr><tr><td>RRF</td><td>不同分数尺度无法直接相加</td><td>Recall@K、来源覆盖</td></tr><tr><td>Rerank</td><td>初召回相关但排序不准</td><td>MRR、nDCG</td></tr><tr><td>MMR</td><td>前 K 条来自同一段落、证据重复</td><td>多样性、答案覆盖</td></tr><tr><td>ACL 过滤</td><td>用户不应看到其他部门文档</td><td>越权用例 0 命中</td></tr></table>
+<h3>5.4 实训二：检索对比实验</h3><p>准备 30 条黄金问题，分别运行 sparse、dense、hybrid 三种策略，记录 Recall@5、首 token 延迟和平均上下文长度；再打开 rerank/MMR，对比指标变化。禁止只凭“感觉更好”下结论。</p>
+<div class="callout"><b>代码走读位置：</b><code>backend/app/services/retrieval_service.py::mixed_search</code>、<code>backend/app/rag/rrf.py</code>、<code>backend/app/rag/mmr.py</code>、<code>backend/app/routing/routing_service.py</code>。</div>
+</section>
+<section class="module"><h2>六、问答增强：让答案可控、可证据化</h2>
+<h3>6.1 多轮问题与 Query 改写</h3><p>“它为什么又跳了？”不能直接拿去检索。系统将会话历史压缩为独立检索问题，但原始问题仍用于最终回答，避免改写后的关键词破坏用户意图。课堂要求学员展示改写前后文本，并检查是否引入了不存在的设备。</p>
+<h3>6.2 CRAG 自纠错</h3><p>召回结果会进行证据充分性判断：正确则生成，模糊则扩展邻近块，不正确则强制改写并重检索；仍不可靠时保守拒答。拒答是安全策略，不是系统失败。</p>
+<h3>6.3 GraphRAG 与结构化事实</h3><p>Neo4j 适合回答“设备—位置—关系—历史事件”的多跳问题。图谱上下文应与文本证据并列呈现，并保留来源和时间，防止把推断关系冒充原文事实。</p>
+<h3>6.4 三级缓存</h3><pre><code>单轮问题：L1 Redis → L2 MySQL → L1.5 Semantic Cache → LLM
+高置信结果：MySQL 持久化后写 Redis，再写语义索引
+多轮对话：不写三层问答缓存，避免上下文污染
+语义开关、引用校验开关变化：进入 cache version，旧缓存自动隔离</code></pre>
+<h3>6.5 引用与答案质量</h3><p>答案中的引用必须能映射到实际 chunk；系统还可做句子—证据相似度校验，并异步执行 NLI 回填。课堂演示“引用不存在、引用错段、引用与结论矛盾”三种反例，要求学员判断应删除结论、重检索还是拒答。</p>
+<div class="callout success"><b>实训三：安全回答器：</b>为 10 条问题设置“证据充足 / 证据模糊 / 无证据”三类预期，验收输出必须包含答案、来源、置信度和必要的风险提示。</div>
+</section>
+<section class="module"><h2>七、应用开发：FastAPI、Vue、SSE 与权限</h2>
+<h3>7.1 后端分层原则</h3><p>Router 只负责参数、权限与响应；业务编排放在 services；算法放在 rag/routing；外部模型和数据库通过 providers/clients 访问。外部调用失败要记录 DEGRADED 指标并降级，不能用空的 <code>except</code> 静默吞错。</p>
+<h3>7.2 问答接口课堂演示</h3><pre><code># OpenAPI 文档
+http://127.0.0.1:8001/docs
+
+# 典型链路
+POST /api/qa/answer          # 普通 JSON
+POST /api/qa/answer/stream   # SSE 流式输出
+GET  /api/retrieval/debug    # 查看召回与路由轨迹</code></pre>
+<h3>7.3 SSE 事件讲解</h3><p>前端依次接收 <code>meta</code>、若干 <code>token</code>、引用/质量信息和 <code>done</code>。网络中断、重复 token、done 丢失都要有可恢复策略；UI 不能把“正在生成”误显示为最终答案。</p>
+<h3>7.4 Vue 页面实训</h3><p>以 <code>Chat.vue</code> 为入口，增加“查看证据”抽屉：显示 query、路由、召回来源、分数、引用校验状态和耗时。再在 <code>Documents.vue</code> 中补充文档版本和权限标签。</p>
+<h3>7.5 RBAC 与租户隔离</h3><p>前端按钮隐藏只是体验层，后端路由必须使用 <code>require_perm</code>，并在文档、检索、图谱、预览、缓存查询中持续传递 tenant 与 ACL。设计一个“普通运维员不能看检修票原文”的越权测试。</p>
+</section>
+<section class="module"><h2>八、评测、可观测性与上线</h2>
+<h3>8.1 评测四层</h3><table><tr><th>层次</th><th>核心问题</th><th>建议指标</th></tr><tr><td>数据层</td><td>文档能否被正确解析、分块、索引？</td><td>空块率、重复率、覆盖率</td></tr><tr><td>检索层</td><td>正确证据是否进入 Top-K？</td><td>Recall@K、MRR、nDCG</td></tr><tr><td>生成层</td><td>答案是否正确、完整、可引用？</td><td>Faithfulness、Answer Relevancy、引用通过率</td></tr><tr><td>系统层</td><td>是否快、稳、可追责？</td><td>首 token、P95、错误率、成本、缓存命中率</td></tr></table>
+<h3>8.2 黄金集构造</h3><p>每条样本至少包含：问题、问题类型、期望证据 doc/chunk、参考答案、是否允许拒答、租户/角色。覆盖精确型号、同义表达、否定条件、多轮指代、无答案和越权问题。黄金集必须版本化，变更要写明原因。</p>
+<h3>8.3 运行观测</h3><p>Prometheus 记录检索、缓存、CRAG、引用和模型调用指标；Grafana 用于趋势观察；Langfuse/OTEL 用于单次链路追踪。课堂要求从一次低质量回答反查：路由是否偏、召回是否漏、重排是否错、模型是否越过证据。</p>
+<h3>8.4 上线检查单</h3><ul class="check"><li>模型密钥、数据库密码、JWT 密钥均来自安全配置。</li><li>后端代码或配置变更后完成对应镜像重建。</li><li>数据库迁移、Milvus 集合维度和备份恢复演练通过。</li><li>权限、拒答、引用格式、过期文档门禁均有自动化用例。</li><li>健康检查、日志、指标、告警和回滚步骤写入部署手册。</li></ul>
+</section>
+<section class="module"><h2>九、综合实训与考核</h2>
+<h3>9.1 综合项目题目</h3><p>“变电站故障处置助手”：导入一套脱敏规程和历史缺陷记录，实现文档管理、混合检索、流式问答、引用展示、检索调试、权限隔离和评测报告。</p>
+<h3>9.2 分组交付物</h3><ol><li>系统架构图与数据流图。</li><li>可运行代码和启动说明。</li><li>不少于 50 条黄金问题集及评测脚本。</li><li>检索对比报告（sparse/dense/hybrid、开关前后）。</li><li>5 分钟演示视频或现场演示。</li><li>风险清单：幻觉、过期规程、越权、模型不可用、缓存污染。</li></ol>
+<h3>9.3 评分 rubric（100 分）</h3><table><tr><th>维度</th><th>分值</th><th>达标要求</th></tr><tr><td>功能闭环</td><td>25</td><td>导入、检索、问答、引用、前端展示完整</td></tr><tr><td>检索质量</td><td>20</td><td>能解释策略选择，黄金集 Recall@5 有证据</td></tr><tr><td>可信与安全</td><td>20</td><td>拒答、引用校验、ACL、租户隔离有效</td></tr><tr><td>工程规范</td><td>15</td><td>分层清晰、错误可观测、配置不泄密</td></tr><tr><td>评测与复盘</td><td>10</td><td>指标、样本、失败案例和改进计划齐全</td></tr><tr><td>表达与答辩</td><td>10</td><td>能从一次请求讲清全链路并回答追问</td></tr></table>
+<h3>9.4 课后面试题</h3><ol><li>为什么 BM25 和向量检索要混合，而不是二选一？</li><li>RRF 为什么不能直接平均原始分数？</li><li>什么时候应该拒答，而不是让模型“尽量回答”？</li><li>多轮改写后的问题为什么不直接替代用户原问题？</li><li>缓存版本为什么必须包含会改变答案语义的开关？</li><li>如何证明一次答案没有越过租户边界？</li></ol>
+<div class="callout success"><b>结课标准：</b>学员不仅能把页面跑起来，还能用日志、检索轨迹和评测数据解释“答案为什么这样产生、哪里可能错、下一步如何改进”。</div>
+</section>
++
+<section class="module"><h2>十、讲师授课脚本与逐步实操</h2>
+<h3>10.1 第一天：从业务问题到可运行系统（6 学时）</h3>
+<table><tr><th>时间</th><th>讲师动作</th><th>学员动作</th><th>检查点</th></tr>
+<tr><td>0:00–0:30</td><td>展示一条错误答案和一条带证据答案</td><td>标注幻觉、过期、无来源等问题</td><td>能说出 RAG 的业务价值</td></tr>
+<tr><td>0:30–1:30</td><td>画出“问题→检索→生成”三段式</td><td>补充企业自己的数据源</td><td>区分知识库与模型参数</td></tr>
+<tr><td>1:30–3:00</td><td>演示 Compose 启动与健康检查</td><td>完成环境变量、启动服务</td><td>前端可访问、API 可访问</td></tr>
+<tr><td>3:00–4:30</td><td>走读 main.py、routers、services</td><td>定位一次请求入口</td><td>说清分层职责</td></tr>
+<tr><td>4:30–6:00</td><td>演示上传一份规程并提问</td><td>记录请求链路和返回事件</td><td>提交启动截图和链路图</td></tr></table>
+<h3>10.2 讲师开场白（可直接使用）</h3>
+<div class="callout">“今天我们不从模型 API 开始，而从一个运维人员的问题开始：他需要的是一条能执行、能追溯、能说明依据的处置建议。模型只是生成器，真正决定系统可信度的是知识、检索、权限和验证。”</div>
+<h3>10.3 课堂提问卡</h3>
+<ul><li>如果模型回答得很流畅，但引用的规程已过期，系统算成功吗？</li><li>如果 Top-5 中有 5 条相似 chunk，为什么答案仍可能不完整？</li><li>用户有权限看文档标题，是否就一定有权限看原文？</li><li>Embedding 服务不可用时，系统应该报错、降级还是拒答？为什么？</li></ul>
+<h3>10.4 学员操作记录模板</h3>
+<table><tr><th>项目</th><th>记录内容</th></tr><tr><td>问题</td><td>原始问题、会话 ID、用户角色、租户</td></tr><tr><td>路由</td><td>route、query_type、是否改写、topk</td></tr><tr><td>检索</td><td>每个 chunk 的 doc_id、score、来源通道</td></tr><tr><td>生成</td><td>模型、token 数、首 token 延迟、总耗时</td></tr><tr><td>质量</td><td>CRAG grade、citationVerified、是否拒答</td></tr></table>
+</section>
+<section class="module"><h2>十一、代码走读地图</h2>
+<h3>11.1 一次问答请求的阅读顺序</h3>
+<pre><code>1. backend/app/routers/qa.py
+2. backend/app/services/qa_service.py
+3. backend/app/services/standalone_query.py
+4. backend/app/routing/routing_service.py
+5. backend/app/services/retrieval_service.py
+6. backend/app/rag/rrf.py / mmr.py / citation.py
+7. backend/app/providers/factory.py
+8. backend/app/core/response.py / safety.py / permissions.py</code></pre>
+<h3>11.2 代码阅读问题</h3>
+<table><tr><th>阅读对象</th><th>学员必须回答</th></tr><tr><td>qa_service</td><td>缓存命中在哪个阶段返回？流式输出何时发送 done？</td></tr><tr><td>retrieval_service</td><td>权限过滤发生在召回前还是召回后？为什么？</td></tr><tr><td>routing_service</td><td>什么条件会选择 sparse、dense 或 hybrid？</td></tr><tr><td>citation_verifier</td><td>引用格式校验与语义校验有什么区别？</td></tr><tr><td>providers/factory</td><td>更换模型供应商会影响哪些配置和缓存？</td></tr><tr><td>core/response</td><td>为什么业务错误仍返回 HTTP 200？前端如何识别 code？</td></tr></table>
+<h3>11.3 小改动练习</h3>
+<ol><li>增加一个“显示检索耗时”的 SSE meta 字段。</li><li>为调试接口补充一个 <code>route</code> 查询参数。</li><li>对文档列表增加“生效日期”排序。</li><li>为缓存命中增加 Prometheus 计数指标。</li><li>新增一个拒答原因枚举，并在前端显示。</li></ol>
+<div class="callout warning"><b>改动边界：</b>练习只能在 router、service、rag、前端 view 的既有边界内完成；不要把检索逻辑塞进 router，也不要绕过权限过滤直接查数据库。</div>
+</section>
+<section class="module"><h2>十二、知识库建设标准作业流程（SOP）</h2>
+<h3>12.1 文档接收</h3>
+<ol><li>登记文档名称、来源部门、负责人、版本、生效日期和保密等级。</li><li>检查文件是否可复制、是否包含扫描图片、表格和页眉页脚。</li><li>为每份文档生成唯一 doc_id，原文存入 MinIO。</li></ol>
+<h3>12.2 清洗与分块</h3>
+<ol><li>去除重复页眉、页脚、目录和无意义空白。</li><li>标题必须进入 chunk 的 metadata，不要只保留正文。</li><li>步骤、条件、例外、警告尽量保持在同一 chunk。</li><li>对表格保留列名，并将单位、上下限和适用设备写入文本。</li><li>给 chunk 增加版本、租户、部门、允许角色和父块标识。</li></ol>
+<h3>12.3 入库验收</h3>
+<table><tr><th>检查项</th><th>最低标准</th><th>不合格处理</th></tr><tr><td>空文本</td><td>0%</td><td>回到解析阶段</td></tr><tr><td>来源字段</td><td>100%</td><td>禁止发布</td></tr><tr><td>权限字段</td><td>100%</td><td>进入隔离区</td></tr><tr><td>向量维度</td><td>与集合一致</td><td>停止批量写入</td></tr><tr><td>版本状态</td><td>只能有一个当前版本</td><td>走知识治理流程</td></tr></table>
+<h3>12.4 版本与撤回</h3><p>新规程上线不能简单覆盖旧文档。应保留旧版本、标记生效时间，并在检索阶段由知识治理门禁排除已撤回、已替代或过期文档。任何文档撤回都应能追溯到操作人和原因。</p>
+</section>
+<section class="module"><h2>十三、检索调参实验手册</h2>
+<h3>13.1 单变量实验原则</h3><p>一次只改变一个开关或参数，固定模型、数据集、问题顺序和随机种子。每次实验保存配置快照、指标、失败样本和结论，避免“多个开关一起打开后不知道谁有效”。</p>
+<h3>13.2 推荐实验矩阵</h3>
+<table><tr><th>实验</th><th>基线</th><th>变量</th><th>观察</th></tr><tr><td>A</td><td>BM25</td><td>dense</td><td>语义召回是否补足同义问题</td></tr><tr><td>B</td><td>dense</td><td>hybrid + RRF</td><td>型号、数值问题是否提升</td></tr><tr><td>C</td><td>Top-K 排序</td><td>Rerank</td><td>前 3 条证据是否更相关</td></tr><tr><td>D</td><td>Rerank</td><td>MMR</td><td>重复证据是否减少</td></tr><tr><td>E</td><td>普通生成</td><td>CRAG</td><td>无证据问题是否更少幻觉</td><tr><td>F</td><td>无缓存</td><td>三级缓存</td><td>延迟、命中率与新鲜度变化</td></tr></table>
+<h3>13.3 失败样本分类</h3>
+<ul><li><b>召回失败：</b>正确文档未进入候选集，优先检查分块、同义词、路由和 embedding。</li><li><b>排序失败：</b>正确文档在候选集但排名靠后，检查 rerank、RRF 权重和元数据过滤。</li><li><b>生成失败：</b>证据正确但答案错误，检查 prompt、上下文长度和引用约束。</li><li><b>治理失败：</b>引用过期或越权文档，检查版本门禁、ACL 和缓存隔离。</li><li><b>系统失败：</b>超时、断流、降级不明显，检查外部调用、限流和 DEGRADED 指标。</li></ul>
+</section>
+<section class="module"><h2>十四、故障演练与标准答案</h2>
+<h3>14.1 Milvus 连接失败</h3><p><b>现象：</b>上传成功但问答没有召回。<br><b>排查：</b>检查容器健康、端口 19530、集合名称和向量维度；查看 backend 日志中的 degraded 标签。<br><b>合格处理：</b>系统给出可识别的降级提示，不伪装成“没有相关知识”。</p>
+<h3>14.2 缓存返回旧规程</h3><p><b>现象：</b>文档已更新，答案仍引用旧版本。<br><b>排查：</b>核对 cache key 是否包含 citation cache version、文档治理代次和租户；清理或自然淘汰旧缓存后复测。<br><b>合格处理：</b>新旧版本不会因缓存键相同而混用。</p>
+<h3>14.3 检索结果越权</h3><p><b>现象：</b>普通角色在调试接口看到其他部门 chunk。<br><b>排查：</b>确认后端 ACL 过滤而非只依赖前端隐藏；检查 doc_id、tenant_id、allowed_roles 是否同时生效。<br><b>合格处理：</b>越权请求返回空证据或业务拒绝，且留下审计日志。</p>
+<h3>14.4 流式回答卡住</h3><p><b>现象：</b>页面一直显示“生成中”。<br><b>排查：</b>检查 SSE 心跳、异常事件、done 事件、浏览器断线重连和代理缓冲。<br><b>合格处理：</b>用户看到明确失败状态，可重试，后台日志保留 request_id。</p>
+</section>
+<section class="module"><h2>十五、讲师备课与打印清单</h2>
+<table><tr><th>课前</th><th>课堂中</th><th>课后</th></tr><tr><td>准备脱敏文档和 30 条问题</td><td>每组至少完成一次实操</td><td>收集实验记录和失败样本</td></tr><tr><td>验证模型密钥、Docker、端口</td><td>让学员截图链路和指标</td><td>按 rubric 评分并给出一条改进建议</td></tr><tr><td>预先导入一套可演示数据</td><td>故意演示一次错误和一次拒答</td><td>更新黄金集和下次课前置任务</td></tr></table>
+<h3>15.1 学员每节课必须带走的三样东西</h3>
+<ul class="check"><li>一张能解释的架构或数据流图。</li><li>一条可复现的命令、接口调用或实验记录。</li><li>一个失败案例及其根因、证据和修复计划。</li></ul>
+</section>
+
+<section class="footer"><p>讲义版本：机构版 v1.1｜依据项目当前代码结构与 EduRAG 线下课件重新编排。建议授课前由讲师运行一次完整启动、导入和评测流程，并根据现场模型供应商与数据脱敏要求更新演示截图。</p></section>
+</main></body></html>
