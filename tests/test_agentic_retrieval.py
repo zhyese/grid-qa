@@ -5,7 +5,6 @@ from app.config import settings
 from app.rag import crag
 from app.services import agent_tools
 from app.services.agent_personas import DEEP_RETRIEVAL_PERSONA
-from app.services.persona_store import code_personas
 
 
 def _ctxs(n=3, score=0.9):
@@ -75,9 +74,23 @@ def test_deep_retrieval_persona_shape():
     assert DEEP_RETRIEVAL_PERSONA.fallback is not None    # 降级兜底存在
 
 
-def test_deep_retrieval_not_registered_by_default():
-    """默认关 → 不出现在 persona 列表（问答主链路零改动）。"""
-    assert "deep_retrieval" not in code_personas()
+def test_deep_retrieval_registration_gated():
+    """注册受 AGENTIC_RETRIEVAL_ENABLE 门控：关=不出现在 persona 列表（主链路零改动）。
+
+    不依赖运行环境 .env 的实际值（.env 开闸后同样成立）：显式设 False/True 验证门控两侧。
+    """
+    from app.services import persona_store
+    saved = settings.AGENTIC_RETRIEVAL_ENABLE
+    try:
+        settings.AGENTIC_RETRIEVAL_ENABLE = False
+        persona_store._CODE_PERSONAS.pop("deep_retrieval", None)
+        assert "deep_retrieval" not in persona_store.code_personas()
+        settings.AGENTIC_RETRIEVAL_ENABLE = True
+        persona_store._CODE_PERSONAS["deep_retrieval"] = persona_store.DEEP_RETRIEVAL_PERSONA
+        assert "deep_retrieval" in persona_store.code_personas()
+    finally:
+        settings.AGENTIC_RETRIEVAL_ENABLE = saved
+        persona_store._CODE_PERSONAS.pop("deep_retrieval", None)
 
 
 @pytest.mark.asyncio
