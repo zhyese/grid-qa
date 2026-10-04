@@ -106,13 +106,21 @@ export function buildLand() {
 
   // 站内分区(深色块,模拟设备基础平台)
   const platMat = new THREE.MeshStandardMaterial({ color: 0x8A8D92, roughness: 0.85 })
-  const platforms = [
+  // P1-7 布局双轨收口：优先用后端布局模板（/twin/station/layout 的 areas），
+  // 拉不到时回退内置默认（与 station_layout_110kv.json 同源的手绘值）
+  const DEFAULT_PLATFORMS = [
     { pos: [0, 0, 0], size: [13, 8] },          // 主变区
     { pos: [15, 0, 0], size: [11, 13] },         // 110kV 配电区
     { pos: [-12, 0, 0], size: [9, 7] },          // 10kV 开关室
     { pos: [-12, 0, 8], size: [9, 5] },          // 控制室
     { pos: [0, 0, -8], size: [7, 5] },           // 无功补偿区
   ]
+  const platforms = Array.isArray(layoutAreas) && layoutAreas.length
+    ? layoutAreas.map((a) => ({
+        pos: [a.position?.[0] ?? 0, 0, a.position?.[2] ?? 0],
+        size: [a.size?.[0] ?? 8, a.size?.[2] ?? a.size?.[1] ?? 8],
+      }))
+    : DEFAULT_PLATFORMS
   for (const p of platforms) {
     const m = new THREE.Mesh(
       new THREE.PlaneGeometry(p.size[0], p.size[1]),
@@ -621,7 +629,7 @@ export function buildTrees() {
  * 完整园区场景(站外 + 站内环境)
  * @returns {THREE.Group} 包含地形/道路/建筑/树木/控制室/围栏
  */
-export function buildDistrict(envMap) {
+export function buildDistrict(envMap, layoutAreas = null) {
   const g = new THREE.Group()
   g.name = 'District'
 

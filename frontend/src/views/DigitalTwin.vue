@@ -87,7 +87,7 @@
 <script setup>
 import { ref, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { getStationOverview, getDeviceDetail, getTwinStations } from '../api'
+import { getStationOverview, getDeviceDetail, getTwinStations, getStationLayout } from '../api'
 import { useAuthStore } from '../stores/auth'
 import * as THREE from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
@@ -107,6 +107,7 @@ import {
 const auth = useAuthStore()
 const router = useRouter()
 const overview = ref({ devices: [], stationName: '' })
+const layoutAreas = ref(null) // P1-7：后端布局模板（拉不到降级为 sceneEnvironment 内置默认）
 const selectedDevice = ref(null)
 const stations = ref([])
 const currentStationId = ref('')
@@ -170,6 +171,12 @@ async function loadOverview() {
   try {
     const r = await getStationOverview(currentStationId.value || '')
     overview.value = r.data || { devices: [] }
+    // P1-7 布局双轨收口：分区底座改读后端布局模板（/twin/station/layout），
+    // 失败时保持 null → buildDistrict 用内置默认（degrade，不破坏渲染）
+    try {
+      const lr = await getStationLayout(currentStationId.value || '')
+      layoutAreas.value = lr.data?.areas?.length ? lr.data.areas : null
+    } catch (err) { layoutAreas.value = null }
     await nextTick()
     render3D()
   } catch (e) { console.error('load overview error:', e) }
@@ -293,7 +300,7 @@ function render3D() {
     scene.add(buildSky())
 
     // 园区环境(地形/道路/建筑/树木/控制室)
-    envGroup = buildDistrict(envMap)
+    envGroup = buildDistrict(envMap, layoutAreas.value)
     scene.add(envGroup)
 
     // 站内区域地面已由 buildDistrict 内部 platforms 提供，不再调用 buildAreaFloor 避免重叠 z-fight
