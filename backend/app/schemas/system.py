@@ -69,3 +69,10 @@ class LlmRouterConfigRequest(BaseModel):
     fallbackChain: list[str] = []
     tierModels: dict = {}
     ollamaEnable: bool = True
+
+
+class RolePermOverrideRequest(BaseModel):
+    """P1-8 RBAC DB 覆盖：按 (role, permission) 粒度授予/回收。"""
+    role: str
+    permission: str
+    granted: bool

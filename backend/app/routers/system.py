@@ -7,13 +7,14 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.limiter import limiter
-from app.core.permissions import ALERT_MANAGE, ALERT_READ, AUDIT_READ, METRIC_READ, OPS_READ, USER_MANAGE, SYSTEM_CONFIG
+from app.core.permissions import ALERT_MANAGE, ALERT_READ, AUDIT_READ, METRIC_READ, OPS_READ, OPS_WRITE, USER_MANAGE, SYSTEM_CONFIG
 from app.core.response import BizError, success
 from app.db.session import get_db
 from app.dependencies import get_current_user, require_admin, require_perm
 from app.models.user import User
 from app.schemas.auth import ChangePasswordRequest, LoginRequest, ProfileUpdateRequest, RegisterRequest, ResetPasswordRequest, UpdateRoleRequest, UserStatusRequest
-from app.schemas.system import AlertDisposeRequest, AgentRunRequest, AiDraftUpdateRequest, ConfidenceUpdateRequest, PersonaConfigRequest, MilvusConfigRequest, ModelConfigRequest, LlmRouterConfigRequest
+from app.schemas.system import AlertDisposeRequest, AgentRunRequest, AiDraftUpdateRequest, ConfidenceUpdateRequest, PersonaConfigRequest, MilvusConfigRequest, ModelConfigRequest, LlmRouterConfigRequest, RolePermOverrideRequest
+from app.schemas.ops_workbench import ImportRequest as TelemetryImportBody  # F2 独立导入复用工作台点位 schema
 from app.services import config_service, log_service
 from app.services.alert_disposal_service import list_disposals, trigger_disposal
 from app.services.persona_store import delete_config, list_configs, upsert_config
@@ -50,6 +51,25 @@ async def my_profile(user: User = Depends(get_current_user), db: AsyncSession = 
     return success(await get_profile(db, user.id), "查询成功")
 
 
+@router.get("/feature-flags")
+async def feature_flags(user: User = Depends(get_current_user)):
+    """前端菜单特性开关镜像（只读，登录即可）。
+
+    前端按「开关 && 角色」显隐导航入口，避免开关关闭时出现 404/403 死入口；
+    require_perm 仍是真相之源，本端点不构成安全边界。
+    """
+    from app.config import settings as _s
+    return success({
+        "workflow": bool(_s.WORKFLOW_ENABLE),
+        "opsReport": bool(_s.OPS_REPORT_ENABLE),
+        "docCollab": bool(_s.DOC_COLLAB_ENABLE),
+        "drillSandbox": bool(_s.DRILL_SANDBOX_ENABLE),
+        "goldenSet": bool(_s.GOLDEN_SET_ENABLE),
+        "opsWorkbench": bool(_s.OPS_WORKBENCH_ENABLE),
+        "telemetryQa": bool(getattr(_s, "TELEMETRY_QA_ENABLE", False)),
+    }, "查询成功")
+
+
 @router.put("/me")
 async def update_my_profile(
     body: ProfileUpdateRequest,
@@ -83,6 +103,30 @@ async def register(
     data = await register_user(db, body.username, body.password, body.role, body.tenantId, body.dept)
     await write_log(db, admin.username, "注册用户", f"新增用户 {body.username}（{body.role}/{body.tenantId}/{body.dept}）")
     return success(data, "注册成功")
+
+
+@router.get("/role-permissions")
+async def role_permissions(
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+):
+    """RBAC 权限目录与各角色生效态（code 默认 + DB 覆盖合并，P1-8）。"""
+    from app.services import role_permission_service
+    return success(await role_permission_service.effective_catalog(db), "查询成功")
+
+
+@router.put("/role-permissions")
+async def set_role_permission(
+    body: RolePermOverrideRequest,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+):
+    """覆盖角色权限：granted=True 补权 / False 回收（覆盖 code 默认；admin 不受覆盖）。"""
+    from app.services import role_permission_service
+    res = await role_permission_service.set_override(db, body.role, body.permission, body.granted)
+    await write_log(db, admin.username, "调整角色权限",
+                    f"{body.role} {body.permission} → {'授予' if body.granted else '回收'}")
+    return success(res, "已更新（最迟 60s 全实例生效）")
 
 
 @router.get("/users")
@@ -907,6 +951,26 @@ async def telemetry_series(
         db, user.tenant_id or "default", deviceId, metric=metric, hours=hours, source=source,
     )
     return success(res, "查询成功")
+
+
+@router.post("/telemetry/import")
+async def telemetry_import_standalone(
+    body: TelemetryImportBody,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_perm(OPS_WRITE)),
+):
+    """F2 遥测数据导入（独立入口，P1-6 数据通道解耦）。
+
+    与 /ops-workbench/telemetry/import 同源（telemetry_history_service.import_points），
+    但只由 TELEMETRY_QA_ENABLE 门控——不再隐性依赖 OPS_WORKBENCH_ENABLE，
+    开了时序问答就能喂数据。租户隔离 / 查重冲突语义与工作台入口一致。
+    """
+    from app.config import settings as _s
+    if not _s.TELEMETRY_QA_ENABLE:
+        raise BizError("时序遥测问答未启用（TELEMETRY_QA_ENABLE）", 403)
+    from app.services import telemetry_history_service
+    res = await telemetry_history_service.import_points(db, user, body)
+    return success(res, "导入完成")
 
 
 # ===== 数据备份与恢复（管理员；MySQL 元数据层）=====
