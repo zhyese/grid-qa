@@ -11,7 +11,7 @@ from app.config import settings
 from app.core.obs import degraded
 from app.db.session import AsyncSessionLocal
 from app.models.persona_config import PersonaConfig
-from app.services.agent_personas import ALERT_PERSONA, DIAGNOSE_PERSONA, EVIDENCE_PERSONA, OPS_PLANNER_PERSONA, PROACTIVE_DIAGNOSIS_PERSONA, QA_PERSONA
+from app.services.agent_personas import DEEP_RETRIEVAL_PERSONA, ALERT_PERSONA, DIAGNOSE_PERSONA, EVIDENCE_PERSONA, OPS_PLANNER_PERSONA, PROACTIVE_DIAGNOSIS_PERSONA, QA_PERSONA
 from app.services.agent_personas import _alert_fallback, _diagnose_fallback, _evidence_fallback, _qa_fallback
 from app.services.agent_runtime import Persona
 
@@ -23,9 +23,17 @@ if settings.TICKET_ACTION_LOOP_ENABLE:
 # 主动运维结构化诊断 persona（关=继续用 alert persona，现状不变）。
 if settings.PROACTIVE_SCHEMA_V2_ENABLE:
     _CODE_PERSONAS["proactive_diagnosis"] = PROACTIVE_DIAGNOSIS_PERSONA
+# H6 单代理检索循环 persona（关=不注册，问答主链路零改动）。
+if getattr(settings, "AGENTIC_RETRIEVAL_ENABLE", False):
+    _CODE_PERSONAS["deep_retrieval"] = DEEP_RETRIEVAL_PERSONA
 
 # fallback registry：纯 DB persona（code 无）按 fallback_key 映射到 code fallback 函数
 _FALLBACK_REGISTRY = {"qa": _qa_fallback, "diagnose": _diagnose_fallback, "alert": _alert_fallback, "evidence_gap": _evidence_fallback, "none": None}
+
+
+def code_personas() -> dict:
+    """当前生效的 code persona 注册表（受开关控制，供 workflow/下拉等复用）。"""
+    return dict(_CODE_PERSONAS)
 
 
 async def get_persona(name: str):

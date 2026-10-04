@@ -85,6 +85,59 @@ async def _t_query_telemetry(db, model_type, deviceId, metric="", hours=24,
     return _fmt_telemetry(res)
 
 
+async def _t_assess_evidence(db, model_type, query, topk=8, tenant=None):
+    """H6 单代理检索循环的"grade"步：用 CRAG 口径评估当前证据强度并给出停止/续检建议。
+
+    复用现成 CRAG（rag/crag.py）：evidence_strength + grade，不额外调评估 LLM，
+    因此延迟与成本都低，可以放心在循环里每轮调用。
+    """
+    from app.rag import crag
+
+    kwargs = {"tenant": tenant} if tenant else {}
+    topk = max(1, min(int(topk or 8), 20))
+    try:
+        ctxs = await retrieval_service.mixed_search(
+            db, query, topk, model_type=model_type, **kwargs)
+    except Exception as e:
+        from app.core.obs import degraded
+        degraded("assess_evidence_retrieval", e)
+        ctxs = []
+    rerank_ok = bool(settings.RERANK_ENABLE)
+    top1 = float(ctxs[0].get("score", 0.0) or 0.0) if ctxs else 0.0
+    es = crag.evidence_strength(top1=top1, rerank_ok=rerank_ok)
+    grade, reason = crag.grade(top1, len(ctxs), rerank_ok, es=es)
+    return _fmt_assessment(query, ctxs, grade, reason, es, rerank_ok)
+
+
+def _fmt_assessment(query, ctxs, grade, reason, es, rerank_ok) -> str:
+    """把 CRAG 分级渲染成带"停止准则建议"的文本，供 Agent 决定是否继续检索。"""
+    from app.rag import crag as _crag
+    advice = {
+        _crag.GRADE_CORRECT: "证据充分 → 可以停止检索，直接给出结论。",
+        _crag.GRADE_AMBIGUOUS: "证据有限 → 可再换 1~2 组关键词或补充设备名后重试；"
+                               "若下一轮仍是本档，请直接作答并明确标注不确定部分。",
+        _crag.GRADE_INCORRECT: "证据不足 → 请改写查询或换检索角度再试；"
+                               "若连续 2 轮仍为本档，必须停止并如实说明『现有资料无法确认』。",
+    }.get(grade, "按上述证据情况决定是否继续检索。")
+    lines = [
+        f"评估对象:{query}",
+        f"分级:{grade}（{reason}）",
+        f"证据强度:{'评估器降级' if es is None else f'{es:.2f}/1.0'}"
+        f"｜rerank:{'启用' if rerank_ok else '未启用（分数不可靠，按保守口径分级）'}"
+        f"｜命中:{len(ctxs)} 条",
+        f"停止准则建议:{advice}",
+    ]
+    if ctxs:
+        lines.append("当前命中来源:")
+        lines.extend(
+            f"  [{i}] {(c.get('docName') or '')}: {(c.get('chunk') or '')[:120]}"
+            for i, c in enumerate(ctxs[:5], 1)
+        )
+    else:
+        lines.append("当前命中来源:无")
+    return "\n".join(lines)
+
+
 # ---------- 摘要格式化 ----------
 def _fmt_chunks(ctx):
     if not ctx:
@@ -173,6 +226,14 @@ _SCHEMA_TELEMETRY = {"type": "object",
                          "source": {"type": "string", "description": "数据来源（可选），留空=全部来源"},
                      },
                      "required": ["deviceId"]}
+_SCHEMA_ASSESS = {"type": "object",
+                  "properties": {
+                      "query": {"type": "string", "description": "本轮用于检索的查询（可用改写后的问法）"},
+                      "topk": {"type": "integer", "description": "评估取前 K 条，默认 8，最大 20"},
+                  },
+                  "required": ["query"]}
+
+
 def build_default_registry() -> ToolRegistry:
     reg = ToolRegistry()
     reg.register(Tool("search_regulation",
@@ -207,6 +268,13 @@ def build_default_registry() -> ToolRegistry:
                           "把工单提交审核（自动跑审核引擎）。create_ticket 成功后按用户要求调用。",
                           _SCHEMA_SUBMIT_TICKET, _t_submit_ticket,
                           required_roles=["admin", "editor"]))
+    # H6 单代理检索循环：证据自评 + 停止准则（只读，循环里每轮调用成本很低）
+    if getattr(settings, "AGENTIC_RETRIEVAL_ENABLE", False):
+        reg.register(Tool(
+            "assess_evidence",
+            "评估当前检索证据是否足够：返回 CRAG 分级（correct/ambiguous/incorrect）、"
+            "证据强度与『是否应停止检索』的建议。每轮检索后调用它决定继续还是收口作答。",
+            _SCHEMA_ASSESS, _t_assess_evidence, action_type="read", required_roles=[]))
     return reg
 
 

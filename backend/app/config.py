@@ -393,6 +393,13 @@ class Settings(BaseSettings):
     # 问答→行动闭环：Agent 工具 create_ticket/submit_ticket + ops_planner persona + 工单流转事件（关=现状/开=工单闭环打通）
     TICKET_ACTION_LOOP_ENABLE: bool = False
 
+    # ---------- H6 单代理检索循环（Agentic Retrieval）----------
+    # 关=现状（问答主链路固定 CRAG 单次改写重检索，无 persona 自主多轮）。
+    # 开=注册 deep_retrieval persona + assess_evidence 只读工具：
+    #   在 persona 沙箱内试点 plan→retrieve→grade→refine 自主检索循环，
+    #   以 CRAG evidence_strength 作停止准则、max_iter 作迭代预算；
+    #   主链路（qa_service 非 agent 模式）零改动。
+    AGENTIC_RETRIEVAL_ENABLE: bool = False
 
     # ---------- 主动运维闭环补全（结构化根因 + 遥测证据 + 闭环回填，全部默认关=现状）----------
     # 结构化根因：开=proactive_diagnosis persona 输出 schema v2（根因列表/证据/置信度）；关=现状用 alert persona 自由 JSON

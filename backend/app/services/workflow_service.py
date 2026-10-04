@@ -145,13 +145,9 @@ async def get_run(db: AsyncSession, run_id: str, tenant_id: str) -> dict:
 
 
 async def list_personas() -> list[str]:
-    """Agent 节点下拉：code personas + DB 覆盖名，去重。"""
-    from app.services.agent_personas import (ALERT_PERSONA, DIAGNOSE_PERSONA,
-                                             EVIDENCE_PERSONA, OPS_PLANNER_PERSONA,
-                                             PROACTIVE_DIAGNOSIS_PERSONA, QA_PERSONA)
-    names = [p.name for p in (QA_PERSONA, DIAGNOSE_PERSONA, ALERT_PERSONA,
-                              EVIDENCE_PERSONA, OPS_PLANNER_PERSONA,
-                              PROACTIVE_DIAGNOSIS_PERSONA)]
+    """Agent 节点下拉：code personas（受开关控制）+ DB 覆盖名，去重。"""
+    from app.services.persona_store import code_personas
+    names = list(code_personas().keys())
     try:
         from app.services.persona_store import list_configs
         names += [k for k in await list_configs() if k not in names]
