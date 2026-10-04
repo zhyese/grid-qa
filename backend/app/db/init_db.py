@@ -105,6 +105,8 @@ _COLUMN_MIGRATIONS = [
     ("agent_memory", "write_mode", "VARCHAR(32) NOT NULL DEFAULT 'legacy'"),
     # P4-⑭ 多轮摘要（conversation_summary 首次接线；老库幂等补列）
     ("conversations", "summary", "TEXT NULL"),
+    # H2 切块上下文化：LLM 生成的文档定位语（prepend 后做 embedding，原文不变）
+    ("chunks", "context_line", "TEXT NOT NULL"),
 ]
 
 _INDEX_MIGRATIONS = [

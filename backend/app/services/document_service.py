@@ -16,7 +16,7 @@ from app.models.chunk import Chunk
 from app.models.document import Document
 from app.models.document_version import DocumentVersion
 from app.models.kg_triple import KgTriple
-from app.services import chunk_service, embedding_service, parse_service
+from app.services import chunk_service, contextual_chunk_service, embedding_service, parse_service
 
 # 允许的扩展名（接口主推 PDF，MVP 放开常见格式含扫描件/图片/Excel台账）
 ALLOWED_EXT = {".pdf", ".doc", ".docx", ".txt", ".md", ".png", ".jpg", ".jpeg", ".xlsx"}
@@ -343,7 +343,21 @@ async def vectorize_document(db: AsyncSession, doc_id: str) -> dict:
 
     provider, collection, route = _embedding_target(total_chars)
 
-    vectors = await get_embedding_provider(provider).embed(texts)
+    # H2 切块上下文化（默认关=现状）：为 chunk 生成"文档定位语"，
+    # 只改变送进 embedding 的文本；Milvus 存储与 Chunk.content 仍是原文，
+    # 因此生成侧/引用原文零影响。失败降级为空定位语，不阻塞向量化。
+    if contextual_chunk_service.enabled():
+        try:
+            filled = await contextual_chunk_service.ensure_context_lines(db, doc, rows)
+            if filled:
+                print(f"[contextual] 文档 {doc_id} 生成 {filled} 条定位语")
+        except Exception as e:
+            degraded("contextual_chunk_wire", e)
+    embed_inputs = [
+        contextual_chunk_service.embed_text_for(r.content, r.context_line) for r in rows
+    ]
+
+    vectors = await get_embedding_provider(provider).embed(embed_inputs)
     milvus_client.delete_by_doc(doc_id)  # 先清旧（双 collection）
     await asyncio.to_thread(
         milvus_client.insert_chunks, collection, vectors, texts,
@@ -380,6 +394,7 @@ async def vectorize_document(db: AsyncSession, doc_id: str) -> dict:
     return {
         "docId": doc_id, "vectorCount": len(vectors),
         "milvusCollection": collection, "embeddingRoute": route, "docChars": total_chars,
+        "contextualChunks": sum(1 for r in rows if (r.context_line or "").strip()),
     }
 
 
@@ -503,6 +518,8 @@ async def update_chunk(db: AsyncSession, chunk_id: str, content: str) -> dict:
         raise BizError("chunk 不存在", 404)
     chunk.content = content
     chunk.char_count = len(content)
+    # H2：内容已改 → 旧定位语失效，清空待重生成（开关关时无副作用）
+    chunk.context_line = ""
     await db.commit()
     try:
         await vectorize_document(db, chunk.doc_id)   # 双 collection 清旧写新（内部已失效缓存）
@@ -521,7 +538,7 @@ async def list_chunks(db: AsyncSession, doc_id: str) -> list[dict]:
     """列出文档全部分块（供 chunk 编辑选择）。"""
     rows = (await db.execute(select(Chunk).where(Chunk.doc_id == doc_id).order_by(Chunk.chunk_idx))).scalars().all()
     return [{"id": r.id, "chunkIdx": r.chunk_idx, "content": r.content, "section": r.section,
-             "charCount": r.char_count,
+             "charCount": r.char_count, "contextLine": r.context_line or "",
              "semanticTags": (json.loads(r.semantic_tags) if r.semantic_tags else {})} for r in rows]
 
 

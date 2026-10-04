@@ -492,12 +492,13 @@
       <div class="card" v-show="tab === 'quality'">
         <div class="card-header"><h3 class="card-title">📚 知识库质量</h3><button class="btn btn-ghost btn-sm" @click="loadQuality">🔄 刷新</button></div>
         <div v-if="quality">
-          <div class="stats-grid" style="margin-bottom:14px;grid-template-columns:repeat(5,1fr)">
+          <div class="stats-grid" style="margin-bottom:14px;grid-template-columns:repeat(6,1fr)">
             <div class="stat stat-accent"><div class="stat-val" :style="{ color: gradeColor(quality.overallGrade) }">{{ quality.overallGrade || '?' }}</div><div class="stat-lbl">综合评级</div></div>
             <div class="stat stat-accent"><div class="stat-val">{{ ((quality.qualityScore||0)*100).toFixed(0) }}%</div><div class="stat-lbl">分块质量</div></div>
             <div class="stat stat-accent"><div class="stat-val">{{ ((quality.coverageRate||0)*100).toFixed(0) }}%</div><div class="stat-lbl">向量化覆盖</div></div>
             <div class="stat stat-accent"><div class="stat-val">{{ quality.docCount }}</div><div class="stat-lbl">文档总数</div></div>
             <div class="stat stat-accent"><div class="stat-val">{{ quality.chunkCount }}</div><div class="stat-lbl">分块总数</div></div>
+            <div class="stat stat-accent" :title="ctxChunks?.enabled ? 'H2 切块上下文化已开启' : 'H2 切块上下文化未开启（CONTEXTUAL_CHUNK_ENABLE=false）'"><div class="stat-val">{{ ctxChunks ? ((ctxChunks.coverage||0)*100).toFixed(0) + '%' : '—' }}</div><div class="stat-lbl">上下文化覆盖</div></div>
           </div>
           <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px">
             <div>
@@ -517,6 +518,10 @@
             <span class="hint">重复率 {{ ((quality.dupRate||0)*100).toFixed(1) }}%</span>
             <span class="hint">过短块 {{ quality.tooShortChunks }}</span>
             <span class="hint">过长块 {{ quality.tooLongChunks }}</span>
+          </div>
+          <div class="hint" style="margin-top:4px">
+            H2 切块上下文化：{{ ctxChunks?.enabled ? '已开启' : '未开启（CONTEXTUAL_CHUNK_ENABLE=false）' }}
+            <template v-if="ctxChunks">· 已生成定位语 {{ ctxChunks.contextualized?.toLocaleString() || 0 }} / {{ ctxChunks.chunkTotal?.toLocaleString() || 0 }} 块（新入库文档在向量化时自动生成，存量需重跑向量化）</template>
           </div>
           <div v-if="quality.gaps?.length" class="src-head" style="margin-top:8px;color:var(--warning)">⚠ 知识盲区</div>
           <div class="cause" v-for="g in quality.gaps" :key="g.term"><span>{{ g.suggestion }}</span></div>
@@ -776,8 +781,9 @@ import { TooltipComponent, LegendComponent, GridComponent } from 'echarts/compon
 import { CanvasRenderer } from 'echarts/renderers'
 import { getLogs, getAlerts, configMilvus, configModel, getMilvusConfig, getModelConfig, getProviderHealth, rebuildBm25, getFeedbacks, markFeedbackGolden, getFeedbackStats, alertDispose, getAlertDisposals, getPersonas, upsertPersona, deletePersona, agentRun, getUsers, updateUserRole, updateUserStatus, deleteUser, resetUserPassword, backupDB, listBackups, restoreDB, removeBackup, getLogArchiveStats, archiveLogs, getTerms, addTerm, deleteTerm, getPromptConfig, updatePromptConfig, getLlmRouterConfig, updateLlmRouterConfig, getSemanticRules, addSemanticRule, deleteSemanticRule, getRetrievalTuneReport, runRetrievalTune, confirmDisposal, rejectDisposal, disposalToTicket, closeDisposal, backupAll, restoreAllBackup, listManifestBackups, deleteManifestBackup, getMemories, deleteMemory, getMemoryStats } from '../api'
 import request from '../api/request'
-import { getCostReport, getEvalMatrixReport, getEvalMatrixReports, getEvalMatrixStatus,
-         getEvalTrends, getKnowledgeQuality, getRoutingConfig, runEvalMatrix } from '../api'
+import { getCostReport, getContextualChunkStats, getEvalMatrixReport, getEvalMatrixReports,
+         getEvalMatrixStatus, getEvalTrends, getKnowledgeQuality, getRoutingConfig,
+         runEvalMatrix } from '../api'
 
 echarts.use([PieChart, BarChart, ScatterChart, LineChart, TooltipComponent, LegendComponent, GridComponent, CanvasRenderer])
 
@@ -1222,11 +1228,13 @@ function typeLabel(t) {
 function severityBadge(s) {
   return { high: 'badge badge-danger', medium: 'badge badge-warning', low: 'badge badge-info' }[s] || 'badge badge-neutral'
 }
-const costReport = ref(null); const quality = ref(null); const evalTrend = ref(null); const abConfig = ref(null); const qualityPieEl = ref(null); const qualityPieScoreEl = ref(null); const qualityPieCovEl = ref(null); const qualityBarEl = ref(null); const evalLineEl = ref(null)
+const costReport = ref(null); const quality = ref(null); const ctxChunks = ref(null); const evalTrend = ref(null); const abConfig = ref(null); const qualityPieEl = ref(null); const qualityPieScoreEl = ref(null); const qualityPieCovEl = ref(null); const qualityBarEl = ref(null); const evalLineEl = ref(null)
 async function loadCostReport() { try { costReport.value = (await getCostReport('today')).data } catch (e) { toast('加载失败') } }
 async function loadQuality() {
   try {
     quality.value = (await getKnowledgeQuality()).data
+    // H2 切块上下文化覆盖率：独立只读接口，失败不影响质量看板主体
+    try { ctxChunks.value = (await getContextualChunkStats()).data } catch (e) { ctxChunks.value = null }
     await nextTick(); renderQualityCharts()
   } catch (e) { toast('加载失败') }
 }

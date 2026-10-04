@@ -171,6 +171,17 @@ AI_RETRIEVAL_HIT = Counter(
     ["doc_type"],
 )
 
+# ===== H2 切块上下文化（Contextual Retrieval）=====
+CONTEXTUAL_CHUNK_GENERATED = Counter(
+    "grid_contextual_chunk_generated_total",
+    "生成的 chunk 文档定位语条数",
+)
+CONTEXTUAL_CHUNK_LATENCY = Histogram(
+    "grid_contextual_chunk_latency_seconds",
+    "单文档定位语批量生成耗时(秒)",
+)
+
+
 # ===== 进程内缓存命中 mirror =====
 # 底层逻辑：prometheus_client Counter 进程内无法直接读值（只能抓 /metrics 文本），
 # 而"优化建议"报告需要实时命中率做决策。这里维护一份进程内分层计数 mirror，

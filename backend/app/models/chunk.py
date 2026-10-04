@@ -26,6 +26,8 @@ class Chunk(Base):
     table_header: Mapped[str] = mapped_column(Text, default="")  # 表格类 chunk 绑定的表头（防数值丢上下文）
     semantic_tags: Mapped[str] = mapped_column(Text, default="")  # 语义增强规则标签(JSON串, apply_rules 产出 {dim:[tags]}; BRD §4.1.3)
     metadata_complete: Mapped[bool] = mapped_column(Boolean, default=False)  # 元数据是否齐全（前端降级依据）
+    # H2 切块上下文化：LLM 生成的 50~100 字文档定位语（prepend 后做 embedding，原文不变）
+    context_line: Mapped[str] = mapped_column(Text, default="")
 
     __table_args__ = (
         Index("ix_chunks_doc_parent", "doc_id", "parent_idx"),
@@ -40,4 +42,5 @@ class Chunk(Base):
         kwargs.setdefault("table_header", "")
         kwargs.setdefault("semantic_tags", "")
         kwargs.setdefault("metadata_complete", False)
+        kwargs.setdefault("context_line", "")
         super().__init__(**kwargs)

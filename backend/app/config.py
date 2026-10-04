@@ -242,6 +242,16 @@ class Settings(BaseSettings):
     PARENT_SIZE: int = 2000      # 父块（大块，生成上下文）目标字数
     PARENT_OVERLAP: int = 200    # 子块尺寸复用 CHUNK_SIZE/CHUNK_OVERLAP
 
+    # ---------- H2 切块上下文化（Contextual Retrieval）----------
+    # 关=现状（向量直接用 chunk 原文）。开=入库/向量化时为每个 chunk 用 LLM 生成一句
+    # 50~100 字"文档定位语"（所属文档/章节/主题），prepend 后再做 embedding——
+    # chunk 原文与 Milvus 存储内容均不变，只影响向量语义，解决"切块脱离文档语境、
+    # 代词/省略主语致向量失真"。与 H1 共用同一次 Milvus 重建。
+    CONTEXTUAL_CHUNK_ENABLE: bool = False
+    CONTEXTUAL_CHUNK_CONCURRENCY: int = 3     # 生成定位语的并发 LLM 调用数（防限流）
+    CONTEXTUAL_CHUNK_MAX_PER_DOC: int = 500   # 单文档最多生成条数（成本护栏，超出部分跳过）
+    CONTEXTUAL_CHUNK_MAX_TOKENS: int = 160    # 定位语生成 max_tokens（一句话足够）
+    CONTEXTUAL_CHUNK_TIMEOUT: float = 20.0    # 单条生成超时（秒），超时按空串降级
 
     # ---------- 检索增强（2026 RAG 趋势，默认关，按需开）----------
     HYDE_ENABLE: bool = False        # HyDE：LLM 生成假设答案再做向量检索（短/口语问题提升召回）
@@ -466,6 +476,8 @@ def citation_cache_version() -> str:
     2026-09-26 新常态扩段：CRAG_PERDOC（P=v2 逐条评估）、LLM_TIER_FACT_FAST（F=事实短问 turbo）
     两个开关也会改变答案语义/置信，加入版本串避免旧缓存污染新行为。
 
+    2026-10-03 H2 扩段：CONTEXTUAL_CHUNK（C=切块上下文化）改变向量语义→检索命中集变化→
+    答案变化，必须并入版本串，否则开开关后旧缓存会继续返回改前的答案。
     """
     s = settings
     return (f"cv{int(s.CITATION_VERIFIER_ENABLE)}{int(s.CITATION_STRUCTURED_OUTPUT)}"
@@ -473,4 +485,5 @@ def citation_cache_version() -> str:
             f"R{int(getattr(s, 'CRAG_V3_ENABLE', False))}"
             f"P{int(getattr(s, 'CRAG_PERDOC_ENABLE', False))}"
             f"F{int(getattr(s, 'LLM_TIER_FACT_FAST_ENABLE', False))}"
+            f"C{int(getattr(s, 'CONTEXTUAL_CHUNK_ENABLE', False))}"
             f"S{int(getattr(s, 'INJECTION_GUARD_STRICT_ENABLE', False))}")  # S: 注入拦截档(红队#2)/QA persona 防线语义代际

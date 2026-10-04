@@ -29,6 +29,35 @@ def get_system_prompt() -> str:
         return SYSTEM_PROMPT
 
 
+# ===== H2 切块上下文化（Contextual Retrieval）=====
+
+CONTEXTUAL_CHUNK_SYSTEM = """你是电网运维文档处理助手，负责为文档片段生成"定位语"。
+定位语用于向量检索时补全片段脱离原文后的语境，必须忠实于给定材料。"""
+
+
+def build_contextual_chunk_messages(doc_name: str, section: str, content: str) -> list[dict]:
+    """构造"生成 chunk 定位语"的消息（H2）。
+
+    只给文档名 + 章节 + 片段本身，要求一句 50~100 字说明"在讲什么/属于哪一部分/
+    涉及哪些设备与主题"，严禁补充片段外信息或给处置建议。
+    """
+    user = (
+        f"【文档标题】{doc_name or '（未命名文档）'}\n"
+        f"【所属章节】{section or '（无章节信息）'}\n"
+        f"【文档片段】\n{content}\n\n"
+        "请用一句 50~100 字的中文写出这个片段的定位语，说明：它在讲什么、属于这份文档的哪一部分、"
+        "涉及哪些设备/参数/主题。\n"
+        "要求：\n"
+        "1) 只描述片段自身的内容与它在文档中的位置，不得补充片段里没有的信息，不得下结论或给处置建议；\n"
+        "2) 不复述片段原文，不使用第一人称；\n"
+        "3) 直接输出这一句话，不要编号、前缀、引号或任何解释。"
+    )
+    return [
+        {"role": "system", "content": CONTEXTUAL_CHUNK_SYSTEM},
+        {"role": "user", "content": user},
+    ]
+
+
 def build_messages(query: str, contexts: list[dict]) -> list[dict]:
     """contexts: [{docName, chunk}, ...]"""
     refs = "\n\n".join(

@@ -12,7 +12,7 @@ def _run(coro):
 
 
 def test_a5_cv_has_g_segment(monkeypatch):
-    """citation_cache_version() 输出形如 cvXXX{G}R{R}S{S}（G=治理代际；R=CRAG_V3 代际；S=注入拦截档，红队#2）。"""
+    """citation_cache_version() 输出形如 cvXXX{G}R{R}P{P}F{F}S{S}（G=治理代际；R=CRAG_V3；P=CRAG_PERDOC；F=FACT_FAST；S=注入拦截档，红队#2）。"""
     import app.config as cfg
     cfg._gov_generation = 0  # 测试隔离：先清零（防其他用例 bump 累积）
     # 模拟 governance_propagate_service bump 7 次
@@ -20,11 +20,14 @@ def test_a5_cv_has_g_segment(monkeypatch):
         cfg.bump_gov_generation_inproc()
     try:
         cv = cfg.citation_cache_version()
-        # 结构精确断言：cv + V/S/N 开关位 + G 段 + R 段（R=CRAG_V3_ENABLE，环境无关）
+        # 结构精确断言：cv + V/S/N 开关位 + G 段 + R 段 + P 段 + F 段 + S 段（环境无关）
         expected = (f"cv{int(cfg.settings.CITATION_VERIFIER_ENABLE)}"
                     f"{int(cfg.settings.CITATION_STRUCTURED_OUTPUT)}"
                     f"{int(cfg.settings.CITATION_NLI_ENABLE)}7"
                     f"R{int(getattr(cfg.settings, 'CRAG_V3_ENABLE', False))}"
+                    f"P{int(getattr(cfg.settings, 'CRAG_PERDOC_ENABLE', False))}"
+                    f"F{int(getattr(cfg.settings, 'LLM_TIER_FACT_FAST_ENABLE', False))}"
+                    f"C{int(getattr(cfg.settings, 'CONTEXTUAL_CHUNK_ENABLE', False))}"
                     f"S{int(getattr(cfg.settings, 'INJECTION_GUARD_STRICT_ENABLE', False))}")
         assert cv == expected
     finally:
@@ -41,6 +44,9 @@ def test_a5_cv_g_default_zero():
                 f"{int(cfg.settings.CITATION_STRUCTURED_OUTPUT)}"
                 f"{int(cfg.settings.CITATION_NLI_ENABLE)}0"
                 f"R{int(getattr(cfg.settings, 'CRAG_V3_ENABLE', False))}"
+                f"P{int(getattr(cfg.settings, 'CRAG_PERDOC_ENABLE', False))}"
+                f"F{int(getattr(cfg.settings, 'LLM_TIER_FACT_FAST_ENABLE', False))}"
+                f"C{int(getattr(cfg.settings, 'CONTEXTUAL_CHUNK_ENABLE', False))}"
                 f"S{int(getattr(cfg.settings, 'INJECTION_GUARD_STRICT_ENABLE', False))}")
     assert cv == expected
 

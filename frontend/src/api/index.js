@@ -391,3 +391,8 @@ export const deleteWorkflow = (id) => request.delete(`/workflows/${id}`)
 export const runWorkflow = (id, query, vars = {}) => request.post(`/workflows/${id}/run`, { query, vars })
 export const getWorkflowRuns = (id, params = {}) => request.get(`/workflows/${id}/runs`, { params })
 export const getWorkflowRun = (runId) => request.get(`/workflows/runs/${runId}`)
+
+// ===== H2 切块上下文化（admin）=====
+// 覆盖率看板：开关状态 + 已生成定位语条数/占比
+export const getContextualChunkStats = () => request.get('/system/knowledge/contextual-chunks')
+

@@ -875,6 +875,18 @@ async def knowledge_quality(
     return success(report, "查询成功")
 
 
+@router.get("/knowledge/contextual-chunks")
+async def contextual_chunks_stats(
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(require_admin),
+):
+    """H2 切块上下文化覆盖率（开关状态 + 已生成定位语条数/占比）。"""
+    from app.services import contextual_chunk_service
+    return success(await contextual_chunk_service.stats(db), "查询成功")
+
+
+
+
 # ===== 数据备份与恢复（管理员；MySQL 元数据层）=====
 
 @router.post("/backup")
