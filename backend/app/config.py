@@ -61,6 +61,12 @@ class Settings(BaseSettings):
     EMB_PROVIDER: str = "qwen"          # qwen | doubao
     EMBEDDING_DIM: int = 1024
     EMB_BATCH_CONCURRENCY: int = 3      # 云 embedding 批次并发度（防 429，文档批量向量化加速）
+    # H1：单次 embedding 请求的条数上限。v4 官方 20、v3 为 10 → 取保守值 10，
+    # 确认网关限额后可调大（调大前先用 /api/system/health/providers 实测）。
+    EMB_BATCH_SIZE: int = 10
+    # H1：向量空间一致性守卫。开=把 embedding 模型签名落 Redis，换模型/维度后
+    # 启动即报漂移（degraded + 健康检查可见），强制先重建 Milvus 再切；关=不做校验。
+    EMBED_MODEL_GUARD_ENABLE: bool = True
     # B4：真实 token usage 透传（opt-in，默认关）。开关开 → qa_service 走 chat_with_usage
     # 拿 r.usage 真实 prompt/completion tokens 记录到 cost_tracker；关 → 沿用 len//2 估算。
     LLM_USAGE_TRACK_ENABLE: bool = False
@@ -99,7 +105,10 @@ class Settings(BaseSettings):
     DASHSCOPE_API_KEY: str = ""
     DASHSCOPE_BASE_URL: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
     QWEN_LLM_MODEL: str = "qwen-plus"
-    QWEN_EMB_MODEL: str = "text-embedding-v3"
+    # H1 检索底座代际升级：text-embedding-v4（Qwen3-Embedding 系）较 v3 在 MTEB
+    # 多语言/中英检索提升 15%~40%，支持 64~2048 维自定义（本项目固定 1024 对齐 collection）。
+    # 切回 v3 只需改这里 + **重建 Milvus**（EMBED_MODEL_GUARD_ENABLE 会提示漂移）。
+    QWEN_EMB_MODEL: str = "text-embedding-v4"
 
     # --- 火山方舟 Ark ---
     ARK_API_KEY: str = ""

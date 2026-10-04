@@ -72,5 +72,15 @@ class EmbeddingProvider(ABC):
     @abstractmethod
     def dim(self) -> int: ...
 
+    @property
+    def model_signature(self) -> str:
+        """向量空间签名（H1）：provider + 模型名 + 维度。
+
+        换 embedding 模型/维度 = 换向量空间，旧 collection 里的向量与新 query 向量
+        不可比（检索会静默全错）。签名落 Redis，供 embedding_service 做漂移检测，
+        提醒必须先重建 Milvus 再切模型。
+        """
+        return f"{type(self).__name__}:{self.dim}"
+
     @abstractmethod
     async def embed(self, texts: list[str]) -> list[list[float]]: ...

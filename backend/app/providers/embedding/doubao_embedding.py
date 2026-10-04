@@ -20,6 +20,10 @@ class DoubaoEmbedding(EmbeddingProvider):
     def dim(self) -> int:
         return settings.EMBEDDING_DIM
 
+    @property
+    def model_signature(self) -> str:
+        return f"doubao:{self.model}:{self.dim}"
+
     async def embed(self, texts: list[str]) -> list[list[float]]:
         if not texts:
             return []

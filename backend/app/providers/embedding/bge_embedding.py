@@ -24,6 +24,10 @@ class BgeEmbedding(EmbeddingProvider):
     def dim(self) -> int:
         return settings.BGE_DIM
 
+    @property
+    def model_signature(self) -> str:
+        return f"bge:{settings.BGE_MODEL}:{self.dim}"
+
     async def embed(self, texts: list[str]) -> list[list[float]]:
         def _encode():
             vecs = _get_model().encode(texts, normalize_embeddings=True)

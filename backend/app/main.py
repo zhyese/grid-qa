@@ -89,6 +89,21 @@ async def lifespan(app: FastAPI):
 
     await init_db()  # 建表 + 初始管理员
 
+    # H1 向量空间一致性守卫：换 embedding 模型/维度后未重建 Milvus 会让检索静默全错，
+    # 启动即比对签名并告警（只可见不拦截；Redis 未就绪时内部降级）。
+    # rebuildPending 是持久标记：只要没完成全量重建，**每次启动**都会继续喊，不会被遗忘。
+    try:
+        from app.services.embedding_service import ensure_model_consistency
+        _guard = await ensure_model_consistency()
+        if _guard.get("rebuildPending"):
+            print(f"[embed-guard] ⚠️ {_guard.get('message')}")
+        elif _guard.get("status") == "drift":
+            print(f"[embed-guard] ⚠️ {_guard.get('message')}")
+        elif _guard.get("status") == "initialized":
+            print(f"[embed-guard] {_guard.get('message')}")
+    except Exception as e:
+        print(f"[embed-guard] 向量空间校验跳过：{e}")
+
     from app.clients.minio_client import init_bucket
 
     try:
