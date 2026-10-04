@@ -1,7 +1,12 @@
-"""阿里百炼 Qwen LLM（OpenAI 兼容）。"""
+"""阿里百炼 Qwen LLM（OpenAI 兼容）。
+
+F7 Prompt Caching：显式缓存标记（cache_control:{type:ephemeral}）加在稳定前缀上，
+网关不支持时自动去标记重试一次（见 providers/prompt_cache.py）。
+"""
 from openai import AsyncOpenAI
 
 from app.config import settings
+from app.providers import prompt_cache
 from app.providers.base import LLMProvider
 
 
@@ -20,17 +25,15 @@ class QwenLLM(LLMProvider):
         try:
             with trace_span("llm.generate", kind=SpanKind.CLIENT,
                             attributes={"gen_ai.operation.name": "chat"}):
-                r = await self.client.chat.completions.create(
-                    model=_model, messages=messages,
-                    temperature=temperature, max_tokens=max_tokens, **kw,
+                r = await prompt_cache.call_with_cache_fallback(
+                    lambda msgs: self.client.chat.completions.create(
+                        model=_model, messages=msgs,
+                        temperature=temperature, max_tokens=max_tokens, **kw,
+                    ),
+                    messages, "qwen",
                 )
                 content = r.choices[0].message.content
-                usage = None
-                if r.usage:
-                    usage = {
-                        "input": r.usage.prompt_tokens or 0,
-                        "output": r.usage.completion_tokens or 0,
-                    }
+                usage = prompt_cache.usage_dict(r.usage)
                 self._record_llm_span(_model, messages, content, temperature, max_tokens)
                 return content, usage
         except Exception as exc:
@@ -45,10 +48,22 @@ class QwenLLM(LLMProvider):
 
     async def stream(self, messages, temperature=0.2, max_tokens=2048, model=None, **kw):
         _model = model or self.model
-        r = await self.client.chat.completions.create(
-            model=_model, messages=messages,
-            temperature=temperature, max_tokens=max_tokens, stream=True, **kw,
-        )
+        marked = prompt_cache.apply_explicit_cache(messages, "qwen")
+        try:
+            r = await self.client.chat.completions.create(
+                model=_model, messages=marked,
+                temperature=temperature, max_tokens=max_tokens, stream=True, **kw,
+            )
+        except Exception as exc:
+            if marked is not messages and prompt_cache.is_cache_param_error(exc):
+                from app.core.obs import degraded
+                degraded("prompt_cache_param_unsupported", exc, "qwen")
+                r = await self.client.chat.completions.create(
+                    model=_model, messages=messages,
+                    temperature=temperature, max_tokens=max_tokens, stream=True, **kw,
+                )
+            else:
+                raise
         async for chunk in r:
             if chunk.choices and chunk.choices[0].delta.content:
                 yield chunk.choices[0].delta.content
@@ -61,9 +76,12 @@ class QwenLLM(LLMProvider):
         try:
             with trace_span("llm.generate", kind=SpanKind.CLIENT,
                             attributes={"gen_ai.operation.name": "chat_with_tools"}):
-                r = await self.client.chat.completions.create(
-                    model=_model, messages=messages, tools=tools, tool_choice=tool_choice,
-                    temperature=temperature, max_tokens=max_tokens, **kw,
+                r = await prompt_cache.call_with_cache_fallback(
+                    lambda msgs: self.client.chat.completions.create(
+                        model=_model, messages=msgs, tools=tools, tool_choice=tool_choice,
+                        temperature=temperature, max_tokens=max_tokens, **kw,
+                    ),
+                    messages, "qwen",
                 )
                 msg = r.choices[0].message
                 tool_calls = None

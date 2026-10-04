@@ -162,7 +162,8 @@ def test_chat_with_usage_returns_real_tokens():
     p.client.chat.completions.create = fake_create
     content, usage = asyncio.run(p.chat_with_usage([{"role": "user", "content": "q"}]))
     assert content == "答案"
-    assert usage == {"input": 120, "output": 35}
+    # F7 起 usage 契约扩展出缓存字段（无缓存信息时恒为 0），不再是 2 键 dict
+    assert usage == {"input": 120, "output": 35, "cached": 0, "cache_creation": 0}
 
 
 def test_chat_with_usage_no_usage_returns_none():

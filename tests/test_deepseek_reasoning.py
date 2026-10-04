@@ -50,7 +50,9 @@ async def test_chat_reasoning_fallback_when_content_empty(monkeypatch):
 async def test_chat_with_usage_same_semantics(monkeypatch):
     p = _provider(monkeypatch, _resp(_msg(content="", reasoning="答案A")))
     text, usage = await p.chat_with_usage([{"role": "user", "content": "q"}])
-    assert text == "答案A" and usage == {"input": 10, "output": 5}
+    # F7 起 usage 契约扩展出缓存字段（DeepSeek 硬盘缓存命中量，mock 无该字段 → 0）
+    assert text == "答案A"
+    assert usage == {"input": 10, "output": 5, "cached": 0, "cache_creation": 0}
 
 
 async def test_tools_reasoning_fallback(monkeypatch):

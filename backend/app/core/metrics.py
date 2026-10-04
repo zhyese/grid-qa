@@ -181,6 +181,15 @@ CONTEXTUAL_CHUNK_LATENCY = Histogram(
     "单文档定位语批量生成耗时(秒)",
 )
 
+# ===== F7 Prompt Caching =====
+PROMPT_CACHE_SAVED = Counter(
+    "grid_prompt_cache_saved_cost_total",
+    "Prompt Caching 累计节省费用(元)",
+)
+PROMPT_CACHE_HIT_TOKENS = Counter(
+    "grid_prompt_cache_hit_tokens_total",
+    "Prompt Caching 累计命中 token 数",
+)
 
 # ===== 进程内缓存命中 mirror =====
 # 底层逻辑：prometheus_client Counter 进程内无法直接读值（只能抓 /metrics 文本），

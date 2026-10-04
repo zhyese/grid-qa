@@ -11,6 +11,7 @@ from datetime import date, datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.core.obs import degraded
 
 # token → 人民币 近似换算（各模型单价）
@@ -27,16 +28,62 @@ _DEFAULT_QUOTA = {
 }
 
 
+def _prices_for(model: str) -> dict:
+    return _MODEL_PRICES.get(model, {"input": 0.001 / 1000, "output": 0.002 / 1000})
+
+
+def compute_cost(
+    model: str, input_tokens: int, output_tokens: int,
+    cached_tokens: int = 0, cache_creation_tokens: int = 0,
+) -> tuple[float, float]:
+    """纯函数：算 (实际费用, 相对"无缓存"基线省下的费用)，单位人民币元。
+
+    命中量是 input 的子集，先夹紧防重复计费。
+    """
+    prices = _prices_for(model)
+    hit_discount = float(getattr(settings, "PROMPT_CACHE_HIT_DISCOUNT", 0.1))
+    create_mult = float(getattr(settings, "PROMPT_CACHE_CREATE_MULTIPLIER", 1.25))
+    in_tok = max(0, int(input_tokens or 0))
+    out_tok = max(0, int(output_tokens or 0))
+    cached = max(0, min(int(cached_tokens or 0), in_tok))
+    creation = max(0, int(cache_creation_tokens or 0))
+    billable_input = in_tok - cached
+    cost = (
+        billable_input * prices["input"]
+        + cached * prices["input"] * hit_discount
+        + creation * prices["input"] * create_mult
+        + out_tok * prices["output"]
+    )
+    baseline = in_tok * prices["input"] + out_tok * prices["output"]
+    return cost, max(0.0, baseline - cost)
+
+
 async def record_token_usage(
     db: AsyncSession, username: str, tenant: str,
     model: str, input_tokens: int, output_tokens: int,
     query_type: str = "qa",  # qa / diagnose / ticket / debate / rewrite
+    cached_tokens: int = 0,          # F7：本次输入中命中上下文缓存的 token 数（input 的子集）
+    cache_creation_tokens: int = 0,  # F7：本次创建缓存写入的 token 数（百炼显式缓存首轮）
 ) -> None:
-    """记录一次 LLM 调用的 token 消耗。"""
+    """记录一次 LLM 调用的 token 消耗（含 F7 缓存命中/节省核算）。
+
+    计费口径（对齐官方公开价目）：
+    - 未命中输入按输入单价全额；
+    - 命中缓存的输入按输入单价 × PROMPT_CACHE_HIT_DISCOUNT（默认 10%）；
+    - 创建缓存按输入单价 × PROMPT_CACHE_CREATE_MULTIPLIER（默认 125%）；
+    - savedCost = 若不做缓存本应付的钱 − 实际应付的钱（负值不记，取 max(0,·)）。
+    """
     total_tokens = input_tokens + output_tokens
-    # 估算费用
-    prices = _MODEL_PRICES.get(model, {"input": 0.001 / 1000, "output": 0.002 / 1000})
-    cost = (input_tokens * prices["input"] + output_tokens * prices["output"])
+    cached = max(0, min(int(cached_tokens or 0), int(input_tokens or 0)))
+    creation = max(0, int(cache_creation_tokens or 0))
+    cost, saved = compute_cost(model, input_tokens, output_tokens, cached, creation)
+    if cached or creation:
+        try:
+            from app.core import metrics
+            metrics.PROMPT_CACHE_HIT_TOKENS.inc(cached)
+            metrics.PROMPT_CACHE_SAVED.inc(saved)
+        except Exception:
+            pass
     try:
         from app.db.session import AsyncSessionLocal
         from app.models.operation_log import OperationLog
@@ -48,6 +95,8 @@ async def record_token_usage(
                     "tenant": tenant, "model": model,
                     "inputTokens": input_tokens, "outputTokens": output_tokens,
                     "totalTokens": total_tokens, "cost": round(float(cost), 6),
+                    "cachedTokens": cached, "cacheCreationTokens": creation,
+                    "savedCost": round(float(saved), 6),
                     "queryType": query_type, "ts": datetime.now().isoformat(),
                 }, ensure_ascii=False)[:1000],
             ))
@@ -149,6 +198,27 @@ async def get_cost_report(db: AsyncSession, period: str = "today") -> dict:
                  "GROUP BY operate_user ORDER BY tokens DESC LIMIT 10")
         )).all()
 
+        # F7：缓存命中与节省（今日 / 本月）。旧记录无 cachedTokens 字段 → JSON_EXTRACT 为 NULL，按 0 处理。
+        async def _sum(sql: str) -> float:
+            return float((await db.execute(text(sql))).scalar() or 0)
+
+        today_cached = await _sum(
+            "SELECT SUM(CAST(JSON_EXTRACT(content, '$.cachedTokens') AS SIGNED)) "
+            "FROM operation_logs WHERE operate_type='cost_track' "
+            "AND DATE(operate_time) = CURDATE()")
+        today_saved = await _sum(
+            "SELECT SUM(CAST(JSON_EXTRACT(content, '$.savedCost') AS DECIMAL(14,6))) "
+            "FROM operation_logs WHERE operate_type='cost_track' "
+            "AND DATE(operate_time) = CURDATE()")
+        month_cached = await _sum(
+            "SELECT SUM(CAST(JSON_EXTRACT(content, '$.cachedTokens') AS SIGNED)) "
+            "FROM operation_logs WHERE operate_type='cost_track' "
+            "AND operate_time >= DATE_FORMAT(CURDATE(), '%Y-%m-01')")
+        month_saved = await _sum(
+            "SELECT SUM(CAST(JSON_EXTRACT(content, '$.savedCost') AS DECIMAL(14,6))) "
+            "FROM operation_logs WHERE operate_type='cost_track' "
+            "AND operate_time >= DATE_FORMAT(CURDATE(), '%Y-%m-01')")
+
         return {
             "period": period,
             "todayTokens": int(today_total),
@@ -158,6 +228,12 @@ async def get_cost_report(db: AsyncSession, period: str = "today") -> dict:
             "topUsers": [{"username": r.operate_user, "tokens": int(r.tokens or 0)} for r in user_rows],
             "userQuota": _DEFAULT_QUOTA["user"],
             "tenantQuota": _DEFAULT_QUOTA["tenant"],
+            # F7 缓存收益（看板"省了多少"列）
+            "todayCachedTokens": int(today_cached),
+            "todaySavedCost": round(today_saved, 4),
+            "monthCachedTokens": int(month_cached),
+            "monthSavedCost": round(month_saved, 4),
+            "promptCacheEnabled": bool(getattr(settings, "PROMPT_CACHE_ENABLE", False)),
         }
     except Exception as e:
         degraded("cost_report", e)

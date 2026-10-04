@@ -992,7 +992,10 @@ async def answer(
     _llm_usage: dict | None = None
     try:
         _temperature = config_service.rt_temperature()
-        if getattr(settings, "LLM_USAGE_TRACK_ENABLE", False):
+        # B4：真实 token usage（opt-in）。F7：开了 Prompt Caching 也必须走 usage 通道，
+        # 否则拿不到 cached_tokens，"省了多少"无从统计。
+        if (getattr(settings, "LLM_USAGE_TRACK_ENABLE", False)
+                or getattr(settings, "PROMPT_CACHE_ENABLE", False)):
             raw, _llm_usage = await _llm_prov.chat_with_usage(
                 messages, temperature=_temperature, max_tokens=settings.LLM_MAX_TOKENS,
             )
@@ -1186,9 +1189,14 @@ async def answer(
         from app.services.cost_tracker_service import record_token_usage
         if _llm_usage:
             _in_tok, _out_tok = _llm_usage.get("input", 0), _llm_usage.get("output", 0)
+            _cached_tok = _llm_usage.get("cached", 0)
+            _cache_creation = _llm_usage.get("cache_creation", 0)
         else:
             _in_tok, _out_tok = len(str(messages)) // 2, len(ans) // 2
-        asyncio.ensure_future(record_token_usage(db, username, tenant, model_type or settings.LLM_PROVIDER, _in_tok, _out_tok))
+            _cached_tok, _cache_creation = 0, 0
+        asyncio.ensure_future(record_token_usage(
+            db, username, tenant, model_type or settings.LLM_PROVIDER, _in_tok, _out_tok,
+            cached_tokens=_cached_tok, cache_creation_tokens=_cache_creation))
     except Exception:
         pass
     # 在线质量评测采样（异步跑 LLM Judge，不阻塞响应；评测趋势数据来源）

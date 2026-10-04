@@ -33,7 +33,8 @@ def test_chat_with_usage_returns_token_counts(monkeypatch):
     monkeypatch.setattr(p.client.chat.completions, "create", fake_create)
     content, usage = asyncio.run(p.chat_with_usage([{"role": "user", "content": "x"}]))
     assert content == "答案"
-    assert usage == {"input": 10, "output": 20}
+    # F7 起 usage 契约扩展出缓存字段（本地 Ollama 无缓存，恒为 0）
+    assert usage == {"input": 10, "output": 20, "cached": 0, "cache_creation": 0}
 
 
 def test_stream_yields_tokens(monkeypatch):

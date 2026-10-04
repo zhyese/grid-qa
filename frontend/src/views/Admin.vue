@@ -474,6 +474,12 @@
             <div class="stat stat-accent"><div class="stat-val">{{ costReport.todayTokens?.toLocaleString() || 0 }}</div><div class="stat-lbl">今日 Token</div></div>
             <div class="stat stat-accent"><div class="stat-val">{{ costReport.monthTokens?.toLocaleString() || 0 }}</div><div class="stat-lbl">本月 Token</div></div>
             <div class="stat stat-accent"><div class="stat-val">¥{{ costReport.todayByModel?.reduce((s,m)=>s+m.cost,0).toFixed(4) || '0' }}</div><div class="stat-lbl">今日费用</div></div>
+            <div class="stat stat-accent"><div class="stat-val">{{ costReport.todayCachedTokens?.toLocaleString() || 0 }}</div><div class="stat-lbl">今日缓存命中 Token</div></div>
+            <div class="stat stat-accent"><div class="stat-val">¥{{ (costReport.todaySavedCost ?? 0).toFixed(4) }}</div><div class="stat-lbl">今日节省（Prompt Caching）</div></div>
+          </div>
+          <div class="hint" style="margin-top:0">
+            Prompt Caching 显式标记：{{ costReport.promptCacheEnabled ? '已开启' : '未开启（PROMPT_CACHE_ENABLE=false）' }} ·
+            本月累计命中 {{ costReport.monthCachedTokens?.toLocaleString() || 0 }} tokens，节省 ¥{{ (costReport.monthSavedCost ?? 0).toFixed(4) }}
           </div>
           <div v-if="costReport.todayByModel?.length" class="src-head">今日各模型消耗</div>
           <div class="cause" v-for="m in costReport.todayByModel" :key="m.model" style="justify-content:space-between">

@@ -1,7 +1,12 @@
-"""火山方舟豆包 LLM（OpenAI 兼容）。model 字段传推理接入点 endpoint_id。"""
+"""火山方舟豆包 LLM（OpenAI 兼容）。model 字段传推理接入点 endpoint_id。
+
+F7 Prompt Caching：方舟走网关隐式前缀缓存，本项目不传显式缓存参数；
+仅把网关返回的 usage.prompt_tokens_details.cached_tokens 归一化进 usage dict 供成本核算。
+"""
 from openai import AsyncOpenAI
 
 from app.config import settings
+from app.providers import prompt_cache
 from app.providers.base import LLMProvider
 
 
@@ -25,12 +30,7 @@ class DoubaoLLM(LLMProvider):
                     temperature=temperature, max_tokens=max_tokens, **kw,
                 )
                 content = r.choices[0].message.content
-                usage = None
-                if r.usage:
-                    usage = {
-                        "input": r.usage.prompt_tokens or 0,
-                        "output": r.usage.completion_tokens or 0,
-                    }
+                usage = prompt_cache.usage_dict(r.usage)
                 self._record_llm_span(_model, messages, content, temperature, max_tokens)
                 return content, usage
         except Exception as exc:

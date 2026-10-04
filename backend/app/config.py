@@ -91,6 +91,16 @@ class Settings(BaseSettings):
     LLM_TIER_FACT_FAST_ENABLE: bool = True
     RERANK_TIMEOUT: float = 2.0                        # rerank 单次超时（超时降级用 RRF 原序稳 p99；云 API 偶发 891ms+）
     LLM_LOCAL_TIMEOUT: float = 60.0                    # 本地 Ollama 兜底超时（CPU 推理慢于云端 API）
+    # ---------- F7 Prompt Caching（上下文缓存）----------
+    # 关=现状（不传缓存参数；DeepSeek 的自动缓存与命中核算仍生效，只是不做显式标记）。
+    # 开=给稳定前缀（最后一条 system 消息）加百炼显式缓存标记 cache_control:{type:ephemeral}
+    #   （仅 qwen 生效；DeepSeek 自动缓存无需标记；网关不认该参数时自动去标记重试一次）。
+    PROMPT_CACHE_ENABLE: bool = False
+    PROMPT_CACHE_MIN_CHARS: int = 1200    # 显式缓存最小前缀长度（百炼要求 ≥1024 token，中文约 1char≈1token，留余量）
+    # 计费口径（用于"省了多少"估算）：命中按输入单价 × 折扣；创建缓存按输入单价 × 系数。
+    # 百炼公开口径：显式缓存命中≈10%、创建≈125%；隐式缓存命中≈20%。
+    PROMPT_CACHE_HIT_DISCOUNT: float = 0.1
+    PROMPT_CACHE_CREATE_MULTIPLIER: float = 1.25
 
     # --- DeepSeek ---
     DEEPSEEK_API_KEY: str = ""

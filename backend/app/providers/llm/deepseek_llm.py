@@ -1,7 +1,12 @@
-"""DeepSeek LLM（OpenAI 兼容）。"""
+"""DeepSeek LLM（OpenAI 兼容）。
+
+F7 Prompt Caching：DeepSeek 上下文硬盘缓存**默认开启、无需传参**（前缀完整匹配即命中），
+本文件只负责把 usage.prompt_cache_hit_tokens 归一化进 usage dict 供成本核算。
+"""
 from openai import AsyncOpenAI
 
 from app.config import settings
+from app.providers import prompt_cache
 from app.providers.base import LLMProvider
 
 
@@ -47,12 +52,9 @@ class DeepSeekLLM(LLMProvider):
                     **{**_reasoning_kw(), **kw},
                 )
                 content = _extract_content(r.choices[0].message)
-                usage = None
-                if r.usage:
-                    usage = {
-                        "input": r.usage.prompt_tokens or 0,
-                        "output": r.usage.completion_tokens or 0,
-                    }
+                # F7：DeepSeek 上下文硬盘缓存默认开启（前缀匹配），命中量在
+                # usage.prompt_cache_hit_tokens —— 统一由 prompt_cache.usage_dict 归一化。
+                usage = prompt_cache.usage_dict(r.usage)
                 self._record_llm_span(_model, messages, content, temperature, max_tokens)
                 return content, usage
         except Exception as exc:

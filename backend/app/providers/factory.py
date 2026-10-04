@@ -70,10 +70,42 @@ async def check_llm_health(provider: str | None = None) -> dict:
 
 
 async def check_embedding_health(provider: str | None = None) -> dict:
-    """主动探测当前 Embedding provider 是否可用（嵌入一条短文本）。"""
+    """主动探测当前 Embedding provider 是否可用（嵌入一条短文本）。
+
+    H1：额外回报实际模型名/维度/向量空间签名，以及**向量库漂移状态**——
+    换模型后未重建 Milvus 是"检索静默变差"的头号原因，这里让它可见。
+    """
     p = provider or settings.EMB_PROVIDER
+    out: dict = {"provider": p}
+    # 1) 主动探测：真打一次短文本，拿实际维度
     try:
-        await get_embedding_provider(p).embed(["健康检查"])
-        return {"provider": p, "status": "ok"}
+        prov = get_embedding_provider(p)
+        out["model"] = getattr(prov, "model", settings.BGE_MODEL if p == "bge" else "")
+        out["dim"] = prov.dim
+        out["signature"] = prov.model_signature
+        vecs = await prov.embed(["健康检查"])
+        actual_dim = len(vecs[0]) if vecs and vecs[0] else None
+        out.update({"status": "ok", "actualDim": actual_dim})
+        if actual_dim is not None and actual_dim != prov.dim:
+            out["status"] = "error"
+            out["error"] = f"实际返回维度 {actual_dim} 与配置 EMBEDDING_DIM={prov.dim} 不一致"
     except Exception as e:
-        return {"provider": p, "status": "error", "error": f"{type(e).__name__}: {e}"[:200]}
+        out.update({"status": "error", "error": f"{type(e).__name__}: {e}"[:200]})
+    # 2) 向量空间守卫信息：**与探测结果无关**——provider 欠费/宕机时更要能看见"待重建"，
+    #    否则运维只看到"embedding 挂了"，不知道重建这件事还欠着。
+    try:
+        from app.services.embedding_service import ensure_model_consistency, rebuild_pending
+        guard = await ensure_model_consistency(p)
+        out["vectorSpaceStatus"] = guard.get("status")
+        out["rebuildPending"] = bool(guard.get("rebuildPending"))
+        # 待重建状态以 Redis 为准（进程内缓存可能滞后），并带置位时间便于判断拖了多久
+        pend = await rebuild_pending(p)
+        if pend.get("pending"):
+            out["rebuildPending"] = True
+            out["rebuildPendingSince"] = pend.get("since", "")
+            out["rebuildPendingReason"] = pend.get("reason", "")
+        if guard.get("status") == "drift" or out["rebuildPending"]:
+            out["driftMessage"] = guard.get("message", "")
+    except Exception:
+        pass
+    return out

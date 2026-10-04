@@ -8,6 +8,7 @@ NotImplementedError（若被 agent 模式误用会立刻报错，而不是静默
 from openai import AsyncOpenAI
 
 from app.config import settings
+from app.providers import prompt_cache
 from app.providers.base import LLMProvider
 
 
@@ -26,9 +27,7 @@ class OllamaLLM(LLMProvider):
             temperature=temperature, max_tokens=max_tokens, **kw,
         )
         content = r.choices[0].message.content
-        usage = None
-        if r.usage:
-            usage = {"input": r.usage.prompt_tokens or 0, "output": r.usage.completion_tokens or 0}
+        usage = prompt_cache.usage_dict(r.usage)
         return content, usage
 
     async def chat(self, messages, temperature=0.2, max_tokens=2048, model=None, **kw) -> str:
