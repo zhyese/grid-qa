@@ -57,6 +57,24 @@ def _get_col(name: str):
     return col
 
 
+def _run_with_reload(name: str, op):
+    """在已 load 的 collection 上执行 op(col)；遇 "collection not loaded" 清缓存重载后重试一次。
+
+    Milvus 重启 / compaction / 内存回收都会 release 集合，此时**写路径（delete/query）
+    同样会失败**（不只是 search）。缓存里的 Collection 对象不会自动恢复，
+    必须丢弃后重建对象才能触发 load。
+    """
+    col = _get_col(name)
+    try:
+        return op(col)
+    except Exception as e:
+        if "not loaded" not in str(e).lower():
+            raise
+        _col_cache.pop(name, None)
+        col = _get_col(name)
+        return op(col)
+
+
 def _ensure_one(name: str, dim: int) -> None:
     if not utility.has_collection(name):
         fields = [
@@ -85,10 +103,14 @@ def ensure_collections() -> None:
 
 def insert_chunks(collection_name, vectors, texts, doc_ids, doc_names, chunk_idxs) -> int:
     _connect()
-    col = Collection(collection_name)
     pks = [f"{doc_ids[i]}_{chunk_idxs[i]}" for i in range(len(vectors))]
-    col.insert([pks, list(vectors), list(texts), list(doc_ids), list(doc_names), list(chunk_idxs)])
-    col.flush()
+
+    def _op(col):
+        col.insert([pks, list(vectors), list(texts), list(doc_ids),
+                    list(doc_names), list(chunk_idxs)])
+        col.flush()
+
+    _run_with_reload(collection_name, _op)
     return len(vectors)
 
 
@@ -102,16 +124,8 @@ def _do_search(col, query_vec, topk, ef):
 
 def search(collection_name, query_vec, topk: int = 10, ef: int | None = None) -> list[dict]:
     _connect()
-    col = _get_col(collection_name)
-    try:
-        res = _do_search(col, query_vec, topk, ef)
-    except Exception as e:
-        # Milvus 可能 release 缓存的 collection（compaction/内存/重启）→ 清缓存 re-load + retry
-        if "not loaded" not in str(e).lower():
-            raise
-        _col_cache.pop(collection_name, None)
-        col = _get_col(collection_name)
-        res = _do_search(col, query_vec, topk, ef)
+    # Milvus 可能 release 缓存的 collection（compaction/内存/重启）→ 由 _run_with_reload 重载 + retry
+    res = _run_with_reload(collection_name, lambda col: _do_search(col, query_vec, topk, ef))
     out = []
     for hit in res[0]:
         e = hit.entity
@@ -124,11 +138,15 @@ def search(collection_name, query_vec, topk: int = 10, ef: int | None = None) ->
 
 
 def delete_by_doc(doc_id: str) -> None:
-    """从当前部署使用的文档 collection 联动删除。"""
+    """从当前部署使用的文档 collection 联动删除。
+
+    注意：Milvus 的 delete 要求集合处于 loaded 状态（与 search 一样会被 release 影响），
+    故走 _run_with_reload —— 否则 Milvus 重启后"重建/删除文档"会直接失败。
+    """
     _connect()
     for name, _dim in document_collections():
         if utility.has_collection(name):
-            Collection(name).delete(f'doc_id == "{doc_id}"')
+            _run_with_reload(name, lambda col, e=f'doc_id == "{doc_id}"': col.delete(e))
 
 
 def count_by_doc(doc_id: str) -> dict[str, int]:
@@ -143,8 +161,9 @@ def count_by_doc(doc_id: str) -> dict[str, int]:
             if not utility.has_collection(name):
                 out[name] = 0
                 continue
-            rows = Collection(name).query(expr=f'doc_id == "{doc_id}"',
-                                          output_fields=["count(*)"])
+            rows = _run_with_reload(
+                name, lambda col, e=f'doc_id == "{doc_id}"':
+                col.query(expr=e, output_fields=["count(*)"]))
             out[name] = int(rows[0]["count(*)"]) if rows else 0
         except Exception as e:
             from app.core.obs import degraded
