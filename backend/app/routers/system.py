@@ -7,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.limiter import limiter
-from app.core.permissions import ALERT_MANAGE, ALERT_READ, AUDIT_READ, METRIC_READ, USER_MANAGE, SYSTEM_CONFIG
+from app.core.permissions import ALERT_MANAGE, ALERT_READ, AUDIT_READ, METRIC_READ, OPS_READ, USER_MANAGE, SYSTEM_CONFIG
 from app.core.response import BizError, success
 from app.db.session import get_db
 from app.dependencies import get_current_user, require_admin, require_perm
@@ -885,6 +885,28 @@ async def contextual_chunks_stats(
     return success(await contextual_chunk_service.stats(db), "查询成功")
 
 
+@router.get("/telemetry/series")
+async def telemetry_series(
+    deviceId: str = Query(..., max_length=128),
+    metric: str = Query("", max_length=64),
+    hours: float = Query(24, gt=0, le=2160),
+    source: str = Query("", max_length=64),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_perm(OPS_READ)),
+):
+    """F2 时序遥测序列（只读）：供 Chat 工具步骤旁的迷你趋势图取数。
+
+    与 Agent 工具 query_telemetry 同源（telemetry_history_service.series），
+    仅 quality=good 参与统计，不插值、不补造。
+    """
+    from app.config import settings as _s
+    if not _s.TELEMETRY_QA_ENABLE:
+        raise BizError("时序遥测问答未启用（TELEMETRY_QA_ENABLE）", 403)
+    from app.services import telemetry_history_service
+    res = await telemetry_history_service.series(
+        db, user.tenant_id or "default", deviceId, metric=metric, hours=hours, source=source,
+    )
+    return success(res, "查询成功")
 
 
 # ===== 数据备份与恢复（管理员；MySQL 元数据层）=====

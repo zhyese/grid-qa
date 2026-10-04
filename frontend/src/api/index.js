@@ -396,6 +396,11 @@ export const getWorkflowRun = (runId) => request.get(`/workflows/runs/${runId}`)
 // 覆盖率看板：开关状态 + 已生成定位语条数/占比
 export const getContextualChunkStats = () => request.get('/system/knowledge/contextual-chunks')
 
+// ===== F2 时序遥测问答（只读）=====
+// 与 Agent 工具 query_telemetry 同源，供 Chat 工具步骤旁的迷你趋势图取数
+export const getTelemetrySeries = (deviceId, metric = '', hours = 24, source = '') =>
+  request.get('/system/telemetry/series', { params: { deviceId, metric, hours, source } })
+
 // ===== F1 数据资产与标注工作台（golden 集全生命周期）=====
 const GS = '/golden-set'
 export const getGoldenStats = () => request.get(`${GS}/stats`)

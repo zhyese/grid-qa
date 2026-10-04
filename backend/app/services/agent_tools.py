@@ -3,7 +3,13 @@
 从 diagnose_agent_service 迁移而来。后续 persona（S2/S3）只需在此新增 Tool 并注册。
 """
 from app.config import settings
-from app.services import domain_service, kg_service, retrieval_service, ticket_lifecycle_service
+from app.services import (
+    domain_service,
+    kg_service,
+    retrieval_service,
+    telemetry_history_service,
+    ticket_lifecycle_service,
+)
 from app.services.agent_runtime import Tool, ToolRegistry
 
 _TOPK = 5
@@ -69,6 +75,16 @@ async def _t_submit_ticket(db, model_type, ticketId, tenant=None):
             f"审核得分:{t.get('reviewScore', 0)}")
 
 
+async def _t_query_telemetry(db, model_type, deviceId, metric="", hours=24,
+                             source="", tenant=None):
+    """F2 时序遥测问答：查设备遥测数值序列 + 确定性统计/趋势（只读，不补造数据）。"""
+    res = await telemetry_history_service.series(
+        db, tenant or "default", deviceId, metric=metric,
+        hours=hours, source=source,
+    )
+    return _fmt_telemetry(res)
+
+
 # ---------- 摘要格式化 ----------
 def _fmt_chunks(ctx):
     if not ctx:
@@ -92,6 +108,35 @@ def _fmt_ticket(ticket):
             f"步骤:{';'.join(steps[:8]) if steps else '无'}\n"
             f"安措:{';'.join(ticket.get('safety') or []) or '无'}\n"
             f"风险:{';'.join(ticket.get('risks') or []) or '无'}")
+
+
+def _fmt_telemetry(res: dict) -> str:
+    """F2：把确定性遥测统计渲染成 LLM 可读文本（无数据时如实拒答 + 给出可选项）。"""
+    if not res.get("stats"):
+        lines = [f"设备:{res.get('deviceId') or '（未指定）'} 指标:{res.get('metric') or '（未指定）'}",
+                 f"区间:{res.get('start')} ~ {res.get('end')}"]
+        if res.get("availableDevices"):
+            lines.append("可选设备:" + ", ".join(res["availableDevices"][:15]))
+        if res.get("availableMetrics"):
+            lines.append("可选指标:" + ", ".join(res["availableMetrics"][:15]))
+        lines.append("结论:" + (res.get("note") or "无有效遥测数据，无法回答。"))
+        return "\n".join(lines)
+
+    s, t = res["stats"], res.get("trend") or {}
+    lines = [
+        f"设备:{res['deviceId']} 指标:{res['metric']} 区间:{res['start']} ~ {res['end']}",
+        f"有效样本:{s['count']} 个（排除非good {res.get('excluded', 0)} 个），单位:{s['unit']}",
+        (f"最小 {s['min']:g} / 最大 {s['max']:g} / 均值 {s['mean']:g} / "
+         f"首值 {s['first']:g} / 末值 {s['last']:g}（区间变化 {s['delta']:+g}）"),
+        (f"趋势:{t.get('direction', '-')}（斜率 {t.get('slopePerHour', 0):+g} {s['unit']}/h），"
+         f"最大单步跳变 {t.get('maxJump', 0):g} 于 {t.get('jumpAt') or '-'}"),
+    ]
+    pts = res.get("points") or []
+    if pts:
+        shown = ", ".join(f"{p['value']:g}@{p['at'][5:]}" for p in pts[:40])
+        lines.append(f"序列(降采样 {len(pts)} 点，前 40): {shown}")
+    lines.append("提示:" + (res.get("note") or ""))
+    return "\n".join(lines)
 
 
 # ---------- schema ----------
@@ -120,8 +165,14 @@ _SCHEMA_CREATE_TICKET = {"type": "object",
 _SCHEMA_SUBMIT_TICKET = {"type": "object",
                          "properties": {"ticketId": {"type": "string", "description": "工单 id"}},
                          "required": ["ticketId"]}
-
-
+_SCHEMA_TELEMETRY = {"type": "object",
+                     "properties": {
+                         "deviceId": {"type": "string", "description": "设备名，如 '1号主变'（可模糊匹配）"},
+                         "metric": {"type": "string", "description": "指标名，如 '油温'/'负荷'；留空则汇总该设备全部指标"},
+                         "hours": {"type": "number", "description": "回看小时数，默认 24，最大 2160（90 天）"},
+                         "source": {"type": "string", "description": "数据来源（可选），留空=全部来源"},
+                     },
+                     "required": ["deviceId"]}
 def build_default_registry() -> ToolRegistry:
     reg = ToolRegistry()
     reg.register(Tool("search_regulation",
@@ -133,6 +184,17 @@ def build_default_registry() -> ToolRegistry:
     reg.register(Tool("search_similar_case",
                       "查历史相似故障案例（故障案例库），看历史上类似故障怎么处理的。",
                       _SCHEMA_SYMPTOM, _t_search_similar_case, required_roles=[]))
+    # F2 时序遥测问答：只读工具，回答"某设备某指标最近 N 小时的数值/趋势"类问题。
+    # 开关：TELEMETRY_QA_ENABLE（问答侧）或 PROACTIVE_TELEMETRY_ENABLE（主动运维侧），
+    # 任一开启即注册；关=现状（工具不可见，LLM 不会调用）。
+    if (getattr(settings, "TELEMETRY_QA_ENABLE", False)
+            or getattr(settings, "PROACTIVE_TELEMETRY_ENABLE", False)):
+        reg.register(Tool(
+            "query_telemetry",
+            "查询设备遥测历史（数值序列 + 最小/最大/均值/趋势方向/最大跳变）。"
+            "用于回答『某设备某指标最近 N 小时怎么样/趋势如何/有没有异常波动』类问题。"
+            "只读、不补造数据；无数据时如实返回空并给出可选设备/指标。",
+            _SCHEMA_TELEMETRY, _t_query_telemetry, action_type="read", required_roles=[]))
     reg.register(Tool("draft_ticket",
                       "生成处置操作票草案（步骤/安措/风险）。诊断基本明确、需要处置步骤时调用。",
                       _SCHEMA_TASK, _t_draft_ticket, required_roles=["admin"]))

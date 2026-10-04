@@ -1,6 +1,10 @@
 <!--
   Agent 思考链渲染（共享组件）：Chat 🎯深度思考 / Admin 证据深度补全 复用。
   props: steps(思考链数组 [{iter,tool,args,result,error}]) / title
+
+  F2 时序遥测问答：当某步是 query_telemetry 时，在该步下方挂 TelemetrySpark
+  （按该步参数拉只读序列画迷你趋势图；取数失败/无数据由子组件静默不渲染，
+  绝不影响思考链本身渲染 —— degrade, never crash）。
 -->
 <template>
   <div class="agent-trace" v-if="steps && steps.length">
@@ -14,6 +18,8 @@
         <span v-if="st.tool" class="trace-tool">🔧 {{ st.tool }}<span class="trace-args" v-if="st.args && Object.keys(st.args).length">({{ JSON.stringify(st.args) }})</span></span>
         <span v-else class="trace-thought">💭 综合作答</span>
         <div v-if="st.result" class="trace-result" :class="{ err: st.error }">{{ (st.result || '').slice(0, 220) }}</div>
+        <!-- F2：遥测步骤迷你趋势图（仅展开时挂载，避免折叠态无谓取数） -->
+        <TelemetrySpark v-if="open && isTelemetry(st)" :args="st.args" />
       </div>
     </div>
   </div>
@@ -21,11 +27,18 @@
 
 <script setup>
 import { ref } from 'vue'
+import TelemetrySpark from './TelemetrySpark.vue'
+
 defineProps({
   steps: { type: Array, default: () => [] },
   title: { type: String, default: '🧠 深度思考' },
 })
+
 const open = ref(true)
+
+function isTelemetry(st) {
+  return !!st && st.tool === 'query_telemetry'
+}
 </script>
 
 <style scoped>

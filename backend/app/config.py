@@ -399,6 +399,12 @@ class Settings(BaseSettings):
     PROACTIVE_SCHEMA_V2_ENABLE: bool = False
     # 遥测证据：开=诊断工具集并入 query_telemetry（mock_scada MCP 注册名），prompt 注入设备上下文；关=现状三只读工具
     PROACTIVE_TELEMETRY_ENABLE: bool = False
+    # F2 时序遥测问答：开=问答 persona 并入只读工具 query_telemetry，可回答
+    # "1号主变最近 24h 油温趋势怎么样/有没有异常" 类时序问题（数据来自 ops_telemetry_point
+    # 导入表，确定性统计+趋势，无数据如实拒答）；关=现状（问答侧无时序能力）。
+    TELEMETRY_QA_ENABLE: bool = False
+    # F2 前端迷你趋势图：随引用卡片返回降采样序列的最大点数（0=不返回序列）
+    TELEMETRY_CHART_MAX_POINTS: int = 200
     # 闭环回填：confirm/reject/to-ticket 成功后 emit 质量事件（source=proactive-ops）；关=现状不 emit
     PROACTIVE_FEEDBACK_ENABLE: bool = False
 
