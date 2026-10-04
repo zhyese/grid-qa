@@ -2,7 +2,7 @@
 
 设计见 docs/superpowers/specs/2026-07-01-rbac-acl-design.md（用户已确认）。
 - 权限用字符串常量（资源:动作），细到 endpoint 级
-- 角色绑定权限集（ROLE_PERMISSIONS 默认映射，首版硬编码；role_permission 表支持 DB 覆盖，后续）
+- 角色绑定权限集（ROLE_PERMISSIONS 默认映射，首版硬编码；role_permission 表 DB 覆盖已接入（P1-8，见 role_permission_service））
 - admin 永远全权限；auditor 永远只读
 - 兼容：旧 admin/operator 自动映射，零破坏升级
 
@@ -101,7 +101,7 @@ VALID_ROLES = set(ROLE_PERMISSIONS.keys())
 
 
 def role_perms(role: str) -> set[str]:
-    """角色的权限集（code 默认；DB 覆盖后续扩展，合并 role_permission 表）。"""
+    """角色的权限集（code 默认；DB 覆盖由 role_permission_service.effective_override 在 require_perm 合并）。"""
     return ROLE_PERMISSIONS.get(role, set())
 
 

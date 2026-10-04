@@ -2,7 +2,7 @@
 
 首版空表，全走 app.core.permissions.ROLE_PERMISSIONS（code 默认）。
 admin 在 UI 动态调整某角色权限时写这里；has_perm 查询时合并 code 默认 + 本表覆盖。
-spec 范围外不做 UI 编辑（YAGNI），但表先建好，后续接入零迁移。
+Admin「权限」Tab 已接本表做可视化编辑（P1-8 收口）；has_perm 合并见 role_permission_service。
 """
 import uuid
 from datetime import datetime

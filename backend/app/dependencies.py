@@ -32,11 +32,20 @@ async def get_current_user(
 def require_perm(perm: str):
     """RBAC 权限依赖工厂：require_perm('doc:delete') → 仅拥有该权限的角色可访问。
 
-    admin 全放行；其余查 has_perm（ROLE_PERMISSIONS 默认 + role_permission 表覆盖，后续）。
+    admin 全放行；其余 = has_perm（ROLE_PERMISSIONS 默认）+ role_permission 表覆盖合并
+    （覆盖优先：True 补权 / False 回收；admin 不受覆盖，全权是代码红线。P1-8 收口落地）。
     用法：`Depends(require_perm("doc:delete"))`。
     """
     async def _check(user: User = Depends(get_current_user)) -> User:
-        if not has_perm(user.role, perm):
+        allowed = has_perm(user.role, perm)
+        if user.role != "admin":
+            from app.services import role_permission_service
+            override = await role_permission_service.effective_override(user.role, perm)
+            if override is True:
+                allowed = True
+            elif override is False:
+                allowed = False
+        if not allowed:
             raise BizError(f"无权限：需要 {perm}", 403)
         return user
     return _check
