@@ -69,3 +69,9 @@ ai-trends-2026.html
 /docker-entrypoint-initdb.d/*.sql
 /data/hf-cache/
 .mimocode/
+
+# ===== 临时产物（不入库）=====
+.pytest_failed.txt
+.pytest_out*.txt
+.workbuddy-ai/
+frontend/vite.config.js.timestamp-*.mjs
