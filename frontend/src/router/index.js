@@ -32,6 +32,7 @@ const routes = [
       { path: 'doc-collab', component: () => import('../views/DocCollab.vue'), meta: { auth: true, title: '文档协作', sub: '锚点批注 · 多人会签 · 电子签批' } },
       { path: 'drill', component: () => import('../views/DrillSandbox.vue'), meta: { auth: true, title: '演练沙箱', sub: '故障剧本 · 时间轴推演 · 评分复盘' } },
       { path: 'golden-set', component: () => import('../views/GoldenSet.vue'), meta: { auth: true, title: '数据资产', sub: 'Golden 集 · 标注 · 版本发布 · Laya 导出' } },
+      { path: 'document-assets', component: () => import('../views/DocumentAssets.vue'), meta: { auth: true, title: '文档资产', sub: '版本历史 · 回滚 · 分块编辑 · 相似查重 · 版本对比' } },
     ],
   },
 ]

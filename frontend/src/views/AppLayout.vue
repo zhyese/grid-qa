@@ -74,12 +74,14 @@ import { computed, ref, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useDark, useToggle } from '@vueuse/core'
 import { useAuthStore } from '../stores/auth'
+import { useFeatureFlagsStore } from '../stores/features'
 import { hasPerm, ROLE_LABEL } from '../utils/perm'
 import { getNotifications, getUnreadCount, markAllNotificationsRead, markNotificationRead } from '../api'
 
 const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
+const features = useFeatureFlagsStore()
 const isDark = useDark()
 const toggleDark = useToggle(isDark)
 
@@ -96,11 +98,13 @@ const title = computed(() => route.meta.title || '电网运维 RAG')
 const sub = computed(() => route.meta.sub || '')
 
 const navItems = computed(() => {
+  const f = features.flags
   const items = [
     { to: '/chat', icon: '💬', label: '智能问答' },
     { to: '/diagnose', icon: '🩺', label: '故障诊断' },
     { to: '/operations', icon: '⚡', label: '主动运维' },
-    { to: '/ops-workbench', icon: '🗂️', label: '运维工作台' },
+    // 特性开关镜像：undefined（未加载/加载失败）按显示处理，false 才隐藏（degrade 不破坏现状）
+    ...(f.opsWorkbench !== false ? [{ to: '/ops-workbench', icon: '🗂️', label: '运维工作台' }] : []),
     { to: '/documents', icon: '📄', label: '知识库' },
     { to: '/dashboard', icon: '📊', label: '统计看板' },
     { to: '/kg', icon: '🧠', label: '知识图谱' },
@@ -109,24 +113,29 @@ const navItems = computed(() => {
     { to: '/ticket', icon: '📋', label: '两票管理' },
   ]
   if (hasPerm(auth.role, 'doc:manage')) {
-    items.splice(4, 0, { to: '/knowledge-governance', icon: '🧭', label: '知识治理' })
-    items.splice(5, 0, { to: '/knowledge-evolution', icon: '🧬', label: '知识自进化' })
+    // 锚定在「知识库」前插入，避免上游条件项（运维工作台）显隐导致下标漂移
+    const di = items.findIndex((i) => i.to === '/documents')
+    items.splice(di, 0, { to: '/knowledge-governance', icon: '🧭', label: '知识治理' })
+    items.splice(di + 1, 0, { to: '/knowledge-evolution', icon: '🧬', label: '知识自进化' })
   }
-  if (hasPerm(auth.role, 'workflow:read')) {
+  if (f.workflow !== false && hasPerm(auth.role, 'workflow:read')) {
     items.push({ to: '/workflow', icon: '🧩', label: '工作流编排' })
   }
-  if (hasPerm(auth.role, 'report:read')) {
+  if (f.opsReport !== false && hasPerm(auth.role, 'report:read')) {
     items.push({ to: '/ops-report', icon: '📝', label: '运维报告' })
   }
-  if (hasPerm(auth.role, 'doc:read')) {
+  if (f.docCollab !== false && hasPerm(auth.role, 'doc:read')) {
     items.push({ to: '/doc-collab', icon: '🗒️', label: '文档协作' })
   }
-  if (hasPerm(auth.role, 'drill:read')) {
+  if (f.drillSandbox !== false && hasPerm(auth.role, 'drill:read')) {
     items.push({ to: '/drill', icon: '🧯', label: '演练沙箱' })
   }
   // F1 数据资产与标注工作台（golden 集全生命周期）
-  if (hasPerm(auth.role, 'golden:read')) {
+  if (f.goldenSet !== false && hasPerm(auth.role, 'golden:read')) {
     items.push({ to: '/golden-set', icon: '🎯', label: '数据资产' })
+  }
+  if (hasPerm(auth.role, 'doc:read')) {
+    items.push({ to: '/document-assets', icon: '🗃️', label: '文档资产' })
   }
   if (hasPerm(auth.role, 'metric:read')) {
     items.push({ to: '/prediction', icon: '🔮', label: '故障预测' })
@@ -156,7 +165,10 @@ function onNotify(e) {
   clearTimeout(notifyTimer)
   notifyTimer = setTimeout(() => (notifyMsg.value = ''), 2600)
 }
-onMounted(() => window.addEventListener('app:notify', onNotify))
+onMounted(() => {
+  window.addEventListener('app:notify', onNotify)
+  features.load() // 特性开关镜像（失败降级为全显，见 stores/features.js）
+})
 onUnmounted(() => window.removeEventListener('app:notify', onNotify))
 
 // ===== 通知中心：未读徽章 + WS 在线推送 + 轮询兜底 =====

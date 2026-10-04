@@ -74,6 +74,9 @@
       <button class="workspace-tab" :class="{ active: activeTab === 'issues' }" role="tab" :aria-selected="activeTab === 'issues'" @click="activeTab = 'issues'">
         <span>问题工作台</span><b>{{ unresolvedCount }}</b>
       </button>
+      <button class="workspace-tab" :class="{ active: activeTab === 'propagation' }" role="tab" :aria-selected="activeTab === 'propagation'" @click="activeTab = 'propagation'">
+        <span>治理传播</span>
+      </button>
     </div>
 
     <section v-show="activeTab === 'documents'" class="card workspace-card" role="tabpanel">
@@ -364,6 +367,40 @@
       </div>
     </div>
 
+    <section v-show="activeTab === 'propagation'" class="card workspace-card" role="tabpanel">
+      <div class="card-header workspace-head">
+        <div>
+          <h2 class="card-title">治理联动传播（A3/A4）</h2>
+          <div class="card-desc">文档被治理封禁后，联动清理其向量/图谱/缓存痕迹。先查候选报告（dry-run），人工确认后才执行真实清理。</div>
+        </div>
+      </div>
+      <div class="propagate-bar">
+        <input v-model.trim="propagate.docId" class="input" placeholder="文档 ID（document UUID）" aria-label="文档 ID" @keyup.enter="loadCandidates" />
+        <button class="btn btn-primary btn-sm" :disabled="propagate.loading || !propagate.docId" @click="loadCandidates">{{ propagate.loading ? '统计中…' : '查候选报告' }}</button>
+      </div>
+      <template v-if="propagate.candidates">
+        <div class="propagate-stats">
+          <div class="stat"><b>{{ propagate.candidates.totalEstimate ?? 0 }}</b><span>预计清理总数</span></div>
+          <div class="stat"><b>{{ (propagate.candidates.milvus && Object.values(propagate.candidates.milvus).reduce((s, n) => s + n, 0)) || 0 }}</b><span>Milvus 向量</span></div>
+          <div class="stat"><b>{{ propagate.candidates.neo4jEdges ?? 0 }}</b><span>Neo4j 边</span></div>
+          <div class="stat"><b>{{ propagate.candidates.kgTriples ?? 0 }}</b><span>三元组</span></div>
+          <div class="stat"><b>{{ propagate.candidates.qaCacheRows ?? 0 }}</b><span>缓存行</span></div>
+        </div>
+        <div v-if="propagate.candidates.cacheKeyPreview?.length" class="propagate-keys">
+          <div class="src-head">将失效的缓存 key（预览前 20）</div>
+          <code v-for="k in propagate.candidates.cacheKeyPreview" :key="k" class="propagate-key">{{ k }}</code>
+        </div>
+        <div class="propagate-actions">
+          <button class="btn btn-danger btn-sm" :disabled="propagate.executing || !(propagate.candidates.totalEstimate > 0)" @click="executePropagate">{{ propagate.executing ? '清理中…' : '确认执行真实清理' }}</button>
+          <small class="field-help">需后端 GOVERNANCE_PROPAGATE_ENABLE 开启；执行后治理代际 +1，全部问答缓存自动失效。</small>
+        </div>
+        <div v-if="propagate.result" class="propagate-result">
+          <b>执行结果：</b>
+          <code>{{ JSON.stringify(propagate.result) }}</code>
+        </div>
+      </template>
+    </section>
+
     <div v-if="reviewModal.show" class="modal-bg" @click.self="closeReview">
       <div class="modal governance-modal review-modal" role="dialog" aria-modal="true" aria-labelledby="review-title">
         <div class="modal-head">
@@ -397,6 +434,8 @@ import {
   getKnowledgeIssues,
   getKnowledgeIssueStats,
   reviewKnowledgeIssue,
+  getGovernanceCandidates,
+  executeGovernancePropagate,
 } from '../api'
 
 const lifecycleStages = [
@@ -409,6 +448,34 @@ const issueTypes = ['metadata_missing', 'not_yet_effective', 'expired', 'expirin
 const pageSize = 12
 
 const activeTab = ref('documents')
+
+// ===== 治理联动传播（A3/A4 收口：候选报告 dry-run → 人工确认执行）=====
+const propagate = reactive({ docId: '', loading: false, executing: false, candidates: null, result: null })
+async function loadCandidates() {
+  if (!propagate.docId) return
+  propagate.loading = true
+  propagate.result = null
+  try {
+    propagate.candidates = (await getGovernanceCandidates(propagate.docId)).data
+  } catch (e) {
+    notify(e?.message || '候选报告查询失败', 'error')
+  } finally {
+    propagate.loading = false
+  }
+}
+async function executePropagate() {
+  if (!propagate.docId) return
+  if (!window.confirm(`确认对文档 ${propagate.docId} 执行真实清理？将删除其向量/图谱边/三元组并失效相关问答缓存，不可撤销。`)) return
+  propagate.executing = true
+  try {
+    propagate.result = (await executeGovernancePropagate(propagate.docId)).data
+    notify('联动清理已执行，治理代际已 +1')
+  } catch (e) {
+    notify(e?.message || '执行失败', 'error')
+  } finally {
+    propagate.executing = false
+  }
+}
 const refreshing = ref(false)
 const stats = ref({ documents: 0, governedDocuments: 0, metadataCoverage: 0, byStatus: {}, byType: {} })
 const docs = ref({ total: 0, list: [] })
@@ -821,6 +888,16 @@ onUnmounted(() => {
 .workspace-tab { display: flex; align-items: center; gap: 10px; padding: 8px 13px; border: 0; border-radius: 7px; background: transparent; color: var(--text-muted); cursor: pointer; font-family: inherit; font-size: 13px; font-weight: 650; }
 .workspace-tab b { min-width: 22px; padding: 1px 6px; border-radius: 999px; background: var(--surface-2); color: var(--text-soft); font-size: 10px; }
 .workspace-tab.active { background: var(--primary-soft); color: var(--primary); }.workspace-tab.active b { background: var(--primary); color: #fff; }
+.propagate-bar { display: flex; gap: 10px; margin-bottom: 14px; }
+.propagate-bar .input { flex: 1; }
+.propagate-stats { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin-bottom: 14px; }
+.propagate-stats .stat { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; border-radius: 8px; background: var(--surface-2); }
+.propagate-stats .stat b { font-size: 18px; }
+.propagate-stats .stat span { font-size: 11px; color: var(--text-muted); }
+.propagate-keys { margin-bottom: 14px; }
+.propagate-key { display: block; padding: 3px 8px; margin-bottom: 4px; border-radius: 6px; background: var(--surface-2); font-size: 11px; word-break: break-all; }
+.propagate-actions { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
+.propagate-result code { display: block; margin-top: 6px; padding: 8px 10px; border-radius: 6px; background: var(--surface-2); font-size: 11px; word-break: break-all; }
 .workspace-tab:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 
 .workspace-card { padding: 0; overflow: hidden; }

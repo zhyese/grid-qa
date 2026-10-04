@@ -15,6 +15,8 @@
       <button class="tab" :class="{ active: tab === 'evalmatrix' }" @click="loadEvalMatrix(); tab = 'evalmatrix'" v-if="can('system:config')">🧮 评测矩阵</button>
       <button class="tab" :class="{ active: tab === 'tune' }" @click="loadTuneReport(); tab = 'tune'" v-if="can('system:config')">🎯 检索调参</button>
       <button class="tab" :class="{ active: tab === 'users' }" @click="loadUsers(); tab = 'users'" v-if="can('user:manage')">👥 用户管理</button>
+      <button class="tab" :class="{ active: tab === 'perm' }" @click="loadRolePerms(); tab = 'perm'" v-if="can('system:config')">🔐 权限</button>
+      <button class="tab" :class="{ active: tab === 'telemetry' }" @click="tab = 'telemetry'" v-if="can('ops:write')">📥 遥测导入</button>
       <button class="tab" :class="{ active: tab === 'persona' }" @click="loadPersonas(); tab = 'persona'" v-if="can('system:config')">🧩 Persona</button>
       <button class="tab" :class="{ active: tab === 'backup' }" @click="loadBackups(); tab = 'backup'" v-if="can('system:config')">💾 备份恢复</button>
       <button class="tab" :class="{ active: tab === 'terms' }" @click="loadTerms(); tab = 'terms'" v-if="can('system:config')">📖 词表管理</button>
@@ -105,6 +107,50 @@
           </tbody>
         </table>
       </div>
+    </div>
+
+    <div class="card" v-show="tab === 'perm'">
+      <div class="card-header">
+        <h3 class="card-title">🔐 角色权限覆盖（RBAC DB 覆盖）</h3>
+        <button class="btn btn-ghost btn-sm" @click="loadRolePerms">🔄 刷新</button>
+      </div>
+      <p class="hint" style="margin-top:0;line-height:1.7">
+        在代码默认矩阵之上按 (角色, 权限) 粒度<b>授予/回收</b>；覆盖优先于默认；admin 全权不受覆盖。
+        变更立即落库，各实例最迟 60s 生效（进程内 TTL 缓存）。
+      </p>
+      <div style="display:flex;gap:8px;align-items:center;margin:10px 0">
+        <b>角色：</b>
+        <select class="select" v-model="permRole" style="width:auto">
+          <option value="editor">editor</option>
+          <option value="operator">operator</option>
+          <option value="auditor">auditor</option>
+        </select>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:6px">
+        <label v-for="p in permCatalog" :key="p" class="perm-row" :title="permOverrides[p] === undefined ? '代码默认' : (permOverrides[p] ? 'DB 覆盖：授予' : 'DB 覆盖：回收')">
+          <input type="checkbox" :checked="permEffective[p]" @change="togglePerm(p, $event.target.checked)" />
+          <span :class="{ 'perm-overridden': permOverrides[p] !== undefined }">{{ p }}</span>
+          <small v-if="permOverrides[p] !== undefined" class="badge" :class="permOverrides[p] ? 'badge-success' : 'badge-danger'">{{ permOverrides[p] ? '补权' : '回收' }}</small>
+        </label>
+      </div>
+      <p class="hint" v-if="!permCatalog.length">加载中…</p>
+    </div>
+
+    <div class="card" v-show="tab === 'telemetry'">
+      <div class="card-header">
+        <h3 class="card-title">📥 遥测数据导入（F2 时序问答数据源）</h3>
+      </div>
+      <p class="hint" style="margin-top:0;line-height:1.7">
+        CSV 列：<code>source,device_id,metric,unit,value,quality,observed_at</code>
+        （quality ∈ good/bad/uncertain；observed_at 含时区，如 <code>2026-10-04T10:00:00+08:00</code>）。
+        仅 quality=good 参与统计；同 (source,device,metric,时间) 重复导入计 duplicate。
+      </p>
+      <div style="display:flex;gap:10px;align-items:center;margin:10px 0">
+        <input class="input" type="file" accept=".csv,text/csv" @change="onTelemetryFile" />
+        <button class="btn btn-primary btn-sm" :disabled="telemetryImporting || !telemetryPoints.length" @click="submitTelemetry">{{ telemetryImporting ? '导入中…' : `导入 ${telemetryPoints.length} 点` }}</button>
+        <button class="btn btn-ghost btn-sm" @click="telemetryPoints = []" v-if="telemetryPoints.length">清空</button>
+      </div>
+      <p class="hint" v-if="telemetryPreview">{{ telemetryPreview }}</p>
     </div>
 
     <div class="card" v-show="tab === 'feedback'">
@@ -785,9 +831,9 @@ import * as echarts from 'echarts/core'
 import { PieChart, BarChart, ScatterChart, LineChart } from 'echarts/charts'
 import { TooltipComponent, LegendComponent, GridComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
-import { getLogs, getAlerts, configMilvus, configModel, getMilvusConfig, getModelConfig, getProviderHealth, rebuildBm25, getFeedbacks, markFeedbackGolden, getFeedbackStats, alertDispose, getAlertDisposals, getPersonas, upsertPersona, deletePersona, agentRun, getUsers, updateUserRole, updateUserStatus, deleteUser, resetUserPassword, backupDB, listBackups, restoreDB, removeBackup, getLogArchiveStats, archiveLogs, getTerms, addTerm, deleteTerm, getPromptConfig, updatePromptConfig, getLlmRouterConfig, updateLlmRouterConfig, getSemanticRules, addSemanticRule, deleteSemanticRule, getRetrievalTuneReport, runRetrievalTune, confirmDisposal, rejectDisposal, disposalToTicket, closeDisposal, backupAll, restoreAllBackup, listManifestBackups, deleteManifestBackup, getMemories, deleteMemory, getMemoryStats } from '../api'
+import { getLogs, getAlerts, configMilvus, configModel, getMilvusConfig, getModelConfig, getProviderHealth, rebuildBm25, getFeedbacks, markFeedbackGolden, getFeedbackStats, alertDispose, getAlertDisposals, getPersonas, upsertPersona, deletePersona, agentRun, getUsers, updateUserRole, updateUserStatus, deleteUser, resetUserPassword, backupDB, listBackups, restoreDB, removeBackup, getLogArchiveStats, archiveLogs, getTerms, addTerm, deleteTerm, getPromptConfig, updatePromptConfig, getLlmRouterConfig, updateLlmRouterConfig, getSemanticRules, addSemanticRule, deleteSemanticRule, getRetrievalTuneReport, runRetrievalTune, confirmDisposal, rejectDisposal, disposalToTicket, closeDisposal, backupAll, restoreAllBackup, listManifestBackups, deleteManifestBackup, getMemories, deleteMemory, getMemoryStats, getEvidenceGaps, aiDraftGap, updateAiDraftGap, updateConfGap, confirmGap, ignoreGap, deleteGap, editGap, retagEvidenceGaps, batchDeleteGaps } from '../api'
 import request from '../api/request'
-import { getCostReport, getContextualChunkStats, getEvalMatrixReport, getEvalMatrixReports,
+import { getCostReport, getContextualChunkStats, getEvalMatrixReport, getEvalMatrixReports, getRolePermissions, setRolePermission, importTelemetry,
          getEvalMatrixStatus, getEvalTrends, getKnowledgeQuality, getRoutingConfig,
          runEvalMatrix } from '../api'
 
@@ -888,6 +934,90 @@ function copyEnv(s) {
   else toast(line)
 }
 async function loadUsers() { try { users.value = (await getUsers()).data } catch (e) { toast('加载用户失败') } }
+
+// ===== P1-8 角色权限覆盖（RBAC DB 覆盖）=====
+const permRole = ref('editor')
+const permCatalog = ref([])
+const permOverrides = ref({})
+const permEffective = ref({})
+async function loadRolePerms() {
+  try {
+    const cat = (await getRolePermissions()).data
+    permCatalog.value = cat.permissions || []
+    applyRolePerms(cat)
+  } catch (e) { toast('权限目录加载失败') }
+}
+function applyRolePerms(cat) {
+  const r = (cat.roles || {})[permRole.value] || {}
+  permOverrides.value = r.overrides || {}
+  const eff = {}
+  for (const p of permCatalog.value) {
+    const ov = permOverrides.value[p]
+    eff[p] = ov !== undefined ? ov : (r.default || []).includes(p)
+  }
+  permEffective.value = eff
+}
+async function togglePerm(p, granted) {
+  try {
+    await setRolePermission(permRole.value, p, granted)
+    permOverrides.value = { ...permOverrides.value, [p]: granted }
+    permEffective.value = { ...permEffective.value, [p]: granted }
+    toast(`已${granted ? '授予' : '回收'} ${permRole.value} · ${p}`)
+  } catch (e) {
+    toast(e?.response?.data?.message || '更新失败')
+    loadRolePerms()
+  }
+}
+
+// ===== P1-6 遥测 CSV 导入（POST /system/telemetry/import）=====
+const telemetryImporting = ref(false)
+const telemetryPoints = ref([])
+const telemetryPreview = ref('')
+function onTelemetryFile(ev) {
+  const file = ev.target.files?.[0]
+  if (!file) return
+  const reader = new FileReader()
+  reader.onload = () => {
+    try { telemetryPoints.value = parseTelemetryCsv(String(reader.result)) }
+    catch (e) { toast(e?.message || 'CSV 解析失败'); telemetryPoints.value = [] }
+    telemetryPreview.value = telemetryPoints.value.length
+      ? `已解析 ${telemetryPoints.value.length} 点：${telemetryPoints.value[0].device_id} / ${telemetryPoints.value[0].metric} …`
+      : ''
+  }
+  reader.readAsText(file, 'utf-8')
+}
+function parseTelemetryCsv(text) {
+  const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean)
+  if (lines.length < 2) throw new Error('CSV 至少要有表头 + 1 行数据')
+  const head = lines[0].split(',').map((h) => h.trim())
+  const need = ['source', 'device_id', 'metric', 'unit', 'value', 'quality', 'observed_at']
+  for (const n of need) if (!head.includes(n)) throw new Error(`缺少列：${n}`)
+  return lines.slice(1).map((l, i) => {
+    const cells = l.split(',').map((c) => c.trim())
+    const row = {}
+    head.forEach((h, j) => (row[h] = cells[j]))
+    const value = Number(row.value)
+    if (!Number.isFinite(value)) throw new Error(`第 ${i + 2} 行 value 非数值`)
+    if (!['good', 'bad', 'uncertain'].includes(row.quality)) throw new Error(`第 ${i + 2} 行 quality 非法`)
+    return {
+      source: row.source, device_id: row.device_id, metric: row.metric,
+      unit: row.unit || '', value, quality: row.quality, observed_at: row.observed_at,
+    }
+  })
+}
+async function submitTelemetry() {
+  telemetryImporting.value = true
+  try {
+    const res = (await importTelemetry(telemetryPoints.value)).data
+    toast(`导入完成：新增 ${res.imported ?? 0}，重复跳过 ${res.duplicates ?? 0}`)
+    telemetryPoints.value = []
+    telemetryPreview.value = ''
+  } catch (e) {
+    toast(e?.response?.data?.message || '导入失败（开关未开/字段校验不过）')
+  } finally {
+    telemetryImporting.value = false
+  }
+}
 async function saveUser(u) {
   try { await updateUserRole(u.userId, u.role, u.dept); toast(`已更新 ${u.username} → ${u.role}/${u.dept || '-'}`) }
   catch (e) { toast('更新失败') }
@@ -1076,12 +1206,12 @@ const rwPieEl = ref(null); const rwScatterEl = ref(null); const rwTrendEl = ref(
 const egList = ref([]); const egFilter = ref('pending'); const egSelected = ref([]); const egSourceFilter = ref('')
 async function loadEvidenceGaps() {
   try {
-    const d = (await request.get('/system/evidence-gap', { params: { status: egFilter.value || undefined, source: egSourceFilter.value || undefined, size: 50 } })).data
+    const d = (await getEvidenceGaps({ status: egFilter.value || undefined, source: egSourceFilter.value || undefined, size: 50 })).data
     egList.value = (d && d.list) || []
   } catch (e) { toast('加载失败') }
 }
 async function egDraft(g) {
-  try { const r = await request.post(`/system/evidence-gap/${g.id}/ai-draft`); g.aiDraft = (r.data || {}).aiDraft || ''; g.status = 'ai_drafted'; toast('AI续写完成') }
+  try { const r = await aiDraftGap(g.id); g.aiDraft = (r.data || {}).aiDraft || ''; g.status = 'ai_drafted'; toast('AI续写完成') }
   catch (e) { toast('续写失败') }
 }
 async function egDeepDraft(g) {
@@ -1121,7 +1251,7 @@ async function egDeepDraft(g) {
 async function saveAiDraftInline(g) {
   const t = g.aiDraft || ''
   g._editing = false
-  try { await request.put(`/system/evidence-gap/${g.id}/ai-draft`, { aiDraft: t }); toast('草稿已保存') }
+  try { await updateAiDraftGap(g.id, t); toast('草稿已保存') }
   catch (e) { toast('保存失败') }
 }
 function confBadgeClass(c) {
@@ -1129,11 +1259,11 @@ function confBadgeClass(c) {
            outdated: 'badge-neutral', conflict: 'badge-danger', verify: 'badge-info', expired: 'badge-neutral' }[c] || 'badge-neutral'
 }
 async function saveConf(g) {
-  try { await request.put(`/system/evidence-gap/${g.id}/confidence`, { confidence: g.confidence }); toast('标注已保存') }
+  try { await updateConfGap(g.id, g.confidence); toast('标注已保存') }
   catch (e) { toast('保存失败') }
 }
 async function retagFaq() {
-  try { const r = await request.post('/system/evidence-gap/retag'); toast(`已补全 ${r.data.updated} 条设备标签`) }
+  try { const r = await retagEvidenceGaps(); toast(`已补全 ${r.data.updated} 条设备标签`) }
   catch (e) { toast('补全失败') }
 }
 const egEditing = ref(null); const egEditText = ref(''); const egSaving = ref(false)
@@ -1147,7 +1277,7 @@ async function egSave() {
   egSaving.value = true
   try {
     const id = egEditing.value.id
-    await request.post(`/system/evidence-gap/${id}/edit`, { finalAnswer: egEditText.value })
+    await editGap(id, egEditText.value)
     const g = egList.value.find(x => x.id === id)
     if (g) { g.finalAnswer = egEditText.value; g.status = 'confirmed' }
     egEditing.value = null
@@ -1156,24 +1286,24 @@ async function egSave() {
 }
 async function egConfirm(g) {
   try {
-    const r = await request.post(`/system/evidence-gap/${g.id}/confirm`)
+    const r = await confirmGap(g.id)
     if ((r.data || {}).ok) { g.status = 'synced'; toast('已确认并同步入库') }
     else { toast('同步失败: ' + ((r.data || {}).msg || '')) }
   } catch (e) { toast('确认失败') }
 }
 async function egIgnore(g) {
-  try { await request.post(`/system/evidence-gap/${g.id}/ignore`); g.status = 'ignored'; toast('已忽略') }
+  try { await ignoreGap(g.id); g.status = 'ignored'; toast('已忽略') }
   catch (e) { toast('失败') }
 }
 async function egDelete(g) {
   if (!confirm(`确认删除「${(g.query || '').slice(0, 30)}」？（逻辑删除，可恢复）`)) return
-  try { await request.delete(`/system/evidence-gap/${g.id}`); toast('已删除'); await loadEvidenceGaps() }
+  try { await deleteGap(g.id); toast('已删除'); await loadEvidenceGaps() }
   catch (e) { toast('删除失败') }
 }
 async function egBatchDelete() {
   if (!egSelected.value.length) return toast('请先勾选')
   if (!confirm(`确认批量删除 ${egSelected.value.length} 条？（逻辑删除）`)) return
-  try { await request.post('/system/evidence-gap/batch-delete', { ids: egSelected.value }); toast('已批量删除'); egSelected.value = []; await loadEvidenceGaps() }
+  try { await batchDeleteGaps(egSelected.value); toast('已批量删除'); egSelected.value = []; await loadEvidenceGaps() }
   catch (e) { toast('批量删除失败') }
 }
 function toggleEgAll(e) {
@@ -1381,4 +1511,6 @@ function connectAlertsWs() {
 .ring-lbl { font-size: 11px; color: var(--text-muted); }
 .opt-actions { display: flex; flex-direction: column; gap: 2px; }
 .opt-action { font-size: 12px; color: var(--text-muted); padding-left: 8px; border-left: 2px solid var(--border); margin: 1px 0; }
+.perm-row { display: flex; align-items: center; gap: 6px; padding: 4px 8px; border-radius: 6px; background: var(--surface-2); font-size: 12px; cursor: pointer; }
+.perm-row .perm-overridden { font-weight: 700; }
 </style>

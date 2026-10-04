@@ -60,7 +60,6 @@ export const getKgInfluence = (limit = 15) => request.get('/kg/influence', { par
 
 // 检索与问答
 export const answer = (query, modelType) => request.post('/qa/answer', { query, modelType })
-export const mixedRetrieval = (query, topK) => request.post('/retrieval/mixed', { query, topK })
 export const debugRetrieval = (query, topK, params = {}) =>
   request.post('/retrieval/debug', { query, topK, ...params })
 
@@ -205,7 +204,6 @@ export const getHistory = (conversationId) =>
 
 // P2-⑦ 成本追踪
 export const getCostReport = (period) => request.get('/system/cost/report', { params: { period } })
-export const checkQuota = () => request.get('/system/cost/quota')
 
 // P2-⑨ 复杂问题分解
 export const queryPlan = (question, modelType) => request.post('/domain/query-plan', { question, modelType })
@@ -258,6 +256,9 @@ export const confirmGap = (id, finalAnswer, modelType) =>
   request.post(`/system/evidence-gap/${id}/confirm`, { finalAnswer, modelType })
 export const ignoreGap = (id) => request.post(`/system/evidence-gap/${id}/ignore`)
 export const deleteGap = (id) => request.delete(`/system/evidence-gap/${id}`)
+export const editGap = (id, finalAnswer) => request.post(`/system/evidence-gap/${id}/edit`, { finalAnswer })
+export const retagEvidenceGaps = () => request.post('/system/evidence-gap/retag')
+export const batchDeleteGaps = (ids) => request.post('/system/evidence-gap/batch-delete', { ids })
 export const reportEvidenceGap = (query, answer, confidence, grade, action) =>
   request.post('/qa/evidence-gap/report', { query, answer, confidence, grade, action })
 
@@ -271,12 +272,10 @@ export const getStationLayout = (stationId = '110kV-demo') => request.get('/twin
 export const getStationOverview = (stationId = '110kV-demo') => request.get('/twin/station/overview', { params: { stationId } })
 export const getTwinStations = () => request.get('/twin/stations')
 export const getDeviceDetail = (deviceId, stationId = '') => request.get(`/twin/device/${deviceId}/detail`, { params: stationId ? { stationId } : {} })
-export const getFaultChain = (deviceId, depth = 3, stationId = '') => request.get(`/twin/device/${deviceId}/fault-chain`, { params: { depth, ...(stationId ? { stationId } : {}) } })
 
 // ===== 实时数据接入 + 主动运维闭环 =====
 export const getRealtimeEvents = (params = {}) => request.get('/realtime/events', { params })
 export const getProactiveRuns = (params = {}) => request.get('/realtime/runs', { params })
-export const getProactiveRun = (id) => request.get(`/realtime/runs/${id}`)
 export const confirmProactiveRun = (id, note = '') => request.post(`/realtime/runs/${id}/confirm`, { note })
 export const rejectProactiveRun = (id, note = '') => request.post(`/realtime/runs/${id}/reject`, { note })
 export const retryProactiveRun = (id, modelType = null) => request.post(`/realtime/runs/${id}/retry`, { modelType })
@@ -298,6 +297,8 @@ export const getKnowledgeProfile = (docId) => request.get(`/knowledge-governance
 export const saveKnowledgeProfile = (docId, data) => request.put(`/knowledge-governance/documents/${docId}/profile`, data)
 export const runKnowledgeGovernanceScan = (data = {}) => request.post('/knowledge-governance/scan', data)
 export const getKnowledgeGovernanceScan = (taskId) => request.get(`/knowledge-governance/scan/${taskId}`)
+export const getGovernanceCandidates = (docId) => request.get(`/system/governance-propagate/candidates/${docId}`)
+export const executeGovernancePropagate = (docId) => request.post('/system/governance-propagate/execute', { docId })
 export const getKnowledgeIssues = (params = {}) => request.get('/knowledge-governance/issues', { params })
 export const getKnowledgeIssueStats = () => request.get('/knowledge-governance/issues/stats')
 export const reviewKnowledgeIssue = (id, status, note = '') => request.post(`/knowledge-governance/issues/${id}/review`, { status, note })
@@ -306,7 +307,6 @@ export const reviewKnowledgeIssue = (id, status, note = '') => request.post(`/kn
 export const scanKnowledgeEvolution = (data = {}) => request.post('/knowledge-evolution/scan', data)
 export const getEvolutionScanStatus = (taskId) => request.get(`/knowledge-evolution/scan/${taskId}`)
 export const getEvolutionDrafts = (params = {}) => request.get('/knowledge-evolution/drafts', { params })
-export const getEvolutionDraft = (id) => request.get(`/knowledge-evolution/drafts/${id}`)
 export const reviewEvolutionDraft = (id, action, note = '') => request.post(`/knowledge-evolution/drafts/${id}/review`, { action, note })
 export const withdrawEvolutionDraft = (id, note = '') => request.post(`/knowledge-evolution/drafts/${id}/withdraw`, { note })
 export const getEvolutionStats = () => request.get('/knowledge-evolution/stats')
@@ -378,18 +378,14 @@ export const getEvalMatrixReport = (name) =>
   request.get(`/system/eval-matrix/reports/${encodeURIComponent(name)}`)
 
 // ===== 记忆召回 =====
-export const recallMemory = (query, scope = 'user', agentId = '') =>
-  request.post('/memory/recall', { query, scope, agentId })
 
 // ===== 可视化工作流编排 =====
 export const getWorkflows = (params = {}) => request.get('/workflows', { params })
 export const getWorkflowMeta = () => request.get('/workflows/meta')
 export const createWorkflow = (data) => request.post('/workflows', data)
-export const getWorkflow = (id) => request.get(`/workflows/${id}`)
 export const updateWorkflow = (id, data) => request.put(`/workflows/${id}`, data)
 export const deleteWorkflow = (id) => request.delete(`/workflows/${id}`)
 export const runWorkflow = (id, query, vars = {}) => request.post(`/workflows/${id}/run`, { query, vars })
-export const getWorkflowRuns = (id, params = {}) => request.get(`/workflows/${id}/runs`, { params })
 export const getWorkflowRun = (runId) => request.get(`/workflows/runs/${runId}`)
 
 // ===== H2 切块上下文化（admin）=====
@@ -421,3 +417,18 @@ export const importGoldenCases = (file) => {
   fd.append('file', file)
   return request.post(`${GS}/import`, fd, { headers: { 'Content-Type': 'multipart/form-data' } })
 }
+
+// ===== 特性开关镜像（P0-3：前端菜单按 开关&&角色 显隐）=====
+export const getFeatureFlags = () => request.get('/system/feature-flags')
+export const getRolePermissions = () => request.get('/system/role-permissions')
+export const setRolePermission = (role, permission, granted) =>
+  request.put('/system/role-permissions', { role, permission, granted })
+export const importTelemetry = (points) => request.post('/system/telemetry/import', { points })
+
+// ===== P1-5 文档资产管理（版本/回滚/块编辑/查重/diff，接既有后端端点）=====
+export const getDocVersions = (id) => request.get(`/document/${id}/versions`)
+export const rollbackDocVersion = (docId, version) => request.post('/document/rollback', null, { params: { docId, version } })
+export const getDocChunks = (id) => request.get(`/document/${id}/chunks`)
+export const updateDocChunk = (chunkId, content) => request.put(`/document/chunks/${chunkId}`, { content })
+export const similarCheck = (text) => request.post('/document/similar-check', { text })
+export const getDocVersionDiff = (id, v1, v2) => request.get(`/document/${id}/diff`, { params: { v1, v2 } })
