@@ -67,6 +67,13 @@ async def lifespan(app: FastAPI):
 
     setup_logging()
 
+    # 显式注册治理订阅，不能依赖管理端点的懒 import；注册本身不打开传播/删除开关。
+    try:
+        from app.services.governance_propagate_service import _register_quality_bus
+        _register_quality_bus()
+    except Exception as e:
+        degraded("governance_propagate_register", e)
+
     # 安全自检（占位密钥/默认口令 → WARN + grid_insecure_config 指标；不拦截只可见）
     try:
         from app.core.security_check import run_startup_check
@@ -179,6 +186,19 @@ async def lifespan(app: FastAPI):
         await config_service.load_runtime()
     except Exception as e:
         print(f"[config] 运行时配置载入跳过：{e}")
+    # 缓存键包含治理代际；必须在预热/任务消费前恢复，避免重启后复活旧 L1/L2 答案。
+    try:
+        import app.config as config
+        from app.clients import redis_client
+
+        generation = await redis_client.get_redis().get("qa:gov_gen")
+        if generation is not None:
+            generation = int(generation)
+            if generation < 0:
+                raise ValueError("缓存治理代际不能为负数")
+            config._gov_generation = max(config._gov_generation, generation)
+    except Exception as e:
+        degraded("governance_generation_restore", e)
     # 后台周期刷新组件健康(原仅 GET /health 才更新 → 看板常驻空值)
     app.state.component_health_task = asyncio.create_task(
         _refresh_component_health_loop()
@@ -258,13 +278,13 @@ async def lifespan(app: FastAPI):
             print("[evolution] 知识自进化定时扫描后台任务已启动")
     except Exception as e:
         print(f"[evolution] 定时扫描启动跳过：{e}")
-    # 证据补全定时深度补全+落库（周期 EVIDENCE_GAP_DEEP_INTERVAL 秒，<=0 关闭）
+    # 证据补全定时生成待审核草稿（周期 EVIDENCE_GAP_DEEP_INTERVAL 秒，<=0 关闭）
     try:
         from app.services.evidence_gap_service import deep_cron_loop
         from app.config import settings as _settings
         if float(getattr(_settings, "EVIDENCE_GAP_DEEP_INTERVAL", 180)) > 0:
             app.state.evidence_gap_cron_task = asyncio.create_task(deep_cron_loop("default"))
-            print("[evidence-gap] 证据补全定时深度补全已启动")
+            print("[evidence-gap] 证据补全定时深度补全已启动（待人工审核）")
     except Exception as e:
         print(f"[evidence-gap] 定时补全启动跳过：{e}")
     # 坏case修复率定时聚合（周期 FIX_RATE_CRON_MINUTES，FIX_RATE_ENABLE=False 或<=0 关闭）

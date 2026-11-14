@@ -417,7 +417,8 @@ def test_stream_done_includes_citation_when_enabled(monkeypatch):
     monkeypatch.setattr(cfg.settings, "CITATION_AUTO_ENABLE", False)   # 跳过 auto_cite
     _patch_stream_externals(monkeypatch)
 
-    async def fake_apply(ans, contexts, mt, *, db=None, cmap_override=None, query=None, tenant="default"):
+    async def fake_apply(ans, contexts, mt, *, db=None, cmap_override=None, query=None,
+                         tenant="default", expected_version=None):
         return ans, {"citationVerified": {"items": [{"ref_id": 1, "valid": True}], "dropped_refs": []}}
     monkeypatch.setattr("app.services.qa_service._apply_citation_verification", fake_apply)
 

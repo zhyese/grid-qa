@@ -149,6 +149,7 @@ async def persist_chunk(
     doc_name 默认为 AI_DOC_NAME。
     """
     from app.models.chunk import Chunk
+    from app.models.document import Document
     from app.clients import milvus_client
     from app.providers.factory import get_embedding_provider
     from app.config import settings
@@ -158,22 +159,31 @@ async def persist_chunk(
     if doc_name is None:
         doc_name = AI_DOC_NAME
 
-    cnt = (await db.execute(
-        select(func.count()).select_from(Chunk).where(Chunk.doc_id == doc_id)
-    )).scalar() or 0
+    # 同一共享文档的追加/撤回串行化，锁由调用方 commit/rollback 释放。
+    doc = (await db.execute(
+        select(Document).where(Document.id == doc_id, Document.tenant_id == tenant)
+        .with_for_update().execution_options(populate_existing=True)
+    )).scalar_one()
+    # FOR UPDATE 使用当前读：MySQL RR 下等待文档锁后不能沿用旧事务快照。
+    max_idx, live_count = (await db.execute(
+        select(func.max(Chunk.chunk_idx), func.count(Chunk.id))
+        .where(Chunk.doc_id == doc_id).with_for_update()
+    )).one()
+    chunk_idx = max_idx + 1 if max_idx is not None else 0
 
     chunk_id = uuid.uuid4().hex
     chunk = Chunk(
-        id=chunk_id, doc_id=doc_id, chunk_idx=cnt,
+        id=chunk_id, doc_id=doc_id, chunk_idx=chunk_idx, parent_idx=chunk_idx,
         content=content, char_count=len(content),
         section=f"[AI]{title}"[:256], chunk_type="child",
     )
     db.add(chunk)
+    doc.chunk_count = live_count + 1
     await db.flush()
 
     vec = (await get_embedding_provider(settings.EMB_PROVIDER).embed([content]))[0]
     await asyncio.to_thread(
         milvus_client.insert_chunks, milvus_client.primary_document_collection(), [vec], [content],
-        [doc_id], [doc_name], [cnt],
+        [doc_id], [doc_name], [chunk_idx],
     )
     return chunk_id

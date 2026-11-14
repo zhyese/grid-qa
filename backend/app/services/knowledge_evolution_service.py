@@ -427,6 +427,8 @@ async def reflow_to_kb(db, draft):
     draft.status = "indexed"
     draft.indexed_at = utcnow()
     await db.commit()
+    from app.services.knowledge_change_service import knowledge_changed
+    await knowledge_changed(f"ai-evo-{draft.tenant_id}", tenant_id=draft.tenant_id)
     try:
         await _publish_llm_user_retests(draft)
     except Exception as exc:
@@ -457,12 +459,24 @@ async def withdraw_draft(db, draft_id, tenant):
     if r.status != "indexed":
         raise ValueError("仅 indexed 可撤回")
     from app.models.chunk import Chunk
+    from app.models.document import Document
     chunk = (await db.execute(select(Chunk).where(Chunk.id == r.chunk_id))).scalar_one_or_none()
+    doc_id = chunk.doc_id if chunk else f"ai-evo-{tenant}"
+    doc = (await db.execute(
+        select(Document).where(Document.id == doc_id, Document.tenant_id == tenant)
+        .with_for_update().execution_options(populate_existing=True)
+    )).scalar_one_or_none()
     if chunk:
         await _delete_chunk_from_milvus(chunk)
         await db.execute(delete(Chunk).where(Chunk.id == r.chunk_id))
+    if doc:
+        doc.chunk_count = (await db.execute(
+            select(func.count(Chunk.id)).where(Chunk.doc_id == doc_id).with_for_update()
+        )).scalar_one()
     r.status = "withdrawn"
     await db.commit()
+    from app.services.knowledge_change_service import knowledge_changed
+    await knowledge_changed(doc_id, tenant_id=tenant)
     return _to_dict(r)
 
 

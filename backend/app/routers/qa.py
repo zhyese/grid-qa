@@ -374,9 +374,13 @@ async def batch_delete_msgs(
 async def history(
     conversationId: str,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_perm(QA_ANSWER)),
 ):
-    data = await conversation_service.get_messages(db, conversationId, limit=100)
+    from app.services import agentic_history_service
+    data = await agentic_history_service.history(
+        db, conversationId, username=user.username, tenant=user.tenant_id or "default",
+        role=user.role or "", dept=user.dept or "", limit=100,
+    )
     return success(data, "查询成功")
 
 

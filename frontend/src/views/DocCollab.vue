@@ -11,9 +11,9 @@
         <button class="btn btn-ghost btn-sm" @click="loadDocs">🔍 搜索</button>
       </div>
       <div style="margin-top:10px; display:flex; gap:8px; flex-wrap:wrap">
-        <button v-for="d in docs" :key="d.id" class="btn btn-sm"
-                :class="{ 'btn-primary': docId === d.id }" @click="pickDoc(d.id)">
-          {{ d.docName?.slice(0, 26) || d.id }}
+        <button v-for="d in docs" :key="d.docId" class="btn btn-sm"
+                :class="{ 'btn-primary': docId === d.docId }" @click="pickDoc(d.docId)">
+          {{ d.docName?.slice(0, 26) || d.docId }}
         </button>
       </div>
     </div>
@@ -252,7 +252,8 @@ const canCancel = computed(() => {
 async function loadDocs() {
   try {
     const res = await listDocs(1, 30, docKeyword.value.trim())
-    docs.value = res.data?.list || res.data?.items || []
+    const raw = res.data?.list || res.data?.items || []
+    docs.value = raw.map((d) => ({ docId: d.docId || d.id, docName: d.docName || d.name || d.docId }))
   } catch (e) { /* 功能未开启/无权限时静默 */ }
 }
 

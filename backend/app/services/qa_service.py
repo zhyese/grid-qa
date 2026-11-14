@@ -23,7 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from app.clients import redis_client
-from app.config import settings
+from app.config import citation_cache_version, settings
 from app.core import safety
 from app.core.obs import degraded
 from app.core.qa_trace import get_collector as _get_trace, span as _trace_span
@@ -93,20 +93,21 @@ def _llm_all_down_response(nq: str, contexts: list[dict], t0: float,
     }
 
 
-def _cache_key(model_type: str | None, query: str, tenant: str | None = "default") -> str:
-    from app.config import citation_cache_version
-    return f"qa:{_cache_tenant(tenant)}:{model_type or 'default'}:{query}:{citation_cache_version()}"
+def _cache_key(model_type: str | None, query: str, tenant: str | None = "default",
+               *, version: str | None = None) -> str:
+    version = citation_cache_version() if version is None else version
+    return f"qa:{_cache_tenant(tenant)}:{model_type or 'default'}:{query}:{version}"
 
 
 def _multi_cache_key(model_type: str | None, search_q: str, tenant: str | None,
-                     conversation_id: str | None) -> str:
+                     conversation_id: str | None, *, version: str | None = None) -> str:
     """C4 多轮缓存键：standalone query(search_q 含指代消解) + conversation_id 隔离对话。
 
     同对话同语义追问 → 同 key 命中；跨对话隔离；文档撤回/过期由 _cache_knowledge_valid 复核兜底。
     """
-    from app.config import citation_cache_version
+    version = citation_cache_version() if version is None else version
     cid = (conversation_id or "")[:8]
-    return f"qa:{_cache_tenant(tenant)}:{model_type or 'default'}:{search_q}:conv{cid}:{citation_cache_version()}"
+    return f"qa:{_cache_tenant(tenant)}:{model_type or 'default'}:{search_q}:conv{cid}:{version}"
 
 
 async def _is_blacklisted(nq: str) -> bool:
@@ -581,6 +582,7 @@ async def _apply_citation_verification(
     ans: str, contexts: list[dict], model_type: str | None,
     *, db: AsyncSession | None = None, cmap_override: list | None = None,
     query: str | None = None, tenant: str = "default",
+    expected_version: str | None = None,
 ) -> tuple[str, dict]:
     """可核验引用后处理：结构化解析 → 元数据补查 → 三层校验 → 返回 (最终答案, 附加字段)。
 
@@ -594,6 +596,7 @@ async def _apply_citation_verification(
     """
     if not getattr(settings, "CITATION_VERIFIER_ENABLE", False):
         return ans, {}
+    expected_version = citation_cache_version() if expected_version is None else expected_version
     from app.rag.citation_index import build_index
     from app.rag.citation_verifier import verify
 
@@ -636,30 +639,38 @@ async def _apply_citation_verification(
     }
     # C1：NLI 异步后置——同步阶段(NLI 未跑)派发后台 task，结果回写缓存(尽力)+degraded 日志
     if _nli_async and _nli_on:
-        _schedule_nli_backfill(model_type, cmap, contexts, query, tenant, verdict)
+        _schedule_nli_backfill(model_type, cmap, contexts, query, tenant, verdict,
+                               expected_version=expected_version)
     return final_ans, extras
 
 
-def _schedule_nli_backfill(model_type, citation_map, contexts, query, tenant, sync_verdict):
+def _schedule_nli_backfill(model_type, citation_map, contexts, query, tenant, sync_verdict,
+                           *, expected_version=None):
     """C1：NLI 异步后置调度——同步校验1+2 返回后，后台跑校验3 NLI（不阻塞首答/done）。
 
     结果回写缓存 citationVerified.nli（下次命中即完整）+ degraded 日志；任何异常吞掉不影响主链路。
     复用 _bg_tasks 持 task 引用防 GC，done 回调清理集合。
     """
+    version = citation_cache_version() if expected_version is None else expected_version
     try:
-        t = asyncio.create_task(_nli_backfill(model_type, citation_map, contexts, query, tenant, sync_verdict))
+        t = asyncio.create_task(_nli_backfill(model_type, citation_map, contexts, query, tenant,
+                                             sync_verdict, expected_version=version))
         _bg_tasks.add(t)
         t.add_done_callback(_bg_tasks.discard)
     except Exception as e:
         degraded("citation_nli_async_schedule", e)
 
 
-async def _nli_backfill(model_type, citation_map, contexts, query, tenant, sync_verdict):
+async def _nli_backfill(model_type, citation_map, contexts, query, tenant, sync_verdict,
+                        *, expected_version=None):
     """C1：NLI 后台核验——对同步阶段通过校验1+2 的项跑 NLI，结果回写缓存。
 
     用 ref_id 对齐 sync_verdict.items(valid=True) 与 citation_map(sentence)，重现 verify 校验3 输入。
     容错：NLI 超时/异常、缓存 miss/异常均降级跳过（degraded 日志），永不阻塞主链路。
     """
+    version = citation_cache_version() if expected_version is None else expected_version
+    if version != citation_cache_version():
+        return
     from app.rag import judge
     # 同步路径 NLI 未跑 → valid=True 即校验1+2 通过；按 ref_id 取 sentence 作 NLI claims
     valid_refs = {it.ref_id for it in sync_verdict.items if it.valid}
@@ -678,15 +689,15 @@ async def _nli_backfill(model_type, citation_map, contexts, query, tenant, sync_
         degraded("citation_nli_async", e)
         return
     # 回写缓存（尽力而为：query 缺/缓存 miss/异常均跳过）
-    if not query:
+    if not query or version != citation_cache_version():
         return
     try:
-        ck = _cache_key(model_type, query, tenant)
+        ck = _cache_key(model_type, query, tenant, version=version)
         cached = await redis_client.cache_get_json(ck)
     except Exception as e:
         degraded("citation_nli_async_cache_read", e)
         return
-    if not cached or not cached.get("citationVerified"):
+    if not cached or not cached.get("citationVerified") or version != citation_cache_version():
         return
     try:
         cv = cached["citationVerified"]
@@ -733,9 +744,11 @@ async def answer(
     regen: bool = False,
 ) -> dict:
     t0 = time.time()
+    cache_version = citation_cache_version()  # 请求全程固定，知识更新后旧请求不写新缓存。
     with _trace_span("normalize"):
         nq = term_service.normalize(query)
         safety.guard_query(query)  # 入站 prompt injection 告警（D4）
+    cache_key = _cache_key(model_type, nq, tenant, version=cache_version)
     _blk = _injection_blocked(query)
     if _blk:
         return {
@@ -780,11 +793,11 @@ async def answer(
     if is_single and not regen and not await _is_blacklisted(nq):
         # regen=True（重新生成）跳过缓存读，强制重走 LLM；L1: Redis 热点缓存（精确 key 匹配）
         try:
-            cached = await redis_client.cache_get_json(_cache_key(model_type, nq, tenant))
+            cached = await redis_client.cache_get_json(cache_key)
         except Exception as e:
             degraded("qa_cache_get", e)
             cached = None
-        if cached and await _cache_knowledge_valid(db, cached, tenant):
+        if cached and await _cache_knowledge_valid(db, cached, tenant) and cache_version == citation_cache_version():
             cached["cached"] = True
             cached["cacheLayer"] = "redis"
             cached["responseTime"] = round(time.time() - t0, 3)
@@ -804,7 +817,7 @@ async def answer(
             try:
                 from app.services.cache_persist import cache_get_mysql
                 mysql_cached = await cache_get_mysql(db, model_type, nq, tenant_id=tenant)
-                if mysql_cached and await _cache_knowledge_valid(db, mysql_cached, tenant):
+                if mysql_cached and await _cache_knowledge_valid(db, mysql_cached, tenant) and cache_version == citation_cache_version():
                     mysql_cached["cached"] = True
                     mysql_cached["cacheLayer"] = "mysql"
                     mysql_cached["responseTime"] = round(time.time() - t0, 3)
@@ -829,6 +842,7 @@ async def answer(
                     sc_data
                     and sc_type in ("semantic_high", "semantic_medium")
                     and await _cache_knowledge_valid(db, sc_data, tenant)
+                    and cache_version == citation_cache_version()
                 ):
                     sc_data["cached"] = True
                     sc_data["cacheLayer"] = sc_type
@@ -864,8 +878,8 @@ async def answer(
     # 场景：用户点推荐问题(完整 query)接续对话，答案不依赖上下文，可安全命中
     if conversation_id and search_q == nq and not await _is_blacklisted(nq):
         try:
-            cached = await redis_client.cache_get_json(_cache_key(model_type, nq, tenant))
-            if cached and await _cache_knowledge_valid(db, cached, tenant):
+            cached = await redis_client.cache_get_json(cache_key)
+            if cached and await _cache_knowledge_valid(db, cached, tenant) and cache_version == citation_cache_version():
                 cached["cached"] = True
                 cached["cacheLayer"] = "redis"
                 cached["responseTime"] = round(time.time() - t0, 3)
@@ -887,8 +901,8 @@ async def answer(
             and not await _is_blacklisted(search_q)):
         try:
             cached = await redis_client.cache_get_json(
-                _multi_cache_key(model_type, search_q, tenant, conversation_id))
-            if cached and await _cache_knowledge_valid(db, cached, tenant):
+                _multi_cache_key(model_type, search_q, tenant, conversation_id, version=cache_version))
+            if cached and await _cache_knowledge_valid(db, cached, tenant) and cache_version == citation_cache_version():
                 cached["cached"] = True
                 cached["cacheLayer"] = "redis_multi"
                 cached["responseTime"] = round(time.time() - t0, 3)
@@ -1044,6 +1058,7 @@ async def answer(
     with _trace_span("citation"):
         final_ans, citation_extras = await _apply_citation_verification(
             ans, contexts, model_type, db=db, cmap_override=_cmap_override,
+            expected_version=cache_version,
         )
     _tc = _get_trace()
     if _tc and getattr(settings, "QA_TRACE_DETAIL_ENABLE", False):
@@ -1084,6 +1099,7 @@ async def answer(
                         ans2, _trace2 = await citation.auto_cite(ans2, contexts2)
                     final_ans, citation_extras = await _apply_citation_verification(
                         ans2, contexts2, model_type, db=db, cmap_override=_cmap_override2,
+                        expected_version=cache_version,
                     )
                     contexts = contexts2
                     _trace = citation.evidence_trace(final_ans)
@@ -1144,33 +1160,37 @@ async def answer(
 
     # 单轮 或 多轮 且 高置信(confidence==high) 才写；黑名单/证据有限/不足不写
     # 注：多轮指代问题(search_q!=nq)会写但读时按 search_q==nq 过滤(避免跨对话脏命中)
-    if (is_single or conversation_id) and confidence == "high" and not await _is_blacklisted(nq):
+    if ((is_single or conversation_id) and confidence == "high" and not await _is_blacklisted(nq)
+            and cache_version == citation_cache_version()):
         # L2: MySQL 持久化（先写，保证数据不丢）
         if settings.CACHE_PERSIST_ENABLE:
             try:
                 from app.services.cache_persist import cache_set_mysql
-                await cache_set_mysql(db, model_type, nq, query, result, tenant_id=tenant)
+                await cache_set_mysql(db, model_type, nq, query, result, tenant_id=tenant,
+                                      expected_version=cache_version)
             except Exception as e:
                 degraded("qa_cache_mysql_set", e)
         # L1: Redis 热点（后写，MySQL 已成功）
         try:
-            await redis_client.cache_set_json(_cache_key(model_type, nq, tenant), result, settings.QA_CACHE_TTL)
+            if cache_version == citation_cache_version():
+                await redis_client.cache_set_json(cache_key, result, settings.QA_CACHE_TTL)
         except Exception as e:
             degraded("qa_cache_set", e)
         # C4: 多轮 standalone 额外写 multi key（search_q!=nq + 开关开；读配对见上方 C4 块）
         if (conversation_id and search_q != nq
-                and getattr(settings, "MULTI_TURN_CACHE_ENABLE", False)):
+                and getattr(settings, "MULTI_TURN_CACHE_ENABLE", False)
+                and cache_version == citation_cache_version()):
             try:
                 await redis_client.cache_set_json(
-                    _multi_cache_key(model_type, search_q, tenant, conversation_id),
+                    _multi_cache_key(model_type, search_q, tenant, conversation_id, version=cache_version),
                     result, settings.QA_CACHE_TTL)
             except Exception as e:
                 degraded("qa_cache_set_multi_standalone", e)
         # L1.5: 语义缓存索引（异步，不阻塞）
-        if getattr(settings, "SEMANTIC_CACHE_ENABLE", False):
+        if getattr(settings, "SEMANTIC_CACHE_ENABLE", False) and cache_version == citation_cache_version():
             try:
                 from app.rag.semantic_cache import semantic_cache_set
-                await semantic_cache_set(model_type, nq, _cache_key(model_type, nq, tenant), tenant_id=tenant)
+                await semantic_cache_set(model_type, nq, cache_key, tenant_id=tenant)
             except Exception as e:
                 degraded("semantic_cache_set", e)
     # B6: high 答案写独立 highbase key（TTL 30 天，不依赖问答缓存存活）——供 dislike 时 overconfident 检出
@@ -1232,10 +1252,11 @@ async def _stream_agent(db, query, model_type, conversation_id, username, tenant
     from app.services.agent_runtime import run_agent
     from app.services.persona_store import get_persona
 
+    cache_version = citation_cache_version()
     is_single = not conversation_id
     personalized = bool(memory_read or memory_write)
     nq = term_service.normalize(query)
-    key = _cache_key(model_type, nq, tenant)
+    key = _cache_key(model_type, nq, tenant, version=cache_version)
     _p = model_type or settings.LLM_PROVIDER
 
     # 单轮查缓存（L1 Redis → L2 MySQL），命中→流式返缓存答案（不跑 agent，秒级）
@@ -1255,6 +1276,7 @@ async def _stream_agent(db, query, model_type, conversation_id, username, tenant
             cached
             and cached.get("answer")
             and await _cache_knowledge_valid(db, cached, tenant)
+            and cache_version == citation_cache_version()
         ):
             conv = await conversation_service.create_conversation(db, username, query)
             cid = conv.id
@@ -1314,7 +1336,8 @@ async def _stream_agent(db, query, model_type, conversation_id, username, tenant
                 res = item["result"]
                 ans = res.answer if isinstance(res.answer, str) else str(res.answer)
                 # 单轮 + 非降级 + 非个性化 → 写缓存（agent 多轮验证质量高，默认 high；与普通问答共享 key）
-                if is_single and not res.degraded and not personalized:
+                if (is_single and not res.degraded and not personalized
+                        and cache_version == citation_cache_version()):
                     cache_result = {
                         "answer": ans, "retrievalSource": [], "confidence": "high",
                         "responseTime": round(time.time() - t0, 3), "hallucinationRate": 0.0,
@@ -1323,11 +1346,13 @@ async def _stream_agent(db, query, model_type, conversation_id, username, tenant
                     if getattr(settings, "CACHE_PERSIST_ENABLE", False):
                         try:
                             from app.services.cache_persist import cache_set_mysql
-                            await cache_set_mysql(db, model_type, nq, query, cache_result, tenant_id=tenant)
+                            await cache_set_mysql(db, model_type, nq, query, cache_result, tenant_id=tenant,
+                                                  expected_version=cache_version)
                         except Exception as e:
                             degraded("agent_cache_mysql_set", e)
                     try:
-                        await redis_client.cache_set_json(key, cache_result, settings.QA_CACHE_TTL)
+                        if cache_version == citation_cache_version():
+                            await redis_client.cache_set_json(key, cache_result, settings.QA_CACHE_TTL)
                     except Exception as e:
                         degraded("agent_cache_set", e)
                 yield {"type": "token", "content": ans}
@@ -1364,7 +1389,9 @@ async def stream_answer(
     memory_read/memory_write：Agent 模式长期记忆 opt-in（个性化运行绕开共享缓存）。
     """
     t0 = time.time()
+    cache_version = citation_cache_version()
     nq = term_service.normalize(query)
+    cache_key = _cache_key(model_type, nq, tenant, version=cache_version)
     _p = model_type or settings.LLM_PROVIDER
     safety.guard_query(query)  # 入站 prompt injection 告警（D4）
     _blk = _injection_blocked(query)
@@ -1376,6 +1403,15 @@ async def stream_answer(
                "conversationId": conversation_id or "", "cached": False}
         return
     if agent_mode:
+        if getattr(settings, "AGENTIC_RETRIEVAL_ENABLE", False):
+            from app.services.agentic_stream_service import stream_agentic_answer
+            async for ev in stream_agentic_answer(
+                db, query, model_type, conversation_id=conversation_id,
+                username=username, tenant=tenant, user_role=user_role, user_dept=user_dept,
+                memory_read=memory_read, memory_write=memory_write,
+            ):
+                yield ev
+            return
         async for ev in _stream_agent(db, query, model_type, conversation_id, username, tenant, t0,
                                       user_role=user_role,
                                       memory_read=memory_read, memory_write=memory_write,
@@ -1441,11 +1477,11 @@ async def stream_answer(
     if is_single and not regen and not await _is_blacklisted(nq):
         # L1: Redis 热点
         try:
-            cached = await redis_client.cache_get_json(_cache_key(model_type, nq, tenant))
+            cached = await redis_client.cache_get_json(cache_key)
         except Exception as e:
             degraded("qa_cache_get", e)
             cached = None
-        if cached and await _cache_knowledge_valid(db, cached, tenant):
+        if cached and await _cache_knowledge_valid(db, cached, tenant) and cache_version == citation_cache_version():
             conv = await conversation_service.create_conversation(db, username, query)
             cid = conv.id
             try:
@@ -1476,7 +1512,7 @@ async def stream_answer(
             try:
                 from app.services.cache_persist import cache_get_mysql
                 mysql_cached = await cache_get_mysql(db, model_type, nq, tenant_id=tenant)
-                if mysql_cached and await _cache_knowledge_valid(db, mysql_cached, tenant):
+                if mysql_cached and await _cache_knowledge_valid(db, mysql_cached, tenant) and cache_version == citation_cache_version():
                     conv = await conversation_service.create_conversation(db, username, query)
                     cid = conv.id
                     try:
@@ -1513,6 +1549,7 @@ async def stream_answer(
                     sc_data
                     and sc_type in ("semantic_high", "semantic_medium")
                     and await _cache_knowledge_valid(db, sc_data, tenant)
+                    and cache_version == citation_cache_version()
                 ):
                     conv = await conversation_service.create_conversation(db, username, query)
                     cid = conv.id
@@ -1559,8 +1596,8 @@ async def stream_answer(
     # 多轮且 query 完整(search_q==nq) → 也查 Redis 热点（流式，存消息接续对话）
     if conversation_id and search_q == nq and not regen and not await _is_blacklisted(nq):
         try:
-            cached = await redis_client.cache_get_json(_cache_key(model_type, nq, tenant))
-            if cached and await _cache_knowledge_valid(db, cached, tenant):
+            cached = await redis_client.cache_get_json(cache_key)
+            if cached and await _cache_knowledge_valid(db, cached, tenant) and cache_version == citation_cache_version():
                 try:
                     await conversation_service.save_message(db, conversation_id, "user", query)
                     await conversation_service.save_message(db, conversation_id, "assistant", cached.get("answer", ""))
@@ -1733,6 +1770,7 @@ async def stream_answer(
         try:
             annotated, _stream_citation_extras = await _apply_citation_verification(
                 annotated, contexts, model_type, db=db, query=nq, tenant=tenant,
+                expected_version=cache_version,
             )
         except Exception as e:
             degraded("stream_citation_verify", e)
@@ -1780,26 +1818,29 @@ async def stream_answer(
         "conversationId": conversation_id,
     }
     # 单轮 或 多轮 且 高置信 才写；黑名单/证据有限/不足不写
-    if (is_single or conversation_id) and confidence == "high" and not await _is_blacklisted(nq):
+    if ((is_single or conversation_id) and confidence == "high" and not await _is_blacklisted(nq)
+            and cache_version == citation_cache_version()):
         # L2: MySQL 持久化（先写）
         if settings.CACHE_PERSIST_ENABLE:
             try:
                 from app.services.cache_persist import cache_set_mysql
-                await cache_set_mysql(db, model_type, nq, query, cache_data, tenant_id=tenant)
+                await cache_set_mysql(db, model_type, nq, query, cache_data, tenant_id=tenant,
+                                      expected_version=cache_version)
             except Exception as e:
                 degraded("qa_cache_mysql_set_stream", e)
         # L1: Redis 热点（后写）
         try:
-            await redis_client.cache_set_json(_cache_key(model_type, nq, tenant), cache_data, settings.QA_CACHE_TTL)
+            if cache_version == citation_cache_version():
+                await redis_client.cache_set_json(cache_key, cache_data, settings.QA_CACHE_TTL)
         except Exception as e:
             degraded("qa_cache_set", e)
         # L1.5: 语义缓存索引（向量化入库，供后续相似查询命中）
         # debate 低置信触发（opt-in）：annotated 置信低 → 三专家裁决共识注入 + 升级置信
         annotated, confidence = await _maybe_debate_augment(db, nq, annotated, confidence, crag_extras, model_type)
-        if getattr(settings, "SEMANTIC_CACHE_ENABLE", False):
+        if getattr(settings, "SEMANTIC_CACHE_ENABLE", False) and cache_version == citation_cache_version():
             try:
                 from app.rag.semantic_cache import semantic_cache_set
-                await semantic_cache_set(model_type, nq, _cache_key(model_type, nq, tenant), tenant_id=tenant)
+                await semantic_cache_set(model_type, nq, cache_key, tenant_id=tenant)
             except Exception as e:
                 degraded("semantic_cache_set_stream", e)
     # B6: high 答案写独立 highbase key（TTL 30 天，不依赖问答缓存存活）——供 dislike 时 overconfident 检出

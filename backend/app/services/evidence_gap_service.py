@@ -122,7 +122,11 @@ async def deep_draft(gap_id: int, model_type: str | None = None) -> str:
                 return ""
             persona = await get_persona("evidence_gap")
             result = await run_agent(db, persona, row.query, model_type)
-            draft = result.answer if isinstance(result.answer, str) else str(result.answer)
+            draft = result.answer if isinstance(result.answer, str) else str(result.answer or "")
+            if not draft.strip():
+                # 空结果不是可审核草稿，保留 pending 供后续定时批次重试。
+                degraded("evidence_gap_deep_draft", ValueError("深度补全返回空草稿"))
+                return ""
             row.ai_draft = draft
             row.status = "ai_drafted"
             await db.commit()
@@ -291,6 +295,9 @@ async def confirm_and_sync(gap_id: int, final_answer: str, operator: str,
             await db.commit()
             # 2) 向量化（复用 vectorize_document，写 Milvus）
             await document_service.vectorize_document(db, doc_id)
+            # 先失效旧答案/检索索引，再写新答案，避免新缓存立即落入旧代际。
+            from app.services.knowledge_change_service import knowledge_changed
+            await knowledge_changed(doc_id, tenant_id=row.tenant)
             # 3) 缓存双写（qa_cache high + Redis）
             result = {
                 "answer": final_answer,
@@ -356,11 +363,12 @@ async def retag_faq_equipment() -> dict:
 
 async def batch_deep_and_sync(tenant: str = "default", limit: int = 5,
                               model_type: str | None = None) -> dict:
-    """定时批量：pending → deep_draft → 自动落库(confirm_and_sync 用 ai_draft 当 final_answer)。
+    """定时批量：pending → deep_draft → ai_drafted，等待人工确认同步。
 
     串行 limit 条（Agent deep_draft 较重，串行防 LLM 限流）。失败条目 status 不变，下轮重试。
+    保留历史名称及 synced 统计兼容调用者，但自动流程永远不正式入库或写答案缓存。
     """
-    stats = {"scanned": 0, "drafted": 0, "synced": 0, "failed": 0}
+    stats = {"scanned": 0, "drafted": 0, "synced": 0, "failed": 0, "awaitingReview": 0}
     try:
         async with AsyncSessionLocal() as db:
             rows = (await db.execute(
@@ -378,8 +386,7 @@ async def batch_deep_and_sync(tenant: str = "default", limit: int = 5,
                     stats["failed"] += 1
                     continue
                 stats["drafted"] += 1
-                res = await confirm_and_sync(r.id, draft, "auto-deep-sync", model_type)
-                stats["synced" if res.get("ok") else "failed"] += 1
+                stats["awaitingReview"] += 1
             except Exception as e:
                 degraded("evidence_gap_batch_deep_one", e)
                 stats["failed"] += 1
@@ -389,7 +396,7 @@ async def batch_deep_and_sync(tenant: str = "default", limit: int = 5,
 
 
 async def deep_cron_loop(tenant: str = "default"):
-    """定时深度补全+落库（lifespan 启动；周期=EVIDENCE_GAP_DEEP_INTERVAL 秒，<=0 关闭；批量=EVIDENCE_GAP_DEEP_BATCH）。"""
+    """定时生成待审核草稿（周期=EVIDENCE_GAP_DEEP_INTERVAL 秒，<=0 关闭；批量=EVIDENCE_GAP_DEEP_BATCH）。"""
     from app.config import settings
     interval = float(getattr(settings, "EVIDENCE_GAP_DEEP_INTERVAL", 180))
     limit = int(getattr(settings, "EVIDENCE_GAP_DEEP_BATCH", 5))
@@ -400,7 +407,7 @@ async def deep_cron_loop(tenant: str = "default"):
         try:
             s = await batch_deep_and_sync(tenant, limit)
             if s["scanned"]:
-                print(f"[evidence-gap] 定时深度补全+落库: {s}")
+                print(f"[evidence-gap] 定时深度补全（待人工审核）: {s}")
         except Exception as e:
             degraded("evidence_gap_deep_cron", e)
 

@@ -6,6 +6,12 @@ from app.db.session import AsyncSessionLocal
 from app.tasks.registry import TaskContext, task_handler
 
 
+@task_handler('kg.extract')
+async def kg_extract(payload: dict, context: TaskContext) -> dict:
+    from app.services import kg_batch_service
+    return await kg_batch_service.run(payload, context)
+
+
 @task_handler("retrieval_tune_run")
 async def retrieval_tune_run(payload: dict, context: TaskContext) -> dict:
     from app.services import retrieval_tune_service

@@ -70,7 +70,7 @@ def test_a5_semantic_get_filters_blocked_doc(monkeypatch):
         "retrievalSource": [{"docId": "d-blocked", "docName": "旧.pdf"}],
     }
     index = [{"query": "主变油温", "model_type": "default", "emb": "fake",
-              "cache_key": "qa:default:default:主变油温:cv000", "ts": 0}]
+              "cache_key": f"qa:default:default:主变油温:{cfg.citation_cache_version()}", "ts": 0}]
 
     call_count = {"i": 0}
 

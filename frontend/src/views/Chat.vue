@@ -69,16 +69,28 @@
             <AgentTrace :steps="m.agentSteps" title="🎯 深度思考" />
             <div class="ans md" v-show="!m.streaming" @click="onAnsClick($event, m)" v-html="renderMd(m.content)"></div>
             <div v-if="m.aborted" class="hint" style="margin-top:8px">⏹ 已停止生成（仅显示已接收内容）</div>
+            <AgenticEvidence v-if="m.agenticRag || (m.agentMode && (m.streaming || m.agenticError))" :message="m" />
 
             <div class="sources" v-if="m.sources && m.sources.length">
               <div class="src-head">📎 引用来源 <span class="hint">点 [n] 定位 · 点卡片复制</span></div>
-              <div v-for="(s, j) in m.sources" :key="j" :id="'src-' + (j + 1)" class="src-item" :class="{ hi: m.hiIdx === j + 1 }" @click="copySource(s)" @mouseenter="hoverSource(m, j + 1)" @mouseleave="leaveSource(m)">
-                <b class="src-no">[{{ j + 1 }}]</b>
+              <div v-for="(s, j) in m.sources" :key="j" :id="sourceAnchorId(i, sourceCitationNumber(s, j))" class="src-item" :class="{ hi: m.hiIdx === sourceCitationNumber(s, j) }" @click="copySource(s)" @mouseenter="hoverSource(m, sourceCitationNumber(s, j))" @mouseleave="leaveSource(m)">
+                <b class="src-no">[{{ sourceCitationNumber(s, j) }}]</b>
                 <div class="src-main">
                   <div class="src-line1">
                     <span class="src-doc" v-if="srcName(s)">📄 {{ srcName(s) }}</span>
+                    <button v-if="sourceDocumentPath(s)" class="btn btn-ghost btn-sm" @click.stop="openSource(s)">打开原文</button>
+                    <span v-if="s?.evidenceId" class="badge badge-neutral">{{ s.evidenceId }}</span>
+                    <span v-if="s?.kind === 'telemetry'" class="badge badge-info">遥测 · {{ s.deviceId || '设备未提供' }}</span>
+                    <span v-else-if="s?.kind === 'graph'" class="badge badge-info">图谱来源</span>
                     <span v-if="s && s.docType" class="badge badge-neutral src-badge">{{ s.docType }}</span>
                     <span v-for="src in (s && s.sources) || []" :key="src" class="badge src-badge" :class="srcBadge(src)">{{ srcLabel(src) }}</span>
+                  </div>
+                  <div v-if="m.agenticRag" class="hint">
+                    <span v-if="s?.pageNum != null">第 {{ s.pageNum }} 页 · </span>
+                    <span v-if="s?.chunkIdx != null">片段 {{ s.chunkIdx }} · </span>
+                    <span v-if="s?.sectionPath">{{ s.sectionPath }} · </span>
+                    <span v-if="s?.version">版本 {{ s.version }}</span>
+                    <span v-if="s?.kind === 'telemetry'">{{ s.start || '起始时间未提供' }} — {{ s.end || '结束时间未提供' }}<template v-if="s.unit"> · {{ s.unit }}</template></span>
                   </div>
                   <div class="src-score" v-if="s && typeof s.score === 'number'">
                     <div class="bar"><div class="bar-fill" :style="{ width: Math.min(100, Math.max(2, s.score * 100)) + '%' }"></div></div>
@@ -94,7 +106,7 @@
             <div class="meta" v-if="m.time">
               <span>⏱ {{ m.time }}s</span>
               <span v-if="m.cached" class="badge" :class="cacheBadge(m.cacheLayer)" :title="'命中缓存：' + cacheTitle(m.cacheLayer)">⚡ {{ cacheLabel(m.cacheLayer) }}</span>
-              <span v-if="m.halluc != null">· 引用率 {{ Math.round((1 - (m.halluc || 0)) * 100) }}%</span>
+              <span v-if="!m.agenticRag && m.halluc != null">· 引用率 {{ Math.round((1 - (m.halluc || 0)) * 100) }}%</span>
               <span v-if="m._evTrace?.supportRatio != null">· 依据覆盖 {{ Math.round((m._evTrace.supportRatio || 0) * 100) }}%</span>
               <span v-if="m.judgeHalluc != null" class="badge badge-warning" :title="(m.judgeReason ? 'LLM-judge：' + m.judgeReason : 'LLM-judge 实测幻觉率（异步）')">幻觉率{{ Math.round((m.judgeHalluc || 0) * 100) }}%</span>
               <span v-if="m.route" class="badge" :class="routeBadge(m.route)" :title="m.routeReason || ''">🧭 {{ routeLabel(m.route) }}</span>
@@ -103,12 +115,12 @@
               <span v-if="m.modelType" class="badge badge-info">🤖 {{ modelLabel(m.modelType) }}</span>
               <span v-if="m.llmDegraded" class="badge badge-warning" :title="m.llmDegradedReason">{{ m.modelType === 'ollama' ? '🖥️ 本地应急模型' : '⚠️ 备用模型' }}</span>
               <span v-if="m.retrievalDegraded" class="badge badge-warning" :title="m.retrievalDegradedReason">⚠️ 检索降级</span>
-              <span v-if="m.confidence" class="badge" :class="confBadge(m.confidence)" :title="confTitle(m.confidence)">{{ confLabel(m.confidence) }}</span>
+              <span v-if="!m.agenticRag && m.confidence" class="badge" :class="confBadge(m.confidence)" :title="confTitle(m.confidence)">{{ confLabel(m.confidence) }}</span>
               <span class="fb">
                 <a @click="like(m)" :class="{ on: m.fb === 'like' }">👍</a>
                 <a @click="dislike(m)" :class="{ on: m.fb === 'dislike' }">👎</a>
               </span>
-              <a v-if="m.content && !m.streaming" class="ev-btn" @click="showEvidence(m)">🔍 证据溯源</a>
+              <a v-if="m.content && !m.streaming && !m.agenticRag" class="ev-btn" @click="showEvidence(m)">🔍 证据溯源</a>
               <a v-if="m.trace" class="ev-btn" @click="m._linkOpen = !m._linkOpen">📊 链路耗时</a>
               <a v-if="m.content && !m.streaming && (m.confidence==='medium'||m.confidence==='refused')" class="ev-btn" @click="reportGap(m)">⚠️ 上报证据不足</a>
               <a v-if="m.content && !m.streaming" class="ev-btn" @click="actToReport(m)" title="以此问答为线索生成运维报告">📝 生成报告</a>
@@ -172,25 +184,37 @@
           <option value="qwen">通义千问</option>
           <option value="doubao">豆包</option>
         </select>
-        <label class="ws-toggle" title="WebSocket 双向流式（默认 SSE）"><input type="checkbox" v-model="useWS" /> WS</label>
-        <label class="ws-toggle" title="深度思考：AI 自主多轮调工具(检索/图谱/案例)交叉验证后作答（仅 SSE）"><input type="checkbox" v-model="agentMode" /> 🎯深度</label>
+        <label class="ws-toggle" title="WebSocket 双向流式（深度模式固定使用 SSE）"><input type="checkbox" v-model="useWS" :disabled="agentMode || loading" /> WS</label>
+        <label class="ws-toggle" title="深度问答：有限轮次收集只读证据，并显示缺口与停止原因（仅 SSE）"><input type="checkbox" v-model="agentMode" :disabled="loading" /> 🎯深度<span v-if="agentMode" class="hint">· 固定 SSE</span></label>
         <button v-if="asrSupported" class="btn btn-ghost btn-sm" style="flex:none"
                 :class="{ 'btn-primary': listening }" @click="toggleAsr" :title="listening ? '停止录音' : '语音输入'">
           {{ listening ? '⏺ 录音中' : '🎤' }}</button>
         <input class="input" v-model="query" placeholder="输入运维问题，如：主变压器温度异常如何处置..." @keyup.enter="ask" :disabled="loading" />
-        <button v-if="loading && !useWS" class="btn btn-danger send-btn" @click="stopGen">⏹ 停止</button>
+        <button v-if="loading && abortCtrl" class="btn btn-danger send-btn" @click="stopGen">⏹ 停止</button>
         <button v-else class="btn btn-primary send-btn" @click="ask" :disabled="loading">{{ loading ? '生成中...' : '发送' }}</button>
       </div>
     </section>
+    <div v-if="sourcePreview.show" class="modal-overlay" @click.self="closeSourcePreview">
+      <div class="modal source-preview">
+        <div class="modal-head">{{ sourcePreview.name || '引用原文' }}<button class="btn btn-ghost btn-sm" @click="closeSourcePreview">关闭</button></div>
+        <p v-if="sourcePreview.loading">正在读取原文…</p>
+        <p v-else-if="sourcePreview.error" role="alert">{{ sourcePreview.error }}</p>
+        <iframe v-else-if="sourcePreview.type === 'pdf'" :src="sourcePreview.url" title="引用文档预览" />
+        <img v-else-if="sourcePreview.type === 'image'" :src="sourcePreview.url" :alt="sourcePreview.name" />
+        <pre v-else>{{ sourcePreview.text }}</pre>
+      </div>
+    </div>
     <div class="toast" v-if="toastMsg">{{ toastMsg }}</div>
   </div>
 </template>
 
 <script setup>
-import { ref, reactive, onMounted, nextTick, computed } from 'vue'
+import { ref, reactive, onMounted, onBeforeUnmount, nextTick, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import MarkdownIt from 'markdown-it'
 import AgentTrace from '../components/AgentTrace.vue'
+import AgenticEvidence from '../components/AgenticEvidence.vue'
+import { applyAgenticEvent, hydrateHistoryMessage, qaTransport, sourceAnchorId, sourceCitationNumber, sourceDocumentPath, sourcePreviewContent } from '../utils/agenticResult.js'
 import QaTraceChart from '../components/QaTraceChart.vue'
 import hljs from 'highlight.js/lib/core'
 import python from 'highlight.js/lib/languages/python'
@@ -327,7 +351,7 @@ async function selectConv(id) {
   selectedMsgs.value = new Set()
   currentConvId.value = id
   const r = await getHistory(id)
-  messages.value = (r.data || []).map((m) => ({ id: m.id, role: m.role, content: m.content, sources: [], time: 0, halluc: 0, query: m.role === 'user' ? m.content : '', fb: '' }))
+  messages.value = (r.data || []).map(hydrateHistoryMessage)
   if (window.innerWidth <= 768) convCollapsed.value = true   // 手机端选完会话自动收起，露出聊天区
 }
 function newChat() { currentConvId.value = ''; messages.value = []; selectedMsgs.value = new Set() }
@@ -343,21 +367,25 @@ async function ask() {
 /** 核心流式发送流程，被 ask / regenerate / resendEdit 复用。opts.regen=跳缓存，opts.cid=指定会话。 */
 async function runStream(q, opts = {}) {
   const { regen = false, cid } = opts
+  const requestAgentMode = agentMode.value
+  const transport = qaTransport(requestAgentMode, useWS.value)
   loading.value = true
-  const msg = reactive({ role: 'assistant', content: '', sources: [], time: 0, halluc: 0, route: '', routeReason: '', modelType: '', conversationId: cid || currentConvId.value || '', query: q, fb: '', streaming: true, aborted: false, agentSteps: [], agentMode: false, _traceOpen: true, trace: null, _linkOpen: false })
+  const msg = reactive({ role: 'assistant', content: '', sources: [], time: 0, halluc: requestAgentMode ? null : 0, route: '', routeReason: '', modelType: '', conversationId: cid || currentConvId.value || '', query: q, fb: '', streaming: true, aborted: false, agentSteps: [], agentMode: requestAgentMode, agenticRag: false, _traceOpen: true, trace: null, _linkOpen: false })
   messages.value.push(msg)
   nextTick(() => { if (msgListEl.value) msgListEl.value.scrollTop = msgListEl.value.scrollHeight })
+  let terminalHandled = false
   const onStreamEvent = (ev) => {
-    if (ev.type === 'meta') { msg.sources = ev.sources || []; if (ev.conversationId) msg.conversationId = ev.conversationId }
-    else if (ev.type === 'tool_step') { msg.agentMode = true; (msg.agentSteps ||= []).push(ev.step || {}); nextTick(() => { if (msgListEl.value) msgListEl.value.scrollTop = msgListEl.value.scrollHeight }) }
+    applyAgenticEvent(msg, ev)
+    if (ev.type === 'meta') { if (ev.conversationId) msg.conversationId = ev.conversationId }
+    else if (ev.type === 'tool_step') { nextTick(() => { if (msgListEl.value) msgListEl.value.scrollTop = msgListEl.value.scrollHeight }) }
     else if (ev.type === 'token') { msg.content += ev.content || ''; nextTick(() => { if (msgListEl.value) msgListEl.value.scrollTop = msgListEl.value.scrollHeight }) }
     else if (ev.type === 'aborted') { msg.aborted = true; msg.streaming = false; loading.value = false }   // 停止生成：保留已收内容
     else if (ev.type === 'done' || ev.type === 'error') {
-      if (ev.content) msg.content = ev.content
+      if (ev.content && !(ev.type === 'error' && msg.agentMode && msg.content)) msg.content = ev.content
       if (ev.annotatedAnswer) msg.content = ev.annotatedAnswer   // 补标后全文替换，触发 renderMd 出 [n] 角标上标
       if (ev.evidenceTrace) msg._evTrace = ev.evidenceTrace      // 句级溯源面板数据源
       if (typeof ev.responseTime === 'number') msg.time = ev.responseTime
-      if (typeof ev.hallucinationRate === 'number') msg.halluc = ev.hallucinationRate
+      if (!msg.agenticRag && typeof ev.hallucinationRate === 'number') msg.halluc = ev.hallucinationRate
       if (typeof ev.graphCount === 'number') msg.graphCount = ev.graphCount
       if (ev.highRisk) msg.highRisk = ev.highRisk
       if (ev.confidence) msg.confidence = ev.confidence
@@ -373,21 +401,27 @@ async function runStream(q, opts = {}) {
       if (ev.retrievalDegradedReason) msg.retrievalDegradedReason = ev.retrievalDegradedReason
       if (ev.trace) msg.trace = ev.trace
       msg.streaming = false
+      if (terminalHandled) return   // SSE 结束哨兵不得重复触发后续请求或清理新请求状态
+      terminalHandled = true
       loading.value = false
       abortCtrl.value = null
       currentConvId.value = msg.conversationId
       loadConversations()
-      if (!msg.aborted) { loadRelated(msg); loadFaithfulness(msg) }   // 中断的不再拉 related/faithfulness
+      if (!msg.aborted && ev.type !== 'error') {
+        loadRelated(msg)
+        if (!msg.agenticRag) loadFaithfulness(msg)
+      }
     }
   }
   try {
-    if (useWS.value) {
-      streamAnswerWS(q, modelType.value || undefined, currentConvId.value || undefined, onStreamEvent)
+    if (transport === 'ws') {
+      streamAnswerWS(q, modelType.value || undefined, msg.conversationId || undefined, onStreamEvent)
     } else {
       abortCtrl.value = new AbortController()
-      await streamAnswer(q, modelType.value || undefined, currentConvId.value || undefined, onStreamEvent, abortCtrl.value.signal, regen, agentMode.value)
+      await streamAnswer(q, modelType.value || undefined, msg.conversationId || undefined, onStreamEvent, abortCtrl.value.signal, regen, requestAgentMode)
     }
   } catch (e) {
+    applyAgenticEvent(msg, { type: 'error', message: e.message || '网络连接中断' })
     msg.content += (msg.content ? '\n' : '') + '（流式中断：' + (e.message || '') + '）'
     msg.streaming = false; loading.value = false; abortCtrl.value = null
   }
@@ -462,8 +496,7 @@ async function exportWord(m) {
 async function copySource(s) { try { await navigator.clipboard.writeText(srcText(s)); toast('来源已复制') } catch (e) {} }
 function onAnsClick(e, m) {
   const el = e.target.closest('.cite-ref'); if (!el) return
-  const idx = Number(el.dataset.idx); m.hiIdx = idx
-  const target = document.getElementById('src-' + idx); if (target) target.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  scrollToSource(m, Number(el.dataset.idx))
 }
 async function reportGap(m) {
   try {
@@ -486,7 +519,37 @@ async function showEvidence(m) {
     m._evOpen = true
   } catch (e) { toast('证据溯源失败') }
 }
-function scrollToSource(m, idx) { m.hiIdx = idx; const el = document.getElementById('src-' + idx); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' }) }
+function scrollToSource(m, idx) { m.hiIdx = idx; const el = document.getElementById(sourceAnchorId(messages.value.indexOf(m), idx)); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' }) }
+
+const sourcePreview = reactive({ show: false, name: '', type: '', url: '', text: '', error: '', loading: false })
+let previewController = null
+function closeSourcePreview() {
+  previewController?.abort()
+  previewController = null
+  if (sourcePreview.url) URL.revokeObjectURL(sourcePreview.url)
+  Object.assign(sourcePreview, { show: false, url: '', text: '', error: '', loading: false })
+}
+async function openSource(source) {
+  const path = sourceDocumentPath(source)
+  if (!path) return
+  closeSourcePreview()
+  const controller = new AbortController()
+  previewController = controller
+  Object.assign(sourcePreview, { show: true, name: source.docName || '引用原文', loading: true, type: '' })
+  try {
+    const response = await fetch(path, { headers: { Authorization: `Bearer ${auth.token}` }, signal: controller.signal })
+    const preview = await sourcePreviewContent(response)
+    if (controller.signal.aborted) return
+    sourcePreview.type = preview.type
+    if (preview.type === 'text') sourcePreview.text = preview.text
+    else sourcePreview.url = URL.createObjectURL(preview.blob)
+  } catch (error) {
+    if (!controller.signal.aborted) sourcePreview.error = error.message || '读取原文失败'
+  } finally {
+    if (previewController === controller) sourcePreview.loading = false
+  }
+}
+onBeforeUnmount(closeSourcePreview)
 
 async function removeConv(c) {
   if (!confirm(`删除对话「${c.title || '无标题'}」？`)) return
@@ -672,4 +735,8 @@ html.dark .ai-bubble { background: var(--surface); }
 .ev-ref { cursor: pointer; color: var(--primary); font-weight: 600; margin-right: 4px; }
 .ev-ref:hover { text-decoration: underline; }
 .ev-nosrc { font-size: 11px; color: var(--warning); margin-top: 2px; }
+.source-preview { width: min(960px, 90vw); height: 80vh; display: flex; flex-direction: column; }
+.source-preview iframe { flex: 1; width: 100%; border: 0; }
+.source-preview img { flex: 1; min-height: 0; object-fit: contain; }
+.source-preview pre { flex: 1; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; padding: 16px; }
 </style>

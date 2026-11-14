@@ -7,6 +7,17 @@ from app.models.knowledge_evolution import KnowledgeEvolutionDraft
 from app.services.knowledge_evolution_service import cluster
 
 
+@pytest.fixture(autouse=True)
+def isolate_post_commit_storage(monkeypatch):
+    """本文件只测状态机；真实缓存后处理在 test_knowledge_change 隔离验证。"""
+    from app.services import knowledge_change_service
+
+    async def changed(doc_id, *, tenant_id="default"):
+        return None
+
+    monkeypatch.setattr(knowledge_change_service, "knowledge_changed", changed)
+
+
 def _v(x):
     n = math.sqrt(sum(i * i for i in x))
     return [i / n for i in x]

@@ -53,6 +53,10 @@ export const getStats = () => request.get('/document/stats')
 
 // 知识图谱
 export const extractKg = (docId, modelType) => request.post('/kg/extract', { docId, modelType })
+export const getKgExtractDocuments = (params) => request.get('/kg/extract/documents', { params })
+export const extractKgBatch = (docIds, modelType) => request.post('/kg/extract/batch', { docIds, modelType })
+export const getKgExtractTasks = (params) => request.get('/kg/extract/tasks', { params })
+export const retryKgExtractTask = (id) => request.post(`/kg/extract/tasks/${id}/retry`)
 export const getKgGraph = (entity = '', limit = 300) => request.get('/kg/graph', { params: { entity, limit } })
 export const getKgStats = () => request.get('/kg/stats')
 export const getKgPaths = (entity, depth = 3, limit = 20) => request.get('/kg/path', { params: { entity, depth, limit } })

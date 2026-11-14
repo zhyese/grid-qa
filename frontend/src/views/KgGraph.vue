@@ -13,6 +13,7 @@
       <button class="tab" :class="{ active: tab === 'path' }" @click="tab = 'path'">🔀 多跳影响链</button>
       <button class="tab" :class="{ active: tab === 'hub' }" @click="switchHub">⭐ 枢纽实体</button>
       <button class="tab" :class="{ active: tab === 'manage' }" @click="loadTriples(); tab = 'manage'" v-if="can('kg:edit')">🛠️ 三元组管理</button>
+      <button class="tab" :class="{ active: tab === 'batch' }" @click="tab = 'batch'" v-if="can('kg:edit')">批量抽取</button>
     </div>
 
     <!-- 关系图谱 -->
@@ -51,6 +52,10 @@
           <div class="cause-line" v-if="selectedNode.neighborNames && selectedNode.neighborNames.length" style="color:var(--text-muted)">关联：{{ selectedNode.neighborNames.slice(0, 10).join(' · ') }}</div>
         </div>
       </div>
+    </div>
+
+    <div class="card" v-if="can('kg:edit')" v-show="tab === 'batch'">
+      <KgBatchExtract @updated="loadStats" />
     </div>
 
     <!-- 多跳影响链 -->
@@ -125,6 +130,8 @@ import { CanvasRenderer } from 'echarts/renderers'
 import { extractKg, getKgGraph, getKgStats, getKgPaths, getKgInfluence, listDocs, listTriples, updateTriple, deleteTriple } from '../api'
 import { useAuthStore } from '../stores/auth'
 import { hasPerm } from '../utils/perm'
+import KgBatchExtract from '../components/KgBatchExtract.vue'
+import { unwrapKg, extractionError, taskDetail } from '../utils/kgExtraction'
 
 const auth = useAuthStore()
 const can = (p) => hasPerm(auth.role, p)   // RBAC：图谱抽取(kg:edit)对只读角色隐藏
@@ -235,10 +242,10 @@ async function searchPaths() {
 async function switchHub() { tab.value = 'hub'; try { hubs.value = (await getKgInfluence(15)).data.hubs || [] } catch (e) {} }
 function barWidth(deg) { return Math.round((deg / Math.max(...hubs.value.map((h) => h.outDegree), 1)) * 100) }
 async function doExtract() {
-  if (!selDoc.value) return
+  if (!selDoc.value || extracting.value) return
   extracting.value = true; show('开始抽取，LLM 分块处理中，双写 MySQL + Neo4j…')
-  try { const r = (await extractKg(selDoc.value, modelType.value || null)).data; show(`抽取完成：${r.tripleCount} 条三元组（${r.docName}）`); await Promise.all([loadStats(), loadGraph('')]); paths.value = []; hubs.value = [] }
-  catch (e) { show('抽取失败') } finally { extracting.value = false }
+  try { const r = unwrapKg(await extractKg(selDoc.value, modelType.value || null)); show(`${r.docName}：${taskDetail({ result: r })}`); await Promise.all([loadStats(), loadGraph('')]); paths.value = []; hubs.value = [] }
+  catch (e) { show(extractionError(e)) } finally { extracting.value = false }
 }
 function onResize() { chart && chart.resize() }
 const isFs = ref(false)
@@ -266,7 +273,7 @@ function onFsChange() {
   isFs.value = !!document.fullscreenElement
   setTimeout(() => chart && chart.resize(), 90)
 }
-watch(tab, async (t) => { if (t === 'graph') { await nextTick(); chart && chart.resize() } })
+watch(tab, async (t, old) => { if (t === 'graph') { if (old === 'batch') await loadGraph(entity.value.trim()); await nextTick(); chart && chart.resize() } })
 async function loadHubs() { try { hubs.value = (await getKgInfluence(15)).data.hubs || [] } catch (e) {} }
 onMounted(async () => { await Promise.all([loadStats(), loadDocs(), loadGraph(''), loadHubs()]); window.addEventListener('resize', onResize); document.addEventListener('fullscreenchange', onFsChange) })
 onBeforeUnmount(() => { window.removeEventListener('resize', onResize); document.removeEventListener('fullscreenchange', onFsChange); chart && chart.dispose() })

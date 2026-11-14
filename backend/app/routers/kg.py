@@ -10,8 +10,9 @@ from app.db.session import get_db
 from app.dependencies import get_current_user, require_perm
 from app.models.kg_triple import KgTriple
 from app.models.user import User
-from app.schemas.kg import KgExtractRequest
+from app.schemas.kg import KgExtractRequest, KgBatchExtractRequest
 from app.services import kg_service
+from app.services import kg_batch_service
 from app.services.log_service import write_log
 
 router = APIRouter(prefix="/kg", tags=["知识图谱"])
@@ -25,9 +26,38 @@ async def extract(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_perm(KG_EDIT)),
 ):
-    data = await kg_service.extract_triples(db, body.docId, body.modelType)
+    data = await kg_service.extract_triples(db, body.docId, body.modelType, tenant=user.tenant_id, user=user)
     await write_log(db, user.username, "图谱抽取", f"{data['docName']}：{data['tripleCount']}条三元组")
     return success(data, "抽取成功")
+
+
+@router.get('/extract/documents')
+async def extract_documents(page: int = Query(1, ge=1), size: int = Query(20, ge=1, le=100),
+                            keyword: str = Query('', max_length=256),
+                            db: AsyncSession = Depends(get_db), user: User = Depends(require_perm(KG_EDIT))):
+    return success(await kg_batch_service.candidates(db, user, page, size, keyword))
+
+
+@router.post('/extract/batch')
+@limiter.limit('5/minute')
+async def extract_batch(request: Request, body: KgBatchExtractRequest,
+                        db: AsyncSession = Depends(get_db), user: User = Depends(require_perm(KG_EDIT))):
+    data = await kg_batch_service.submit(db, body.docIds, body.modelType, user)
+    await write_log(db, user.username, '批量图谱抽取', f"提交或复用 {len(data['tasks'])} 份文档任务")
+    return success(data, '任务已排队，可关闭页面')
+
+
+@router.get('/extract/tasks')
+async def extract_tasks(page: int = Query(1, ge=1), size: int = Query(50, ge=1, le=200),
+                         db: AsyncSession = Depends(get_db), user: User = Depends(require_perm(KG_EDIT))):
+    return success(await kg_batch_service.list_tasks(db, user, page, size))
+
+
+@router.post('/extract/tasks/{task_id}/retry')
+@limiter.limit('5/minute')
+async def retry_extract(request: Request, task_id: str, db: AsyncSession = Depends(get_db),
+                         user: User = Depends(require_perm(KG_EDIT))):
+    return success(await kg_batch_service.retry(db, task_id, user), '任务已重新排队')
 
 
 @router.get("/graph")

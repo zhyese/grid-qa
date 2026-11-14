@@ -44,7 +44,7 @@
           <div class="mini-stat"><div class="mini-val">{{ stats?.vectorTotal ?? '-' }}</div><div class="mini-lbl">向量</div></div>
           <div class="mini-stat"><div class="mini-val">{{ stats?.byStatus?.vectorized ?? 0 }}</div><div class="mini-lbl">已向量化</div></div>
         </div>
-        <p class="hint" style="margin: 12px 0 0">上传后需依次执行「解析」「向量化」才能被检索；同名文档换版会自动归档可回滚。</p>
+        <p class="hint" style="margin: 12px 0 0">上传后依次执行「解析」「向量化」建立完整检索索引；向量化状态不代表图谱已完成。同名文档换版后需重新处理。</p>
       </div>
     </div>
 
@@ -113,6 +113,7 @@ import { ref, reactive, computed, onMounted } from 'vue'
 import { listDocs, uploadDocs, parseDocs, vectorize, vectorizeBatch, deleteDoc, getStats, getDocPerms, updateDocPerms } from '../api'
 import { useAuthStore } from '../stores/auth'
 import { hasPerm } from '../utils/perm'
+import { checkedDocumentResult, documentBatchSummary, remainingUploadFiles } from '../utils/documentResults'
 
 const auth = useAuthStore()
 const can = (p) => hasPerm(auth.role, p)   // RBAC：操作级隐藏（上传/删除），无权限不渲染
@@ -144,7 +145,7 @@ const statusMap = { pending: '待解析', parsed: '已解析', vectorized: '已�
 const preview = reactive({ show: false, type: '', url: '', text: '' })
 const toastMsg = ref('')
 let toastTimer = null
-function toast(m) { toastMsg.value = m; clearTimeout(toastTimer); toastTimer = setTimeout(() => (toastMsg.value = ''), 1500) }
+function toast(m) { toastMsg.value = m; clearTimeout(toastTimer); toastTimer = setTimeout(() => (toastMsg.value = ''), 6000) }
 function statusBadge(s) { return { pending: 'badge-neutral', parsed: 'badge-info', vectorized: 'badge-success' }[s] || 'badge-neutral' }
 
 const types = computed(() => [...new Set(docs.value.map((d) => d.docType))])
@@ -156,7 +157,7 @@ const allChecked = computed(() => filtered.value.length > 0 && selected.value.le
 
 async function load() {
   loading.value = true
-  try { const [d, s] = await Promise.all([listDocs(page.value, pageSize.value), getStats()]); docs.value = d.data.list || []; total.value = d.data.total || 0; stats.value = s.data } finally { loading.value = false }
+  try { const [d, s] = await Promise.all([listDocs(page.value, pageSize.value), getStats()]); const data = checkedDocumentResult(d); docs.value = data.list || []; total.value = data.total || 0; stats.value = checkedDocumentResult(s) } catch (e) { toast(e.message || '文档列表加载失败') } finally { loading.value = false }
 }
 function goPage(p) { if (p < 1 || p > totalPages.value) return; page.value = p; load() }
 function resetPage() { page.value = 1; load() }
@@ -172,26 +173,32 @@ async function upload() {
   if (isPermanent.value) form.append('isPermanent', 'true')
   if (versionOf.value) form.append('versionOf', versionOf.value)
   uploading.value = true; progress.value = 0
-  try { await uploadDocs(form, (e) => { if (e.total) progress.value = Math.round((e.loaded / e.total) * 100) }); await load(); toast('上传成功'); files.value = [] } catch (e) { toast('上传失败') }
+  try { const result = checkedDocumentResult(await uploadDocs(form, (e) => { if (e.total) progress.value = Math.round((e.loaded / e.total) * 100) })); files.value = remainingUploadFiles(files.value, result); await load(); toast(documentBatchSummary('上传', result)) } catch (e) { toast(e.message || '上传失败') }
   uploading.value = false
 }
 function toggleAll(c) { selected.value = c ? filtered.value.map((d) => d.docId) : [] }
-async function parseDoc(id) { busy[id] = true; try { await parseDocs([id]); await load(); toast('解析完成') } finally { busy[id] = false } }
-async function vectorizeDoc(id) { busy[id] = true; try { await vectorize(id); await load(); toast('向量化完成') } finally { busy[id] = false } }
-async function removeDoc(id) { if (!confirm('确认删除该文档（含向量/图谱）？')) return; busy[id] = true; try { await deleteDoc(id); await load(); toast('已删除') } finally { busy[id] = false } }
-async function batchParse() { if (!selected.value.length) return; try { await parseDocs(selected.value); await load(); toast(`已提交解析 ${selected.value.length} 份`); selected.value = [] } catch (e) { toast('批量解析失败') } }
+async function parseDoc(id) { busy[id] = true; try { checkedDocumentResult(await parseDocs([id])); await load(); toast('解析完成，请继续向量化') } catch (e) { toast(e.message || '解析失败') } finally { busy[id] = false } }
+async function vectorizeDoc(id) { busy[id] = true; try { checkedDocumentResult(await vectorize(id)); await load(); toast('向量化完成；图谱抽取结果请在知识图谱页查看') } catch (e) { toast(e.message || '向量化失败') } finally { busy[id] = false } }
+async function removeDoc(id) { if (!confirm('确认删除该文档（含向量/图谱）？')) return; busy[id] = true; try { checkedDocumentResult(await deleteDoc(id)); await load(); toast('已删除') } catch (e) { toast(e.message || '删除失败') } finally { busy[id] = false } }
+async function batchParse() { if (!selected.value.length) return; try { checkedDocumentResult(await parseDocs(selected.value)); await load(); toast(`已解析 ${selected.value.length} 份`); selected.value = [] } catch (e) { toast(e.message || '批量解析失败') } }
 async function batchVectorize() {
   if (!selected.value.length) return
   try {
-    const resp = await vectorizeBatch(selected.value)
-    const ok = resp.data?.successList?.length || 0
-    const fail = resp.data?.failList?.length || 0
+    const result = checkedDocumentResult(await vectorizeBatch(selected.value))
     await load()
-    toast(fail ? `向量化完成 ${ok} 份，失败 ${fail} 份（未解析？）` : `已向量化 ${ok} 份`)
-    selected.value = []
-  } catch (e) { toast('批量向量化失败') }
+    toast(documentBatchSummary('向量化', result))
+    const successful = new Set((result.successList || []).map(item => item.docId))
+    selected.value = selected.value.filter(id => !successful.has(id))
+  } catch (e) { toast(e.message || '批量向量化失败') }
 }
-async function batchDelete() { if (!selected.value.length || !confirm(`删除 ${selected.value.length} 份？`)) return; try { await Promise.all(selected.value.map((id) => deleteDoc(id))); await load(); toast(`已删除 ${selected.value.length} 份`); selected.value = [] } catch (e) { toast('批量删除失败') } }
+async function batchDelete() {
+  if (!selected.value.length || !confirm(`删除 ${selected.value.length} 份？`)) return
+  const ids = [...selected.value]
+  const results = await Promise.allSettled(ids.map(async id => checkedDocumentResult(await deleteDoc(id))))
+  const failed = ids.filter((_, index) => results[index].status === 'rejected')
+  await load(); selected.value = failed
+  toast(`删除：成功 ${ids.length - failed.length} 份，失败 ${failed.length} 份${failed.length ? '；失败项已保留选中，请重试' : ''}`)
+}
 async function previewDoc(d) {
   const ext = (d.docName.split('.').pop() || '').toLowerCase()
   try {

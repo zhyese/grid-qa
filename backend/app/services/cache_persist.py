@@ -9,6 +9,7 @@
   cleanup_loop() 每 6h 扫 qa_cache 删除过期/超 3 天未命中行（兜底 MySQL Event Scheduler）
 """
 import asyncio
+import hashlib
 import json
 from datetime import datetime, timedelta
 
@@ -27,7 +28,10 @@ async def cache_get_mysql(
 ) -> dict | None:
     """L2: MySQL 二级缓存查询。命中后异步回写 Redis + 更新 hit_count。"""
     tenant_id = tenant_id or "default"
-    query_hash = QaCache.build_hash(model_type, normalized_query, tenant_id)
+    from app.config import citation_cache_version
+    version = citation_cache_version()
+    cache_key = f"qa:{tenant_id}:{model_type or 'default'}:{normalized_query}:{version}"
+    query_hash = hashlib.md5(cache_key.encode("utf-8")).hexdigest()
     try:
         row = (
             await db.execute(
@@ -43,7 +47,7 @@ async def cache_get_mysql(
         degraded("qa_cache_mysql_get", e)
         return None
 
-    if not row:
+    if not row or version != citation_cache_version() or row.cache_key != cache_key:
         return None
 
     # 更新热度（不阻塞返回）
@@ -54,13 +58,14 @@ async def cache_get_mysql(
     except Exception as e:
         degraded("qa_cache_mysql_hit_update", e)
 
+    if version != citation_cache_version():
+        return None
+
     # 异步回写 Redis（不阻塞响应）
     try:
-        from app.config import citation_cache_version
-        cache_key = f"qa:{tenant_id}:{model_type or 'default'}:{normalized_query}:{citation_cache_version()}"
         data = json.loads(row.answer) if isinstance(row.answer, str) else row.answer
         asyncio.ensure_future(
-            redis_client.cache_set_json(cache_key, data, settings.QA_CACHE_TTL)
+            redis_client.cache_set_json(row.cache_key, data, settings.QA_CACHE_TTL)
         )
     except Exception as e:
         degraded("qa_cache_redis_backfill", e)
@@ -87,6 +92,7 @@ async def cache_set_mysql(
     original_query: str,
     result: dict,
     tenant_id: str = "default",
+    *, expected_version: str | None = None,
 ) -> None:
     """Write-Through: 写入 MySQL 二级缓存（ON DUPLICATE KEY UPDATE）。
 
@@ -95,8 +101,11 @@ async def cache_set_mysql(
     """
     tenant_id = tenant_id or "default"
     from app.config import citation_cache_version
-    cache_key = f"qa:{tenant_id}:{model_type or 'default'}:{normalized_query}:{citation_cache_version()}"
-    query_hash = QaCache.build_hash(model_type, normalized_query, tenant_id)
+    version = citation_cache_version()
+    if expected_version is not None and expected_version != version:
+        return  # 生成期间知识已变：不能把旧证据答案升级为新代际缓存。
+    cache_key = f"qa:{tenant_id}:{model_type or 'default'}:{normalized_query}:{version}"
+    query_hash = hashlib.md5(cache_key.encode("utf-8")).hexdigest()
     answer_json = json.dumps(result, ensure_ascii=False)
     ttl = QaCache.ttl_for_query(normalized_query) if settings.CACHE_TIERED_TTL_ENABLE else settings.QA_CACHE_TTL
     now = datetime.utcnow()
@@ -112,6 +121,9 @@ async def cache_set_mysql(
                 )
             )
         ).one_or_none()
+
+        if version != citation_cache_version():
+            return
 
         if existing:
             # UPDATE 已有行

@@ -14,6 +14,7 @@
 """
 import asyncio
 import base64
+import re
 import time
 
 import numpy as np
@@ -38,6 +39,21 @@ def _cache_tenant(tenant_id: str | None) -> str:
 
 def _semantic_index_key(tenant_id: str | None) -> str:
     return f"{_SEMANTIC_PREFIX}:tenant:{_cache_tenant(tenant_id)}:index:v3"
+
+
+def _cache_key_is_current(cache_key, model_type, query, tenant_id) -> bool:
+    """旧无版本key保持兼容；显式cv版本必须与当前语义代际一致。"""
+    if not isinstance(cache_key, str) or not cache_key:
+        return False
+    # query自身可能以“:cv123”结尾，不能把完整的legacy key误认成版本key。
+    legacy_key = f"qa:{_cache_tenant(tenant_id)}:{model_type or 'default'}:{query}"
+    if cache_key == legacy_key:
+        return True
+    _, separator, version = cache_key.rpartition(":")
+    if not separator or not re.fullmatch(r"cv\d+(?:[A-Z]\d+)*", version):
+        return True
+    from app.config import citation_cache_version
+    return version == citation_cache_version()
 
 
 def _emb_to_b64(vec: list[float]) -> str:
@@ -84,7 +100,8 @@ async def semantic_cache_get(
     if exact:
         if await _is_blocked_candidate(exact, tenant_id):
             return None, "miss", 1.0  # A5 治理过滤：精确命中但引用 blocked doc → 降级 miss
-        return exact, "exact", 1.0
+        if _cache_key_is_current(exact_key, model_type, nq, tenant_id):
+            return exact, "exact", 1.0
 
     # 2) 语义匹配：计算 query embedding → matmul 全量余弦
     try:
@@ -105,6 +122,8 @@ async def semantic_cache_get(
     rows: list[tuple[np.ndarray, dict]] = []
     for e in index:
         if e.get("model_type", "default") != model:
+            continue
+        if not _cache_key_is_current(e.get("cache_key"), model, e.get("query", ""), tenant_id):
             continue
         b = e.get("emb")
         if not b:
@@ -135,6 +154,8 @@ async def semantic_cache_get(
                 if cached:
                     if await _is_blocked_candidate(cached, tenant_id):
                         return None, "miss", best_sim  # A5：blocked doc 候选 → 降级 miss
+                    if not _cache_key_is_current(cached_key, model, best_entry.get("query", ""), tenant_id):
+                        return None, "miss", best_sim
                     return cached, "semantic_high", best_sim
             except Exception:
                 pass
@@ -148,6 +169,8 @@ async def semantic_cache_get(
                 if cached:
                     if await _is_blocked_candidate(cached, tenant_id):
                         return None, "miss", best_sim  # A5：blocked doc 候选 → 降级 miss
+                    if not _cache_key_is_current(cached_key, model, best_entry.get("query", ""), tenant_id):
+                        return None, "miss", best_sim
                     return cached, "semantic_medium", best_sim
             except Exception:
                 pass
@@ -201,6 +224,9 @@ async def semantic_cache_set(
 
     # 读-改-写串行化（进程内锁），避免并发覆盖丢条目
     async with _set_lock:
+        # embed/等锁期间可能已发生知识变更，不得重新挂回旧版本答案。
+        if not _cache_key_is_current(cache_key, model_type, nq, tenant_id):
+            return
         try:
             index = await redis_client.cache_get_json(_semantic_index_key(tenant_id)) or []
         except Exception:
@@ -233,6 +259,9 @@ async def semantic_cache_set(
 
         # 写回
         try:
+            # 索引读取也有await，写前再校验一次；get返回前还会兜底校验。
+            if not _cache_key_is_current(cache_key, model_type, nq, tenant_id):
+                return
             await redis_client.cache_set_json(_semantic_index_key(tenant_id), index, _SEMANTIC_TTL)
         except Exception as e:
             degraded("semantic_cache_index_write", e)

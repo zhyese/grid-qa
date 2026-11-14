@@ -21,6 +21,7 @@ from app.db.base import Base
 from app.db.session import AsyncSessionLocal, engine
 from app.models.chunk import Chunk  # noqa: F401  确保表被注册
 from app.models.conversation import Conversation, Message  # noqa: F401  确保表被注册
+from app.models.agentic_answer import AgenticAnswer  # noqa: F401  独立快照表，不ALTER旧messages
 from app.models.document import Document  # noqa: F401  确保表被注册
 from app.models.document_version import DocumentVersion  # noqa: F401
 from app.models.feedback import Feedback  # noqa: F401  确保表被注册

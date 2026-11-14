@@ -144,10 +144,14 @@ def _normalize_triples(triples: list[dict]) -> list[dict]:
     return out
 
 
-async def _extract_from_chunks(provider, chunks_text: list[str]) -> list[dict]:
+async def _extract_from_chunks(provider, chunks_text: list[str], *, report: dict | None = None) -> list[dict]:
     """分批调 LLM 抽取（schema 约束 prompt）→ 解析为原始三元组。单批失败降级。"""
     all_triples: list[dict] = []
+    if report is not None:
+        report.update(totalBatches=0, failedBatches=0)
     for i in range(0, len(chunks_text), _BATCH):
+        if report is not None:
+            report['totalBatches'] += 1
         batch = chunks_text[i:i + _BATCH]
         text = "\n\n".join(batch)
         try:
@@ -155,17 +159,30 @@ async def _extract_from_chunks(provider, chunks_text: list[str]) -> list[dict]:
                 [{"role": "user", "content": _KG_PROMPT_V2.format(text=text)}],
                 temperature=0.1, max_tokens=3000,
             )
-            all_triples.extend(_parse_triples_v2(ans))
+            parsed = _parse_triples_v2(ans)
+            # 空数组是合法的“无事实”；空响应或非结构化回答不能冒充成功。
+            if not parsed and not re.search(r'\[\s*\]', ans or ''):
+                raise ValueError('模型未返回有效三元组 JSON')
+            all_triples.extend(parsed)
         except Exception as e:
             degraded("kg_extract_batch", e)
+            if report is not None:
+                report['failedBatches'] += 1
     return all_triples
 
 
-async def extract_triples(db: AsyncSession, doc_id: str, model_type: str | None = None) -> dict:
+async def extract_triples(db: AsyncSession, doc_id: str, model_type: str | None = None,
+                          *, tenant: str | None = None, user=None) -> dict:
     """对某文档分块批量抽取三元组，增量写 MySQL + Neo4j（不清旧，仅追加新条目）。"""
-    doc = (await db.execute(select(Document).where(Document.id == doc_id))).scalar_one_or_none()
+    stmt = select(Document).where(Document.id == doc_id)
+    if tenant is not None:
+        stmt = stmt.where(Document.tenant_id == tenant)
+    doc = (await db.execute(stmt)).scalar_one_or_none()
     if not doc:
         raise BizError("文档不存在", 404)
+    if user is not None:
+        from app.services.kg_batch_service import assert_document_access
+        assert_document_access(doc, user)
     rows = (
         await db.execute(select(Chunk).where(Chunk.doc_id == doc_id).order_by(Chunk.chunk_idx))
     ).scalars().all()
@@ -173,13 +190,24 @@ async def extract_triples(db: AsyncSession, doc_id: str, model_type: str | None 
         raise BizError("文档尚未解析，请先解析", 400)
 
     provider = get_llm_provider(model_type)
-    raw = await _extract_from_chunks(provider, [c.content for c in rows])
+    report = {}
+    raw = await _extract_from_chunks(provider, [c.content for c in rows], report=report)
+    if report['failedBatches'] == report['totalBatches']:
+        raise BizError('所有分块抽取失败：请检查模型账户、网络或模型输出格式后重试', 502)
     triples = _normalize_triples(raw)
+
+    # LLM 阶段不持有文档行锁，否则提交/复用任务会被长文档阻塞。
+    # 落库时串行去重，并重新验证文档仍存在且授权未变化。
+    doc = (await db.execute(stmt.with_for_update().execution_options(populate_existing=True))).scalar_one_or_none()
+    if not doc:
+        raise BizError('文档不存在或无权访问', 404)
+    if user is not None:
+        assert_document_access(doc, user)
 
     # ★ 增量追加：查已有三元组，只插入新条目（不清旧）
     existing = (await db.execute(
         select(KgTriple.subject, KgTriple.relation, KgTriple.object)
-        .where(KgTriple.doc_id == doc_id)
+        .where(KgTriple.doc_id == doc_id).with_for_update()
     )).all()
     existing_set = {(r[0], r[1], r[2]) for r in existing}
     new_triples = [t for t in triples if (t["s"], t["r"], t["o"]) not in existing_set]
@@ -191,15 +219,17 @@ async def extract_triples(db: AsyncSession, doc_id: str, model_type: str | None 
     await db.commit()
 
     # 写 Neo4j（MERGE 幂等，仅新增边，不去旧；同时推断并落 Entity.type 供 3D 着色）
-    if new_triples:
+    neo4j_synced = True
+    if triples:
         from app.clients.neo4j_client import _infer_type
-        for tp in new_triples:
+        for tp in triples:
             tp["s_type"] = _infer_type(tp["s"], tp["r"], as_subject=True)
             tp["o_type"] = _infer_type(tp["o"], tp["r"], as_subject=False)
         try:
-            await neo4j_client.upsert_triples(new_triples, doc_id, doc.doc_name)
+            await neo4j_client.upsert_triples(triples, doc_id, doc.doc_name)
         except Exception as e:
             degraded("kg_neo4j_write", e)
+            neo4j_synced = False
 
     try:
         from app.core import metrics
@@ -208,7 +238,9 @@ async def extract_triples(db: AsyncSession, doc_id: str, model_type: str | None 
         metrics.KB_TRIPLES.set(total)
     except Exception:
         pass
-    return {"tripleCount": len(triples), "newCount": len(new_triples),
+    return {"docId": doc_id, **report, "neo4jSynced": neo4j_synced,
+            "status": 'partial' if report['failedBatches'] or not neo4j_synced else ('completed' if triples else 'empty'),
+            "tripleCount": len(triples), "newCount": len(new_triples),
             "docName": doc.doc_name, "sample": triples[:30]}
 
 
