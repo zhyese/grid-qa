@@ -75,3 +75,4 @@ ai-trends-2026.html
 .pytest_out*.txt
 .workbuddy-ai/
 frontend/vite.config.js.timestamp-*.mjs
+/frontend/.tmp-vite-esbuild/

@@ -31,8 +31,9 @@ services:
 
   # ---------- MinIO：源文档对象存储 ----------
   minio:
-    image: minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e   # pin-digest（原 minio/minio:latest）
+    image: bitnamilegacy/minio@sha256:451fe6858cb770cc9d0e77ba811ce287420f781c7c1b806a386f6896471a349c   # MinIO 公共仓库下线后的兼容保留镜像
     container_name: grid-minio
+    user: "0:0"   # 兼容从旧官方镜像迁移来的 Windows 绑定目录权限
     restart: unless-stopped
     environment:
       MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-minioadmin}
@@ -71,8 +72,9 @@ services:
 
   # ---------- Milvus 专用对象存储 ----------
   milvus-minio:
-    image: minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e   # pin-digest（原 minio/minio:latest）
+    image: bitnamilegacy/minio@sha256:451fe6858cb770cc9d0e77ba811ce287420f781c7c1b806a386f6896471a349c   # MinIO 公共仓库下线后的兼容保留镜像
     container_name: grid-milvus-minio
+    user: "0:0"   # 兼容从旧官方镜像迁移来的 Windows 绑定目录权限
     restart: unless-stopped
     environment:
       MINIO_ROOT_USER: minioadmin
@@ -180,7 +182,7 @@ services:
     environment:
       MODE: standalone
       # 容器内 InetUtils.refreshIp NPE（枚举不到可用 IP）→ 显式指定服务 IP（2026-09-03）
-      NACOS_SERVER_IP: 172.18.0.20
+      NACOS_SERVER_IP: 172.22.0.20
     ports:
       - "8848:8848"
       - "9848:9848"
@@ -188,7 +190,7 @@ services:
       - ./data/nacos:/home/nacos/data
     networks:
       default:
-        ipv4_address: 172.18.0.20
+        ipv4_address: 172.22.0.20
 
   # ---------- 后端 ----------
   backend:
@@ -218,7 +220,7 @@ services:
         condition: service_started
     environment:
       # 容器内用 service name + 内部端口连接（覆盖 .env 的 localhost）
-      DATABASE_URL: mysql+aiomysql://grid:grid123456@mysql:3306/grid_qa?charset=utf8mb4
+      DATABASE_URL: mysql+aiomysql://${MYSQL_USER:-grid}:${MYSQL_PASSWORD:-grid123456}@mysql:3306/${MYSQL_DATABASE:-grid_qa}?charset=utf8mb4
       REDIS_URL: redis://:grid-langfuse-pass@redis:6379/0
       MINIO_ENDPOINT: minio:9000
       MILVUS_HOST: milvus
@@ -226,8 +228,8 @@ services:
       # 容器内 localhost 指自身，OTLP 走 compose 服务名（langfuse 内部 3000→宿主 3001）；
       # 用 OTEL_EXPORTER_OTLP_ENDPOINT，代码会自动拼 /v1/traces（OTEL_ENDPOINT 不会拼→404）
       OTEL_EXPORTER_OTLP_ENDPOINT: http://langfuse:3000/api/public/otel
-      LANGFUSE_PUBLIC_KEY: pk-lf-751194e4-12a2-407b-b54f-f153b02c79be
-      LANGFUSE_SECRET_KEY: sk-lf-6396f6d5-d0e5-424d-af6e-363f3368ae57
+      LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
+      LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}
       MCP_SERVERS: '[{"name":"mock_scada","url":"http://mock-scada:9100"}]'   # N2 启动发现 mock SCADA → 注册 query_telemetry 到 agent ToolRegistry
       # 问答→行动闭环（create_ticket/submit_ticket 工具 + ops_planner persona + 工单流转事件）；关=现状
       TICKET_ACTION_LOOP_ENABLE: "true"
@@ -251,7 +253,7 @@ services:
       - grid-backend-data:/app/data   # 持久化 data/（运行日志 + 数据备份 .sql），容器重建不丢
       - ./scripts:/app/scripts:ro     # eval_matrix API 触发的 CLI 工具（只读；工具目录非源码热载）
       - ./reports:/app/reports        # 评测矩阵报告落宿主 reports/（系统管理-评测矩阵可浏览）
-      - C:/Users/Administrator/.cache/huggingface/hub:/root/.cache/huggingface/hub:ro   # 宿主机 bge 缓存（离线加载，免下载）
+      - E:/DockerData/hf-cache/hub:/root/.cache/huggingface/hub:ro   # E 盘宿主机 bge 缓存（离线加载，免占 C 盘）
 
   # ---------- Mock SCADA MCP Server（N2 MCP 总线外部 SCADA 数据源，侧车）----------
   # 复用 backend 镜像跑 mock_scada_server（真实 SCADA 接入时换连接器即可）。
@@ -429,4 +431,10 @@ volumes:
   mysql-data:
   grid-backend-data:
   clickhouse-data:
+
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: 172.22.0.0/16
 
