@@ -1,0 +1,2444 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GridQA 电网自主运维智能问答系统 · 项目架构深度演示</title>
+  <style>
+    :root {
+      --bg: #060d16;
+      --bg-soft: #0a1626;
+      --panel: rgba(17, 32, 48, 0.72);
+      --panel-solid: #0e1c2c;
+      --line: rgba(148, 200, 240, 0.14);
+      --line-strong: rgba(148, 200, 240, 0.24);
+      --ink: #e9f4fb;
+      --ink-soft: #a8c3d8;
+      --muted: #7d97ab;
+      --teal: #2dd4bf;
+      --teal-deep: #14b8a6;
+      --ocean: #4cc3ff;
+      --sun: #f5c542;
+      --coral: #ff8a70;
+      --leaf: #34d399;
+      --violet: #a78bfa;
+      --font: "Segoe UI", "PingFang SC", "Microsoft YaHei", "Noto Sans SC", sans-serif;
+      --mono: "Cascadia Mono", "Sarasa Mono SC", "Consolas", monospace;
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      background:
+        radial-gradient(1100px 500px at 85% -5%, rgba(76, 195, 255, 0.09), transparent 55%),
+        radial-gradient(900px 480px at 8% 12%, rgba(45, 212, 191, 0.07), transparent 55%),
+        var(--bg);
+      color: var(--ink);
+      font-family: var(--font);
+      line-height: 1.6;
+    }
+    ::selection { background: rgba(45, 212, 191, 0.3); }
+
+    /* ============ 顶部导航 ============ */
+    .topnav {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      display: flex;
+      align-items: center;
+      gap: 18px;
+      padding: 12px 28px;
+      background: rgba(6, 13, 22, 0.86);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--line);
+    }
+    .topnav .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-weight: 800;
+      font-size: 16px;
+      color: #f2fafd;
+      white-space: nowrap;
+    }
+    .topnav .brand .logo {
+      width: 32px; height: 32px; border-radius: 10px;
+      background: linear-gradient(145deg, #17b9ad, #0e7490 60%, #0c4a6e);
+      display: grid; place-items: center; color: #fff;
+      box-shadow: 0 6px 16px rgba(14, 116, 144, 0.4);
+    }
+    .topnav .brand .logo svg { width: 18px; height: 18px; }
+    .topnav nav { display: flex; gap: 4px; flex-wrap: wrap; margin-left: auto; }
+    .topnav nav a {
+      color: var(--ink-soft);
+      text-decoration: none;
+      font-size: 13px;
+      font-weight: 600;
+      padding: 6px 11px;
+      border-radius: 999px;
+      transition: color .18s, background .18s;
+    }
+    .topnav nav a:hover { color: #fff; background: rgba(148, 200, 240, 0.1); }
+    .topnav nav a.active { color: #5eead4; background: rgba(45, 212, 191, 0.12); }
+
+    /* ============ 版式 ============ */
+    .wrap { max-width: 1240px; margin: 0 auto; padding: 0 32px; }
+    section.chapter { padding: 70px 0 30px; border-bottom: 1px dashed var(--line); }
+    .chapter-head { display: flex; align-items: baseline; gap: 16px; margin-bottom: 8px; }
+    .chapter-no {
+      font-family: var(--mono);
+      font-size: 15px;
+      color: var(--teal);
+      letter-spacing: 0.1em;
+      font-weight: 700;
+    }
+    .chapter-head h2 { margin: 0; font-size: 30px; color: #f2fafd; letter-spacing: 0.01em; }
+    .chapter-lead { color: var(--ink-soft); font-size: 15.5px; max-width: 980px; margin: 6px 0 30px; }
+    .chapter-lead b { color: #cfe9f7; }
+    .chapter-lead code, td code, li code, .pill code, .detail-box code {
+      font-family: var(--mono);
+      font-size: 0.92em;
+      background: rgba(76, 195, 255, 0.1);
+      border: 1px solid rgba(76, 195, 255, 0.16);
+      color: #8fd8ff;
+      padding: 1px 6px;
+      border-radius: 6px;
+      white-space: nowrap;
+    }
+
+    /* ============ 封面 ============ */
+    .hero { padding: 88px 0 64px; position: relative; }
+    .hero .tagline {
+      display: inline-flex; align-items: center; gap: 8px;
+      font-size: 13px; font-weight: 700; letter-spacing: 0.06em;
+      color: #5eead4; background: rgba(45, 212, 191, 0.1);
+      border: 1px solid rgba(45, 212, 191, 0.25);
+      padding: 6px 14px; border-radius: 999px; margin-bottom: 22px;
+    }
+    .hero h1 { margin: 0 0 6px; font-size: 46px; line-height: 1.15; color: #f5fbfe; }
+    .hero h1 .grad {
+      background: linear-gradient(92deg, #5eead4, #4cc3ff 55%, #f5c542);
+      -webkit-background-clip: text; background-clip: text; color: transparent;
+    }
+    .hero .sub { color: var(--ink-soft); font-size: 17px; max-width: 900px; }
+    .hero .stackline {
+      margin-top: 26px; display: flex; flex-wrap: wrap; gap: 8px;
+    }
+    .hero .stackline span {
+      font-size: 12.5px; font-weight: 650; color: var(--ink-soft);
+      border: 1px solid var(--line); background: rgba(148, 200, 240, 0.06);
+      padding: 5px 12px; border-radius: 999px;
+    }
+
+    /* ============ KPI ============ */
+    .kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 16px;
+      margin: 34px 0 10px;
+    }
+    .kpi {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      padding: 20px 22px 16px;
+      position: relative;
+      overflow: hidden;
+    }
+    .kpi::after {
+      content: "";
+      position: absolute; inset: auto 0 0 0; height: 3px;
+      background: linear-gradient(90deg, var(--teal), var(--ocean));
+      opacity: .7;
+    }
+    .kpi .num {
+      font-family: var(--mono);
+      font-size: 38px; font-weight: 800; color: #f2fafd; line-height: 1.1;
+    }
+    .kpi .num small { font-size: 18px; color: var(--ink-soft); font-weight: 700; }
+    .kpi .lab { margin-top: 6px; font-size: 13px; color: var(--ink-soft); font-weight: 600; }
+    .kpi .foot { margin-top: 2px; font-size: 11.5px; color: var(--muted); font-family: var(--mono); }
+
+    /* ============ 架构分层图 ============ */
+    .arch { display: grid; gap: 10px; }
+    .arch-row {
+      display: grid;
+      grid-template-columns: 190px 1fr;
+      gap: 14px;
+      align-items: stretch;
+    }
+    .arch-row .side {
+      display: flex; flex-direction: column; justify-content: center; gap: 4px;
+      padding: 12px 16px;
+      border-radius: 14px;
+      background: rgba(45, 212, 191, 0.08);
+      border: 1px solid rgba(45, 212, 191, 0.22);
+    }
+    .arch-row .side b { font-size: 14.5px; color: #d9f7f1; }
+    .arch-row .side span { font-size: 11.5px; color: var(--muted); font-family: var(--mono); }
+    .arch-row .boxes { display: flex; flex-wrap: wrap; gap: 8px; align-content: center; }
+    .node-pill {
+      padding: 9px 13px;
+      border-radius: 12px;
+      background: rgba(148, 200, 240, 0.07);
+      border: 1px solid var(--line);
+      font-size: 12.5px;
+      color: var(--ink);
+      cursor: default;
+      transition: border-color .18s, transform .18s, background .18s;
+      position: relative;
+    }
+    .node-pill b { color: #f2fafd; }
+    .node-pill:hover { border-color: rgba(45, 212, 191, 0.5); transform: translateY(-2px); background: rgba(45, 212, 191, 0.08); }
+    .node-pill .tip {
+      display: none;
+      position: absolute;
+      left: 0; top: calc(100% + 8px);
+      width: max-content; max-width: 420px;
+      background: #0b1828;
+      border: 1px solid var(--line-strong);
+      border-radius: 12px;
+      padding: 10px 14px;
+      font-size: 12px;
+      color: var(--ink-soft);
+      line-height: 1.5;
+      z-index: 40;
+      box-shadow: 0 14px 34px rgba(2, 10, 20, 0.6);
+    }
+    .node-pill:hover .tip { display: block; }
+    .node-pill.core-pill {
+      background: rgba(76, 195, 255, 0.12);
+      border-color: rgba(76, 195, 255, 0.3);
+    }
+    .node-pill.hot-pill {
+      background: rgba(245, 197, 66, 0.1);
+      border-color: rgba(245, 197, 66, 0.3);
+    }
+    .arch-cross {
+      margin-top: 6px;
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 10px;
+    }
+    .arch-cross .cross {
+      padding: 12px 16px;
+      border-radius: 14px;
+      border: 1px dashed var(--line-strong);
+      font-size: 12.5px;
+      color: var(--ink-soft);
+      background: rgba(148, 200, 240, 0.04);
+    }
+    .arch-cross .cross b { display: block; color: #cfe9f7; font-size: 13.5px; margin-bottom: 3px; }
+
+    /* ============ 主链路 stepper ============ */
+    .pipe-wrap { display: grid; grid-template-columns: 340px 1fr; gap: 18px; align-items: start; }
+    .step-list { display: grid; gap: 6px; position: sticky; top: 78px; }
+    .step-item {
+      display: flex; gap: 12px; align-items: center;
+      padding: 11px 14px;
+      border-radius: 14px;
+      border: 1px solid var(--line);
+      background: rgba(17, 32, 48, 0.55);
+      cursor: pointer;
+      transition: border-color .18s, background .18s;
+      text-align: left;
+      font: inherit;
+      color: inherit;
+      width: 100%;
+    }
+    .step-item:hover { border-color: rgba(45, 212, 191, 0.4); }
+    .step-item.active {
+      border-color: rgba(45, 212, 191, 0.65);
+      background: rgba(45, 212, 191, 0.1);
+    }
+    .step-item .n {
+      width: 30px; height: 30px; border-radius: 50%;
+      display: grid; place-items: center;
+      font-family: var(--mono); font-size: 13px; font-weight: 800;
+      background: rgba(76, 195, 255, 0.15); color: #8fd8ff;
+      border: 1px solid rgba(76, 195, 255, 0.3);
+      flex: 0 0 auto;
+    }
+    .step-item.active .n { background: var(--teal); color: #06121d; border-color: transparent; }
+    .step-item .t { font-size: 14px; font-weight: 700; color: #eaf6fd; }
+    .step-item .s { display: block; font-size: 11.5px; color: var(--muted); font-weight: 500; margin-top: 1px; }
+    .detail-panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 20px;
+      padding: 26px 28px;
+      min-height: 420px;
+    }
+    .detail-panel h3 { margin: 0 0 4px; font-size: 21px; color: #f2fafd; }
+    .detail-panel .path {
+      font-family: var(--mono); font-size: 12px; color: var(--teal);
+      margin-bottom: 14px; display: block;
+    }
+    .detail-panel p { color: var(--ink-soft); font-size: 14.5px; margin: 0 0 14px; }
+    .kv { display: grid; gap: 8px; margin: 14px 0; }
+    .kv .row {
+      display: grid; grid-template-columns: 118px 1fr; gap: 10px;
+      font-size: 13px; padding: 8px 12px;
+      background: rgba(148, 200, 240, 0.05);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+    }
+    .kv .row b { color: #8fd8ff; font-weight: 700; }
+    .kv .row span { color: var(--ink-soft); }
+    .flagline { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 6px; }
+    .flag {
+      font-family: var(--mono); font-size: 11.5px;
+      padding: 4px 9px; border-radius: 8px;
+      border: 1px solid rgba(245, 197, 66, 0.3);
+      background: rgba(245, 197, 66, 0.08);
+      color: #ffd97a;
+    }
+    .flag.off {
+      border-color: rgba(148, 200, 240, 0.2);
+      background: rgba(148, 200, 240, 0.06);
+      color: var(--muted);
+    }
+
+    /* ============ 一次请求的旅程动画 ============ */
+    .journey {
+      margin-top: 34px;
+      background: rgba(8, 18, 30, 0.85);
+      border: 1px solid var(--line-strong);
+      border-radius: 20px;
+      padding: 22px 24px 18px;
+    }
+    .journey .bar { display: flex; align-items: center; gap: 12px; margin-bottom: 6px; flex-wrap: wrap; }
+    .journey .bar h3 { margin: 0; font-size: 17px; color: #f2fafd; }
+    .j-btn {
+      height: 36px; padding: 0 16px; border-radius: 999px; cursor: pointer;
+      border: 1px solid rgba(45, 212, 191, 0.4);
+      background: linear-gradient(135deg, #0f9e94, #0e7490);
+      color: #fff; font-weight: 700; font-size: 13px;
+    }
+    .j-btn:disabled { opacity: .45; cursor: not-allowed; }
+    .j-btn.ghost { background: transparent; border-color: var(--line-strong); color: var(--ink-soft); }
+    .journey .stage-now {
+      font-size: 13px; color: #5eead4; font-weight: 650; min-width: 320px;
+    }
+    .j-svg { width: 100%; height: auto; display: block; margin: 6px 0 2px; }
+    .j-node rect {
+      fill: rgba(17, 32, 48, 0.9);
+      stroke: rgba(148, 200, 240, 0.25);
+      stroke-width: 1.2;
+      rx: 10;
+    }
+    .j-node text { fill: #cfe4f2; font-size: 11.5px; font-weight: 650; font-family: var(--font); }
+    .j-node .sub { fill: #7d97ab; font-size: 9.5px; font-weight: 500; }
+    .j-node.on rect { stroke: rgba(45, 212, 191, 0.85); fill: rgba(20, 184, 166, 0.16); }
+    .j-node.on text { fill: #d9fff8; }
+    .j-link { stroke: rgba(148, 200, 240, 0.22); stroke-width: 1.6; fill: none; stroke-dasharray: 4 6; }
+    .j-link.lit { stroke: #4cc3ff; stroke-dasharray: 6 6; animation: jdash 0.9s linear infinite; }
+    .j-link.ret.lit { stroke: #f5c542; }
+    @keyframes jdash { to { stroke-dashoffset: -24; } }
+    .j-log {
+      margin-top: 10px;
+      display: grid; gap: 6px;
+      max-height: 148px; overflow: auto;
+      font-family: var(--mono); font-size: 12px;
+    }
+    .j-log .li {
+      padding: 7px 12px; border-radius: 9px;
+      background: rgba(255, 255, 255, 0.04);
+      border-left: 3px solid #2dd4bf;
+      color: #cfe4f2;
+      animation: fadeUp .3s ease;
+    }
+    .j-log .li .t { color: #6f97b0; margin-right: 8px; }
+    @keyframes fadeUp { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: none; } }
+
+    /* ============ 旅程 · 全链路 trace 回放布局 ============ */
+    .j-grid { display: grid; grid-template-columns: 1fr 292px; gap: 16px; align-items: start; }
+    .j-speed {
+      display: inline-flex; align-items: center; gap: 7px; height: 36px; padding: 0 13px;
+      border-radius: 999px; border: 1px solid var(--line-strong);
+      color: var(--ink-soft); font-size: 12.5px; font-weight: 650; background: rgba(17, 32, 48, 0.6);
+    }
+    .j-speed input { width: 74px; accent-color: var(--teal); }
+    .j-node { cursor: pointer; }
+    .j-node:hover rect { stroke: rgba(76, 195, 255, 0.75); }
+    .j-link.loop.lit { stroke: #a78bfa; }
+    .j-link.hot.lit { stroke: #2dd4bf; }
+    .j-wf { margin-top: 10px; }
+    .j-wf-title {
+      font-family: var(--mono); font-size: 11px; color: var(--muted); margin-bottom: 5px;
+      display: flex; justify-content: space-between;
+    }
+    .j-wf-title b { color: #8fd8ff; }
+    .j-wf-bar {
+      display: flex; height: 14px; border-radius: 7px; overflow: hidden;
+      background: rgba(148, 200, 240, 0.08); border: 1px solid var(--line);
+    }
+    .j-wf-bar i { display: block; height: 100%; min-width: 3px; }
+    .j-wf-labels {
+      display: flex; flex-wrap: wrap; gap: 5px 12px; margin-top: 6px;
+      font-family: var(--mono); font-size: 10.5px; color: var(--ink-soft);
+    }
+    .j-wf-labels span { display: inline-flex; align-items: center; gap: 5px; }
+    .j-wf-labels span i { width: 8px; height: 8px; border-radius: 2px; display: inline-block; }
+    .j-detail {
+      background: rgba(10, 22, 36, 0.9); border: 1px solid var(--line-strong);
+      border-radius: 16px; padding: 16px 18px; position: sticky; top: 78px;
+    }
+    .j-detail .kicker {
+      font-family: var(--mono); font-size: 10px; letter-spacing: 0.12em;
+      color: var(--muted); text-transform: uppercase; margin-bottom: 8px;
+    }
+    .j-detail h4 { margin: 0 0 4px; font-size: 16.5px; color: #f2fafd; }
+    .j-detail-path {
+      font-family: var(--mono); font-size: 11.5px; color: var(--teal);
+      display: block; margin-bottom: 9px; word-break: break-all;
+    }
+    .j-detail p { margin: 0; font-size: 12.5px; color: var(--ink-soft); line-height: 1.55; }
+    @media (max-width: 1000px) {
+      .j-grid { grid-template-columns: 1fr; }
+      .j-detail { position: static; }
+    }
+
+    /* ============ 旅程 v4：提问气泡 / 包动画 / 结果卡 ============ */
+    .journey { position: relative; }
+    .j-q {
+      display: flex; align-items: center; gap: 10px;
+      margin: 8px 2px 4px; padding: 8px 14px;
+      border-radius: 14px 14px 14px 4px;
+      background: rgba(45, 212, 191, 0.08);
+      border: 1px solid rgba(45, 212, 191, 0.28);
+      font-size: 13px; color: #d9f7f1;
+      width: fit-content; max-width: 100%;
+    }
+    .j-q[hidden] { display: none; }
+    .j-q .j-q-mode {
+      font-family: var(--mono); font-size: 10.5px; color: #5eead4;
+      border: 1px solid rgba(45, 212, 191, 0.3); padding: 2px 8px;
+      border-radius: 999px; white-space: nowrap; flex: 0 0 auto;
+    }
+    .j-q-text.typing::after {
+      content: ""; display: inline-block; width: 7px; height: 13px; margin-left: 3px;
+      background: var(--teal); vertical-align: -2px; animation: jblink 0.9s steps(1) infinite;
+    }
+    @keyframes jblink { 50% { opacity: 0; } }
+    .j-q.resolved { background: rgba(76, 195, 255, 0.08); border-color: rgba(76, 195, 255, 0.3); color: #dceefc; }
+    .j-q.resolved .j-q-mode { color: #8fd8ff; border-color: rgba(76, 195, 255, 0.35); }
+    .j-q.rw { background: rgba(167, 139, 250, 0.1); border-color: rgba(167, 139, 250, 0.38); color: #ece5ff; }
+    .j-q.rw .j-q-mode { color: #c4b5fd; border-color: rgba(167, 139, 250, 0.45); }
+    .j-toast {
+      position: absolute; right: 22px; bottom: 18px; z-index: 6;
+      max-width: 440px; padding: 12px 16px; border-radius: 14px;
+      background: linear-gradient(145deg, rgba(15, 143, 138, 0.96), rgba(13, 111, 140, 0.96));
+      color: #f2fdfb; font-size: 12.5px; line-height: 1.55;
+      box-shadow: 0 14px 34px rgba(4, 16, 26, 0.55);
+      opacity: 0; transform: translateY(14px); pointer-events: none;
+      transition: opacity .35s ease, transform .35s ease;
+    }
+    .j-toast.show { opacity: 1; transform: none; }
+    .j-toast b { display: block; margin-bottom: 3px; font-size: 13px; color: #fff; }
+    .j-toast .cite-mini { color: #bff5ec; font-family: var(--mono); font-size: 11px; }
+
+    /* ============ 产品视角：对话 / 引用 / 拒答 ============ */
+    .chat { display: grid; gap: 14px; max-width: 940px; margin: 4px 0 14px; }
+    .msg { display: flex; }
+    .msg.user { justify-content: flex-end; }
+    .msg .bubble {
+      max-width: 88%; border-radius: 16px; padding: 13px 17px;
+      font-size: 14px; line-height: 1.7;
+    }
+    .msg.user .bubble {
+      background: rgba(45, 212, 191, 0.1); border: 1px solid rgba(45, 212, 191, 0.3);
+      color: #d9fff8; border-bottom-right-radius: 4px;
+    }
+    .msg.bot .bubble {
+      background: var(--panel); border: 1px solid var(--line);
+      color: var(--ink-soft); border-bottom-left-radius: 4px;
+    }
+    .ans-meta { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+    .badge {
+      font-family: var(--mono); font-size: 11px; font-weight: 700;
+      padding: 3px 10px; border-radius: 999px; border: 1px solid;
+      white-space: nowrap;
+    }
+    .b-high { color: #5eead4; border-color: rgba(45, 212, 191, 0.4); background: rgba(45, 212, 191, 0.1); }
+    .b-crag { color: #ffd97a; border-color: rgba(245, 197, 66, 0.35); background: rgba(245, 197, 66, 0.08); }
+    .b-route { color: #8fd8ff; border-color: rgba(76, 195, 255, 0.3); background: rgba(76, 195, 255, 0.08); }
+    .b-time { color: var(--muted); border-color: var(--line-strong); background: rgba(148, 200, 240, 0.05); }
+    .b-ref { color: #ff97a4; border-color: rgba(255, 93, 93, 0.4); background: rgba(255, 93, 93, 0.1); }
+    .b-reason { color: #c4b5fd; border-color: rgba(167, 139, 250, 0.4); background: rgba(167, 139, 250, 0.1); }
+    .ans { margin: 0; }
+    .ans.typing::after {
+      content: ""; display: inline-block; width: 8px; height: 15px; margin-left: 3px;
+      background: var(--ocean); vertical-align: -2px; animation: jblink 0.9s steps(1) infinite;
+    }
+    sup.cite {
+      cursor: pointer; color: #8fd8ff; font-weight: 800;
+      padding: 0 2px; font-size: 0.85em; transition: color .15s;
+    }
+    sup.cite:hover, sup.cite.sel { color: #5eead4; text-shadow: 0 0 10px rgba(45, 212, 191, 0.5); }
+    sup.cite.pop { animation: citePop .32s ease; }
+    @keyframes citePop { from { transform: scale(1.7); opacity: 0.2; } }
+    .srcs {
+      margin-top: 12px; padding: 10px 14px;
+      border-left: 3px solid var(--teal); border-radius: 0 12px 12px 0;
+      background: rgba(10, 22, 36, 0.75); font-size: 12.5px; color: var(--ink-soft);
+      animation: fadeUp .3s ease;
+    }
+    .src-head { display: flex; justify-content: space-between; gap: 10px; margin-bottom: 5px; }
+    .src-head b { color: #d9f7f1; font-size: 12.5px; }
+    .src-head span { font-family: var(--mono); font-size: 11px; color: #f5c542; white-space: nowrap; }
+    .srcs p { margin: 0 0 6px; line-height: 1.6; }
+    .src-foot { font-family: var(--mono); font-size: 10.5px; color: var(--muted); }
+    .fb-row { display: flex; align-items: center; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+    .fb-btn {
+      height: 32px; padding: 0 14px; border-radius: 999px; cursor: pointer;
+      border: 1px solid var(--line-strong); background: rgba(148, 200, 240, 0.05);
+      color: var(--ink-soft); font-size: 12.5px; font-weight: 650;
+      transition: all .18s;
+    }
+    .fb-btn:hover { border-color: rgba(45, 212, 191, 0.5); color: #fff; }
+    .fb-btn:disabled { opacity: .5; cursor: not-allowed; }
+    .fb-btn.done { border-color: rgba(45, 212, 191, 0.55); background: rgba(45, 212, 191, 0.12); color: #5eead4; }
+    .fb-btn.down.done { border-color: rgba(255, 138, 112, 0.5); background: rgba(255, 138, 112, 0.1); color: #ffa48f; }
+    .fb-hint { font-size: 11.5px; color: var(--muted); }
+    .chat-ctl { display: flex; align-items: center; gap: 14px; margin: 2px 0 18px; flex-wrap: wrap; }
+    .trace-mini { max-width: 940px; }
+    .trace-title { font-family: var(--mono); font-size: 11px; color: var(--muted); margin-bottom: 8px; }
+    .trace-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+    .tchip {
+      display: inline-flex; align-items: center; gap: 6px;
+      font-family: var(--mono); font-size: 11px; color: var(--ink-soft);
+      padding: 4px 10px; border-radius: 8px;
+      background: rgba(148, 200, 240, 0.06); border: 1px solid var(--line);
+    }
+    .tchip i { width: 8px; height: 8px; border-radius: 2px; flex: 0 0 auto; }
+    .tchip b { color: #cfe9f7; font-weight: 700; }
+    .tchip.warnchip { border-color: rgba(255, 93, 93, 0.35); }
+
+    /* ============ 引擎连线图 · 路由四路 pill ============ */
+    .j-node rect.pill { fill: rgba(148, 200, 240, 0.07); stroke: rgba(148, 200, 240, 0.25); stroke-width: 1; }
+    .j-node rect.pill.hit { fill: rgba(45, 212, 191, 0.2); stroke: rgba(45, 212, 191, 0.75); }
+    .j-node.on rect.pill { fill: rgba(148, 200, 240, 0.07); stroke: rgba(148, 200, 240, 0.25); }
+    .j-node.on rect.pill.hit { fill: rgba(45, 212, 191, 0.3); stroke: rgba(45, 212, 191, 0.9); }
+    .j-node text.ptxt { font-size: 9px; fill: #8ba7bd; font-weight: 600; }
+    .j-node text.ptxt.hit { fill: #5eead4; font-weight: 800; }
+    .j-node.on text.ptxt { fill: #8ba7bd; }
+    .j-node.on text.ptxt.hit { fill: #5eead4; }
+
+    /* ============ Tabs ============ */
+    .tabs { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 20px; }
+    .tab-btn {
+      padding: 9px 18px; border-radius: 999px; cursor: pointer;
+      border: 1px solid var(--line-strong);
+      background: rgba(17, 32, 48, 0.6);
+      color: var(--ink-soft); font-weight: 700; font-size: 13.5px;
+      transition: all .18s;
+    }
+    .tab-btn:hover { color: #fff; border-color: rgba(45, 212, 191, 0.45); }
+    .tab-btn.active {
+      background: linear-gradient(135deg, #0f9e94, #0e7490);
+      border-color: transparent; color: #fff;
+    }
+    .tab-panel { display: none; }
+    .tab-panel.show { display: block; animation: fadeUp .3s ease; }
+
+    .cards3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+    .cards2 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
+    .mini {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      padding: 20px 22px;
+      transition: border-color .2s, transform .2s;
+    }
+    .mini:hover { border-color: rgba(45, 212, 191, 0.4); transform: translateY(-2px); }
+    .mini h4 { margin: 0 0 8px; font-size: 16px; color: #f2fafd; display: flex; align-items: center; gap: 9px; }
+    .mini h4 .dot { width: 9px; height: 9px; border-radius: 50%; flex: 0 0 auto; }
+    .mini p { margin: 0; font-size: 13px; color: var(--ink-soft); }
+    .mini .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+    .mini .chips span {
+      font-size: 11px; font-weight: 650; padding: 4px 10px; border-radius: 999px;
+      background: rgba(148, 200, 240, 0.08); color: var(--ink-soft);
+      border: 1px solid var(--line);
+    }
+
+    /* ============ 表格 ============ */
+    table.grid {
+      width: 100%;
+      border-collapse: separate; border-spacing: 0;
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      overflow: hidden;
+      font-size: 13px;
+      margin: 14px 0 8px;
+    }
+    table.grid th {
+      text-align: left;
+      background: rgba(148, 200, 240, 0.08);
+      color: #cfe9f7;
+      font-weight: 700;
+      padding: 11px 14px;
+      border-bottom: 1px solid var(--line-strong);
+      white-space: nowrap;
+    }
+    table.grid td {
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--line);
+      color: var(--ink-soft);
+      vertical-align: top;
+    }
+    table.grid tr:last-child td { border-bottom: none; }
+    table.grid tr:hover td { background: rgba(148, 200, 240, 0.04); }
+    table.grid td b { color: #eaf6fd; }
+    .tag {
+      display: inline-block; font-size: 11px; font-weight: 750;
+      padding: 2px 9px; border-radius: 999px; margin: 1px 2px 1px 0;
+      white-space: nowrap;
+    }
+    .tag.on { background: rgba(52, 211, 153, 0.14); color: #6ee7b7; border: 1px solid rgba(52, 211, 153, 0.3); }
+    .tag.off { background: rgba(148, 200, 240, 0.07); color: var(--muted); border: 1px solid var(--line); }
+    .tag.warn { background: rgba(245, 197, 66, 0.12); color: #ffd97a; border: 1px solid rgba(245, 197, 66, 0.3); }
+    .tag.hot { background: rgba(255, 138, 112, 0.12); color: #ffa48f; border: 1px solid rgba(255, 138, 112, 0.3); }
+    .tag.info { background: rgba(76, 195, 255, 0.12); color: #8fd8ff; border: 1px solid rgba(76, 195, 255, 0.28); }
+
+    /* ============ 流程小图（闭环） ============ */
+    .loop-flow { display: flex; align-items: stretch; gap: 0; flex-wrap: wrap; margin: 16px 0; }
+    .loop-step {
+      flex: 1 1 150px; min-width: 150px;
+      background: rgba(17, 32, 48, 0.7);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 12px 14px;
+      font-size: 12.5px; color: var(--ink-soft);
+      position: relative;
+      margin: 4px 14px 4px 0;
+    }
+    .loop-step b { display: block; color: #eaf6fd; font-size: 13px; margin-bottom: 3px; }
+    .loop-step:not(:last-child)::after {
+      content: "→";
+      position: absolute; right: -14px; top: 50%; transform: translateY(-50%);
+      color: var(--teal); font-weight: 800; font-size: 15px;
+    }
+    .loop-step.back::after { content: "↺"; color: var(--sun); }
+
+    /* ============ 部署拓扑 ============ */
+    .topo { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+    .svc {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      padding: 16px 18px;
+      transition: border-color .2s, transform .2s;
+    }
+    .svc:hover { border-color: rgba(76, 195, 255, 0.45); transform: translateY(-2px); }
+    .svc b { display: flex; justify-content: space-between; align-items: baseline; font-size: 14.5px; color: #f2fafd; }
+    .svc b .port { font-family: var(--mono); font-size: 12px; color: #f5c542; font-weight: 700; }
+    .svc p { margin: 6px 0 0; font-size: 12px; color: var(--muted); line-height: 1.5; }
+    .svc.core { border-color: rgba(45, 212, 191, 0.45); background: rgba(20, 184, 166, 0.07); }
+
+    /* ============ 开关军械库（details） ============ */
+    details.armory {
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: rgba(17, 32, 48, 0.55);
+      margin-bottom: 8px;
+      overflow: hidden;
+    }
+    details.armory summary {
+      cursor: pointer; list-style: none;
+      padding: 13px 18px;
+      font-size: 14px; font-weight: 700; color: #eaf6fd;
+      display: flex; align-items: center; gap: 10px;
+      transition: background .15s;
+    }
+    details.armory summary::-webkit-details-marker { display: none; }
+    details.armory summary::before { content: "▸"; color: var(--teal); transition: transform .2s; }
+    details.armory[open] summary::before { transform: rotate(90deg); }
+    details.armory summary:hover { background: rgba(148, 200, 240, 0.05); }
+    details.armory .body { padding: 4px 18px 16px; }
+    details.armory .body p { margin: 0 0 10px; font-size: 13px; color: var(--ink-soft); }
+
+    footer {
+      padding: 44px 0 60px;
+      color: var(--muted); font-size: 12.5px;
+      text-align: center;
+      font-family: var(--mono);
+    }
+    .reveal { opacity: 0; transform: translateY(18px); transition: opacity .5s ease, transform .5s ease; }
+    .reveal.in { opacity: 1; transform: none; }
+    @media (max-width: 1000px) {
+      .kpi-grid { grid-template-columns: repeat(2, 1fr); }
+      .pipe-wrap { grid-template-columns: 1fr; }
+      .step-list { position: static; }
+      .cards3 { grid-template-columns: 1fr; }
+      .topo { grid-template-columns: repeat(2, 1fr); }
+      .arch-row { grid-template-columns: 1fr; }
+      .arch-cross { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="topnav" id="topnav">
+  <div class="brand">
+    <div class="logo" aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+        <path d="M21 12a8 8 0 0 1-8 8H5l-2 2V12a8 8 0 0 1 8-8h2a8 8 0 0 1 8 8z"/>
+        <path d="M12.5 6l-3 5h2.4l-1 4 3.6-5.5h-2.4l.9-3.5z" fill="currentColor" stroke="none"/>
+      </svg>
+    </div>
+    GridQA
+  </div>
+  <nav id="navlinks">
+    <a href="#overview">概览</a>
+    <a href="#arch">总体架构</a>
+    <a href="#pipeline">问答主链路</a>
+    <a href="#product">产品视角</a>
+    <a href="#engines">检索与引擎</a>
+    <a href="#providers">模型服务</a>
+    <a href="#cache">缓存体系</a>
+    <a href="#trust">可信闭环</a>
+    <a href="#security">安全合规</a>
+    <a href="#observe">可观测</a>
+    <a href="#business">业务全景</a>
+    <a href="#deploy">部署拓扑</a>
+    <a href="#perf">实测与演进</a>
+  </nav>
+</div>
+
+<!-- ================= 00 封面 ================= -->
+<header class="hero wrap" id="overview">
+  <div class="tagline">⚡ 电网自主运维 · 大模型 + RAG 智能问答系统</div>
+  <h1>自然语言提问 → 智能路由 → 混合检索<br>→ <span class="grad">CRAG 自纠错 → 可信引用答案</span></h1>
+  <p class="sub">
+    面向变电 / 配电 / 输电运维场景的企业级问答平台：<b>FastAPI 服务层 + Vue 3 前端 + 18 容器 Docker Compose 编排</b>。
+    覆盖三级缓存、四路检索路由、CRAG 置信度分级、GraphRAG 图谱融合、句级可核验引用、知识自进化闭环、
+    RBAC 多租户安全与全链路可观测——强监管行业里，安全与可信是硬约束，不是可选项。
+  </p>
+  <div class="stackline">
+    <span>FastAPI · Python</span><span>Vue 3 · Vite</span><span>Milvus 双向量</span><span>Neo4j 图谱</span>
+    <span>MySQL · Alembic</span><span>Redis</span><span>MinIO</span><span>Prometheus · Grafana</span>
+    <span>OTel · Langfuse</span><span>Nacos 配置中心</span><span>MCP 工具总线</span><span>Agent 运行时</span>
+  </div>
+
+  <div class="kpi-grid reveal">
+    <div class="kpi"><div class="num" data-count="18">0</div><div class="lab">容器服务编排</div><div class="foot">docker-compose.yml</div></div>
+    <div class="kpi"><div class="num" data-count="84">0</div><div class="lab">服务层模块</div><div class="foot">backend/app/services</div></div>
+    <div class="kpi"><div class="num" data-count="80" data-suffix="+">0</div><div class="lab">特性开关（opt-in 治理）</div><div class="foot">backend/app/config.py</div></div>
+    <div class="kpi"><div class="num" data-count="22">0</div><div class="lab">API 路由域</div><div class="foot">backend/app/routers</div></div>
+    <div class="kpi"><div class="num" data-count="92" data-suffix="%">0</div><div class="lab">召回率 CI 门禁</div><div class="foot">eval_retrieval 退出码 1</div></div>
+    <div class="kpi"><div class="num" data-count="0.85">0</div><div class="lab">忠实度门禁 FAITHFULNESS_GATE</div><div class="foot">eval_generation · LLM-judge</div></div>
+    <div class="kpi"><div class="num" data-count="112" data-suffix="ms">0</div><div class="lab">hotqa 高频问答命中</div><div class="foot">跳过检索/CRAG/生成</div></div>
+    <div class="kpi"><div class="num" data-count="13">0</div><div class="lab">QA trace 瀑布图节点</div><div class="foot">core/qa_trace.py</div></div>
+  </div>
+</header>
+
+<!-- ================= 01 总体架构 ================= -->
+<section class="chapter wrap" id="arch">
+  <div class="chapter-head"><span class="chapter-no">01</span><h2>总体架构：五纵三横</h2></div>
+  <p class="chapter-lead">
+    自上而下五层纵切（<b>接入 → 应用 → 引擎 → 模型 → 存储</b>），三条横切面（<b>可观测、安全合规、后台任务</b>）贯穿全栈。
+    悬停任意模块查看真实代码路径与职责。核心设计哲学：<b>降级而非崩溃</b>——所有外部依赖调用包 <code>try/except</code>，
+    失败走 <code>core/obs.degraded(name, e)</code> 记 DEGRADED 指标，主问答链路绝不中断。
+  </p>
+
+  <div class="arch reveal">
+    <div class="arch-row">
+      <div class="side"><b>接入层</b><span>frontend · 5173</span></div>
+      <div class="boxes">
+        <div class="node-pill"><b>Vue 3 运维工作台</b> · 问答/文档/治理/孪生<div class="tip">问答对话（SSE 流式 + trace 瀑布图内嵌）、文档管理、知识治理审核台、数字孪生布局、权限编辑器、遥测导入等视图；前端操作级权限隐藏 utils/perm.js。</div></div>
+        <div class="node-pill"><b>RBAC 前端拦截</b><div class="tip">操作级按钮隐藏与 4 角色矩阵联动，路由守卫 + perm.js 指令。</div></div>
+        <div class="node-pill"><b>Nginx 生产托管</b> · dist<div class="tip">生产镜像内 nginx 托管前端构建产物，/api 反代后端。</div></div>
+      </div>
+    </div>
+    <div class="arch-row">
+      <div class="side"><b>应用服务层</b><span>backend :8001 · /api</span></div>
+      <div class="boxes">
+        <div class="node-pill core-pill"><b>qa_service</b> 问答编排大脑<div class="tip">services/qa_service.py：缓存探测→指代消解→路由→检索→CRAG→生成→引用→trace 落库的完整编排；薄 routers 只做参数校验 + require_perm + 操作日志。</div></div>
+        <div class="node-pill"><b>document_service</b> + 解析切块<div class="tip">parse_service（含 rapidocr OCR）+ chunk_service + contextual_chunk_service（上下文增强切块）+ multimodal_service（VLM opt-in）。</div></div>
+        <div class="node-pill"><b>knowledge_governance</b> 治理<div class="tip">knowledge_governance_service + governance_propagate_service：withdraw/supersede 联动清理 Milvus/Neo4j/qa_cache（A3/A4，DRY_RUN 安全阀）。</div></div>
+        <div class="node-pill"><b>knowledge_evolution</b> 自进化<div class="tip">dislike 聚类→Milvus 盲区→LLM 规程 RAG 草稿→人工审核→source_type=ai_evolution 降权回流 + 每周配额。</div></div>
+        <div class="node-pill"><b>task_center</b> + workflow<div class="tip">PersistentTask 持久化任务 + workflow_engine 流程引擎 + task_queue workers。</div></div>
+        <div class="node-pill"><b>agent_runtime</b> Agent 引擎<div class="tip">通用 Agent 引擎（Tool/ToolRegistry/Persona/run_agent）+ diagnose_agent（诊断 persona）+ debate_agent（三专家裁决）+ 长期记忆 collection。</div></div>
+        <div class="node-pill"><b>twin · 设备档案 · 工单</b><div class="tip">twin_service（数字孪生布局）、device_dossier_service、ticket_audit/ticket_lifecycle、alert_disposal_service、shift_handover_service（交接班）、drill_service（演练）。</div></div>
+        <div class="node-pill"><b>mcp/</b> 工具总线<div class="tip">MCP server/client/registry + mock_scada_server：SCADA 实时数据以标准工具形式接入，Agent 经 tools/call 获取证据，不直连生产系统。</div></div>
+      </div>
+    </div>
+    <div class="arch-row">
+      <div class="side"><b>RAG 引擎层</b><span>backend/app/rag</span></div>
+      <div class="boxes">
+        <div class="node-pill"><b>retrieval_service</b>.mixed_search<div class="tip">dense（Milvus 双 collection）+ sparse（bm25_service · jieba）→ rrf.py 融合 → rerank_service 精排 → mmr.py 去冗余；路由感知（RRF_ROUTE_AWARE_ENABLE）动态调权重/λ/ef。</div></div>
+        <div class="node-pill hot-pill"><b>crag / crag_v2</b> 自纠错分级<div class="tip">rerank 分 + evidence_strength 分 correct/ambiguous/incorrect 三档；V3 开启连续置信度 5 档 + 归因矩阵；低分触发 rewrite 重检索，仍低 refused 拒答。</div></div>
+        <div class="node-pill"><b>kg_service</b> GraphRAG<div class="tip">Neo4j 设备-故障-处置多跳上下文 + kg_auto_extract 后台三元组抽取 + kg_reconcile/kq_normalize 对账；三元组镜像 MySQL KgTriple。</div></div>
+        <div class="node-pill"><b>citation*</b> 可核验引用<div class="tip">citation.py 句级角标 + citation_index + citation_verifier 四层校验（格式+向量+NLI）。</div></div>
+        <div class="node-pill"><b>judge</b> LLM-judge<div class="tip">离线/在线评测裁判：answerability、faithfulness、支撑率。</div></div>
+        <div class="node-pill"><b>进阶检索军械库</b><div class="tip">hyde（假设答案检索）、multi_query（子问题分解）、self_rag（按需检索）、raptor（层次摘要）、semantic_cache、query_plan_service、table_lookup_service——全部默认关、按需开启。</div></div>
+      </div>
+    </div>
+    <div class="arch-row">
+      <div class="side"><b>模型 Provider 层</b><span>providers/ · routing/</span></div>
+      <div class="boxes">
+        <div class="node-pill"><b>factory</b> Provider 工厂<div class="tip">按 LLM_PROVIDER(deepseek/qwen/doubao) 与 EMB_PROVIDER(qwen/doubao/bge) 注入实现，30+ 调用方零感知。</div></div>
+        <div class="node-pill core-pill"><b>llm_router</b> L0-L3 容错<div class="tip">L0 fallback 链（空 answer 也切）→ L1 健康度熔断（后台探活）→ L2 query 分档（turbo/plus）→ L3 trace 标记。</div></div>
+        <div class="node-pill"><b>embedding_service</b> 双向量<div class="tip">云 qwen 1024 维 → grid_chunks；本地 bge 512 维 → grid_chunks_bge；EMBED_MODEL_GUARD 防混空间。</div></div>
+        <div class="node-pill"><b>rerank_service</b><div class="tip">gte-rerank-v2 精排，RERANK_TIMEOUT=2.0s 超时自动降级跳过。</div></div>
+        <div class="node-pill"><b>prompt_cache</b> + 模板热更<div class="tip">PROMPT_CACHE_ENABLE + prompt_templates.py 集中管理；config:prompt Redis 覆盖热读。</div></div>
+        <div class="node-pill"><b>routing_service</b> 查询路由<div class="tip">query_classifier 按查询特征决策 sparse/dense/hybrid/sparse_first 四路。</div></div>
+      </div>
+    </div>
+    <div class="arch-row">
+      <div class="side"><b>数据存储层</b><span>5 引擎分工</span></div>
+      <div class="boxes">
+        <div class="node-pill"><b>MySQL</b> :3307<div class="tip">元数据 + L2 缓存 + 任务/事件/反馈/治理持久层；Alembic 迁移；3h 三合一全量备份。</div></div>
+        <div class="node-pill"><b>Milvus</b> :19530<div class="tip">双向量 collection + Agent 记忆 collection；HNSW；_col_cache 句柄缓存后 dense 稳定 4-8ms。</div></div>
+        <div class="node-pill"><b>Neo4j</b> :7474/7687<div class="tip">知识图谱多跳；故障自动降级只走 MySQL 镜像。</div></div>
+        <div class="node-pill"><b>Redis</b> :6379<div class="tip">L1 热点缓存（hotqa: 永久 / qa: 分层 TTL）+ 运行时热配置 config:* + query 向量缓存。</div></div>
+        <div class="node-pill"><b>MinIO</b> :9000<div class="tip">原文对象存储；引用一键回源。</div></div>
+      </div>
+    </div>
+    <div class="arch-cross">
+      <div class="cross"><b>横切 · 可观测</b>Prometheus /metrics（init_metric_series 预注册 0 值序列防隐身）· Grafana 18 面板 · OTel→Langfuse 链路 · QA trace 13 节点瀑布图 · DEGRADED 降级指标</div>
+      <div class="cross"><b>横切 · 安全合规</b>RBAC 4 角色矩阵 + 文档级 ACL + require_perm 铺全路由 · 多租户 tenant 贯穿 · prompt injection 防护 + 严格拒答模式 · PII 脱敏 opt-in · 操作审计日志</div>
+      <div class="cross"><b>横切 · 后台任务</b>组件探活 30s · LLM 熔断探活 · 缓存预热 6h · 持久化清理 · 日志归档（>90 天→jsonl）· 全量备份 3h · 知识自进化 cron · 证据补全 cron · 修复率聚合 cron</div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= 02 问答主链路 ================= -->
+<section class="chapter wrap" id="pipeline">
+  <div class="chapter-head"><span class="chapter-no">02</span><h2>问答主链路：十步编排</h2></div>
+  <p class="chapter-lead">
+    <code>POST /api/qa/answer</code> → <code>routers/qa.py</code> → <code>services/qa_service.py</code>。
+    理解这条链路就理解了整个系统。<b>点击左侧任意步骤</b>，右侧展开该步的真实模块、特性开关（黄=默认开 / 灰=opt-in 默认关）与降级行为。
+  </p>
+
+  <div class="pipe-wrap">
+    <div class="step-list" id="stepList">
+      <button class="step-item active" data-step="0"><span class="n">1</span><span><span class="t">插件预处理</span><span class="s">plugin_registry · 3 hooks</span></span></button>
+      <button class="step-item" data-step="1"><span class="n">2</span><span><span class="t">三级缓存探测</span><span class="s">L1 Redis → L1.5 语义 → L2 MySQL</span></span></button>
+      <button class="step-item" data-step="2"><span class="n">3</span><span><span class="t">多轮指代消解</span><span class="s">standalone_query</span></span></button>
+      <button class="step-item" data-step="3"><span class="n">4</span><span><span class="t">智能路由</span><span class="s">query_classifier 四路决策</span></span></button>
+      <button class="step-item" data-step="4"><span class="n">5</span><span><span class="t">混合检索</span><span class="s">dense+BM25 → RRF → rerank → MMR</span></span></button>
+      <button class="step-item" data-step="5"><span class="n">6</span><span><span class="t">CRAG 自纠错</span><span class="s">分级 · 改写重检索 · 拒答</span></span></button>
+      <button class="step-item" data-step="6"><span class="n">7</span><span><span class="t">GraphRAG 融合</span><span class="s">Neo4j 多跳上下文</span></span></button>
+      <button class="step-item" data-step="7"><span class="n">8</span><span><span class="t">可信生成</span><span class="s">llm_router L0-L3 容错</span></span></button>
+      <button class="step-item" data-step="8"><span class="n">9</span><span><span class="t">句级引用</span><span class="s">角标 + 四层校验</span></span></button>
+      <button class="step-item" data-step="9"><span class="n">10</span><span><span class="t">trace 与落库</span><span class="s">瀑布图 · SSE · 异步持久化</span></span></button>
+    </div>
+    <div class="detail-panel" id="pipeDetail"></div>
+  </div>
+
+  <!-- 一次请求的旅程 · 全链路 trace 回放 -->
+  <div class="journey reveal">
+    <div class="bar">
+      <h3>▶ 一次请求的旅程 · 全链路 trace 回放</h3>
+      <button class="j-btn" id="jPlay" type="button">开始演示</button>
+      <button class="j-btn ghost" id="jStep" type="button">单步</button>
+      <button class="j-btn ghost" id="jReplay" type="button">重播</button>
+      <label class="j-speed">速度 <input type="range" id="jSpeed" min="0.6" max="2.2" step="0.2" value="1"><span id="jSpeedVal">1.0×</span></label>
+      <span class="stage-now" id="jStage">真实链路回放：含 CRAG 改写自纠错回路、LLM fallback 切换、hotqa 沉淀</span>
+    </div>
+    <div class="j-q" id="jQ" hidden>
+      <span class="j-q-mode" id="jQMode">原始提问</span>
+      <span class="j-q-text" id="jQText"></span>
+    </div>
+    <div class="j-grid">
+      <div class="j-left">
+        <svg class="j-svg" viewBox="0 0 1140 300" id="jSvg" aria-hidden="true"></svg>
+        <div class="j-wf">
+          <div class="j-wf-title"><span>分段耗时瀑布（对应线上 13 节点 QA trace）</span><b id="jWfTotal">0ms</b></div>
+          <div class="j-wf-bar" id="jWfBar"></div>
+          <div class="j-wf-labels" id="jWfLabels"></div>
+        </div>
+        <div class="j-log" id="jLog" aria-live="polite"></div>
+      </div>
+      <aside class="j-detail" id="jDetail">
+        <div class="kicker">当前焦点 · 点击任意节点查看模块详情</div>
+        <h4 id="jDetailTitle">POST /api/qa/answer</h4>
+        <code class="j-detail-path" id="jDetailPath">routers/qa.py</code>
+        <p id="jDetailBody">演示一个真实问题穿越插件 → 三级缓存 → 路由 → 混合检索 → CRAG 自纠错（含改写重检索）→ GraphRAG → llm_router 生成（含 fallback）→ 引用校验 → trace 落库的完整旅程，每段耗时来自实测口径。</p>
+        <div class="flagline" id="jDetailFlags"></div>
+      </aside>
+    </div>
+    <div class="j-toast" id="jToast">
+      <b>✅ 答案已返回 · confidence=high</b>
+      674 字 · 引用 [1]-[5] · 13 节点 trace 已随响应内嵌并异步落库；用户点赞后沉淀 hotqa，同类问题下次 112ms 直达。
+      <span class="cite-mini">correct（es 0.81）· rewriteDelta +0.29</span>
+    </div>
+  </div>
+</section>
+
+<!-- ================= 03 产品视角 ================= -->
+<section class="chapter wrap" id="product">
+  <div class="chapter-head"><span class="chapter-no">03</span><h2>产品视角：答案与拒答长什么样</h2></div>
+  <p class="chapter-lead">
+    架构的终点是用户看到的每一屏。<b>高置信答案</b>：句级角标 [n] 可点击回源、置信度徽章、13 节点 trace 内嵌、点赞沉淀 hotqa；
+    <b>可信拒答</b>：证据不支撑就明说，refusedReason 归因 + evidence_gap 闭环——<b>答不上来不是终点，是数据运营的起点</b>。
+  </p>
+
+  <div class="tabs" id="prodTabs">
+    <button class="tab-btn active" data-tab="p-answer">高置信答案（correct → high）</button>
+    <button class="tab-btn" data-tab="p-refuse">可信拒答（refused · no_recall）</button>
+  </div>
+
+  <div class="tab-panel show" id="p-answer">
+    <div class="chat">
+      <div class="msg user"><div class="bubble">110kV 城东站 10kV 开关柜局放检测阈值是多少？超标了怎么处置？</div></div>
+      <div class="msg bot"><div class="bubble">
+        <div class="ans-meta">
+          <span class="badge b-high">confidence · high</span>
+          <span class="badge b-crag">CRAG · correct（es 0.81）</span>
+          <span class="badge b-route">route · hybrid</span>
+          <span class="badge b-time">端到端 12.7s · 674 字</span>
+        </div>
+        <p class="ans" id="ansText"></p>
+        <div class="srcs" id="srcPanel" hidden></div>
+        <div class="fb-row">
+          <button class="fb-btn" id="fbUp" type="button">👍 有用</button>
+          <button class="fb-btn down" id="fbDown" type="button">👎 不准确</button>
+          <span class="fb-hint">点赞沉淀 hotqa · 点踩进知识自进化 —— 反馈不是埋点，是闭环入口</span>
+        </div>
+      </div></div>
+    </div>
+    <div class="chat-ctl">
+      <button class="j-btn" id="ansPlay" type="button">↻ 模拟 SSE 流式输出</button>
+      <span class="fb-hint">提示：点击答案中的角标 [n] 查看证据原文（MinIO 回源）</span>
+    </div>
+    <div class="trace-mini">
+      <div class="trace-title">13 节点 QA trace · 随答案内嵌返回 · 诊断页可回放（合计 12.7s，与上方旅程一致）</div>
+      <div class="trace-chips">
+        <span class="tchip"><i style="background:#94b8d6"></i><b>① 入口·插件</b> 3ms</span>
+        <span class="tchip"><i style="background:#2dd4bf"></i><b>② L1</b> 8ms</span>
+        <span class="tchip"><i style="background:#a78bfa"></i><b>③ L1.5</b> 45ms</span>
+        <span class="tchip"><i style="background:#a78bfa"></i><b>④ 消解</b> 230ms</span>
+        <span class="tchip"><i style="background:#94b8d6"></i><b>⑤ 路由</b> 1ms</span>
+        <span class="tchip"><i style="background:#38bdf8"></i><b>⑥ dense</b> 6ms</span>
+        <span class="tchip"><i style="background:#38bdf8"></i><b>⑦ BM25</b> 12ms</span>
+        <span class="tchip"><i style="background:#38bdf8"></i><b>⑧ RRF·MMR</b> 3ms</span>
+        <span class="tchip"><i style="background:#38bdf8"></i><b>⑨ rerank</b> 480ms</span>
+        <span class="tchip"><i style="background:#f5c542"></i><b>⑩ CRAG·改写重检索</b> 675ms</span>
+        <span class="tchip"><i style="background:#34d399"></i><b>⑪ 图谱</b> 140ms</span>
+        <span class="tchip warnchip"><i style="background:#ff5d5d"></i><b>⑫ 生成</b> 11.0s ⚠含fallback 2.8s</span>
+        <span class="tchip"><i style="background:#f5c542"></i><b>⑬ 引用·落库</b> 100ms</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="tab-panel" id="p-refuse">
+    <div class="chat">
+      <div class="msg user"><div class="bubble">新建 220kV GIS 交接试验的介损 tanδ 规定值是多少？出报告要引用依据。</div></div>
+      <div class="msg bot"><div class="bubble">
+        <div class="ans-meta">
+          <span class="badge b-ref">confidence · refused</span>
+          <span class="badge b-crag">CRAG · incorrect</span>
+          <span class="badge b-route">route · dense</span>
+          <span class="badge b-reason">refusedReason · no_recall</span>
+        </div>
+        <p style="margin:0 0 8px;color:#ffc9d0"><b>⛔ 当前知识库没有支撑这个问题的可靠证据，我选择不回答。</b>涉及交接试验判据的数值，编造比不答危害大得多。</p>
+        <p style="margin:0;color:var(--muted);font-size:12.5px">已尝试：dense 召回 top20（最高 rerank 分 0.31，低于 rt_crag_low）→ CRAG 改写 2 轮重检索（rewriteDelta +0.04 无增益）→ 证据仍不支撑 → refused。query 已自动进入 evidence_gap 队列。</p>
+      </div></div>
+    </div>
+    <div class="loop-flow">
+      <div class="loop-step"><b>拒答即收集</b>CRAG_REFUSED_TO_GAP ✓ · 自动入 evidence_gap</div>
+      <div class="loop-step"><b>人工补全</b>补全 cron + 审核台关联知识源</div>
+      <div class="loop-step"><b>回测验证</b>member_queries 重跑 · 验证召回 lift</div>
+      <div class="loop-step back"><b>下次能答</b>知识入库 · 置信达标 · 角标可溯</div>
+    </div>
+    <div class="cards2">
+      <div class="mini"><h4><span class="dot" style="background:var(--coral)"></span>拒答是能力，不是故障</h4>
+        <p>四类 refusedReason（no_recall / rewrite_exhausted / out_of_domain / evidence_contradict）把「答不上来」变成可运营的数据：哪类问题缺知识、缺多少、补完后是否真的变好，全部可度量。</p></div>
+      <div class="mini"><h4><span class="dot" style="background:var(--sun)"></span>拒答也上监控</h4>
+        <p>CRAG_EVIDENCE_STRENGTH / CONFIDENCE_LABEL / REFUSED_REASON 预注册进 Prometheus，Grafana 可看拒答率与归因分布趋势；over-confident（dislike × high 冲突）另有机器人工对齐。</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= 04 检索与 RAG 引擎 ================= -->
+<section class="chapter wrap" id="engines">
+  <div class="chapter-head"><span class="chapter-no">04</span><h2>检索与 RAG 引擎深潜</h2></div>
+  <p class="chapter-lead">
+    引擎层的底层逻辑：<b>先把召回做宽（混合检索），再把证据做实（精排+去冗余），最后把可信守住（CRAG 分级）</b>，
+    图谱与进阶检索作为按需叠加的能力增量——每一个高级能力都是默认关的 opt-in 开关，开了才生效，前端零改动。
+    下方<b>连线图可回放一次 route=hybrid 检索的引擎内部旅程</b>（细至四路路由决策、dense 双挡位、RRF 融合公式、rerank 2s 降级兜底、CRAG 改写自纠错回路），四个标签页是各引擎的深潜细节。
+  </p>
+
+  <!-- 检索引擎全景连线 · 可交互回放 -->
+  <div class="journey reveal" style="margin-top:0">
+    <div class="bar">
+      <h3>▶ 检索引擎全景连线 · 一次 hybrid 检索的引擎内部</h3>
+      <button class="j-btn" id="rPlay" type="button">开始演示</button>
+      <button class="j-btn ghost" id="rStep" type="button">单步</button>
+      <button class="j-btn ghost" id="rReplay" type="button">重播</button>
+      <span class="stage-now" id="rStage">四路路由决策 → dense 双挡位 + jieba/BM25 稀疏路双路并发 → RRF 融合 → 精排（含 2s 降级兜底）→ MMR → CRAG 自纠错回路 → 图谱 3 跳 → 证据集 → 生成</span>
+    </div>
+    <div class="j-grid">
+      <div class="j-left">
+        <svg class="j-svg" viewBox="0 0 1140 520" id="rSvg" aria-hidden="true"></svg>
+        <div class="j-log" id="rLog" aria-live="polite"></div>
+      </div>
+      <aside class="j-detail" id="rDetail">
+        <div class="kicker">当前焦点 · 点击任意节点查看模块详情</div>
+        <h4 id="rDetailTitle">retrieval_service.mixed_search</h4>
+        <code class="j-detail-path" id="rDetailPath">services/retrieval_service.py</code>
+        <p id="rDetailBody">引擎三段式：先把召回做宽（双路并发），再把证据做实（精排+去冗余），最后把可信守住（CRAG 分级）。点「开始演示」看一次 hybrid 检索的引擎内部旅程。</p>
+        <div class="flagline" id="rDetailFlags"></div>
+      </aside>
+    </div>
+  </div>
+
+  <div class="tabs" id="engTabs">
+    <button class="tab-btn active" data-tab="t-hybrid">混合检索</button>
+    <button class="tab-btn" data-tab="t-crag">CRAG 自纠错</button>
+    <button class="tab-btn" data-tab="t-graph">GraphRAG</button>
+    <button class="tab-btn" data-tab="t-adv">进阶检索军械库</button>
+  </div>
+
+  <div class="tab-panel show" id="t-hybrid">
+    <div class="journey" style="margin-top:0;padding:18px 20px 14px">
+      <div class="bar">
+        <h3>▶ 混合检索连线 · 特性全穿（含切块策略 / 双挡位 / 降级兜底 / 调参闭环）</h3>
+        <button class="j-btn" id="hPlay" type="button">开始演示</button>
+        <button class="j-btn ghost" id="hStep" type="button">单步</button>
+        <span class="stage-now" id="hStage">query → 四路路由 → dense 双挡位 + jieba/BM25 并发 → RRF → 精排（2s 降级兜底）→ MMR → 证据集 → 调参闭环回流</span>
+      </div>
+      <div class="j-grid">
+        <div class="j-left">
+          <svg class="j-svg" viewBox="0 0 1140 520" id="hSvg" aria-hidden="true"></svg>
+          <div class="j-log" id="hLog" aria-live="polite"></div>
+        </div>
+        <aside class="j-detail" id="hDetail">
+          <div class="kicker">当前焦点 · 点击任意节点查看特性详情（悬停点亮邻接链路）</div>
+          <h4 id="hDTitle">retrieval_service.mixed_search</h4>
+          <code class="j-detail-path" id="hDPath">services/retrieval_service.py</code>
+          <p id="hDBody">混合检索深潜：四路路由怎么选、切块策略怎么影响召回、双挡位怎么隔离、融合精排怎么兜底、线上低分怎么回流调参——每个特性开关都穿在链路上。</p>
+          <div class="flagline" id="hDFlags"></div>
+        </aside>
+      </div>
+    </div>
+    <table class="grid">
+      <tr><th>路由（query_classifier 决策）</th><th>触发特征</th><th>行为</th></tr>
+      <tr><td><b>sparse</b></td><td>规程编号、设备型号、术语精确匹配</td><td>只走 BM25，跳过向量化，最快</td></tr>
+      <tr><td><b>dense</b></td><td>口语化描述、语义模糊提问</td><td>只走向量检索</td></tr>
+      <tr><td><b>hybrid</b></td><td>编号 + 描述混合（最常见）</td><td>双路召回 RRF 融合，召回上限最高</td></tr>
+      <tr><td><b>sparse_first</b></td><td>疑似精确、需兜底</td><td>BM25 先行，不足时补向量</td></tr>
+    </table>
+    <div class="cards2">
+      <div class="mini"><h4><span class="dot" style="background:var(--ocean)"></span>切块策略</h4>
+        <p>chunk_service 基础切块 + <b>small-to-big</b>（SMALL_TO_BIG_ENABLE 默认开：小块检索、大块进 prompt）+
+        上下文增强切块（CONTEXTUAL_CHUNK_ENABLE opt-in）；docType 过滤贯穿召回。</p>
+        <div class="chips"><span>small-to-big ✓</span><span>contextual chunk opt-in</span><span>docType 过滤</span></div></div>
+      <div class="mini"><h4><span class="dot" style="background:var(--teal)"></span>检索调参闭环</h4>
+        <p>retrieval_tune_service 持续扫描低分 query 并给出权重/参数建议；retrieval_eval_service 线上评估回流，
+        EVAL_TO_TUNE_ENABLE（opt-in）打通"评测低分 → 自动触发调参扫描"。</p>
+        <div class="chips"><span>retrieval_tune ✓</span><span>eval→tune opt-in</span><span>eval_matrix</span></div></div>
+    </div>
+  </div>
+
+  <div class="tab-panel" id="t-crag">
+    <div class="journey" style="margin-top:0;padding:18px 20px 14px">
+      <div class="bar">
+        <h3>▶ CRAG 自纠错连线 · 五档守门 + 纠错回路 + 拒答归因 + 缺口闭环</h3>
+        <button class="j-btn" id="cPlay" type="button">开始演示</button>
+        <button class="j-btn ghost" id="cStep" type="button">单步</button>
+        <span class="stage-now" id="cStage">证据集 → es 评估 → 五档判决 → m_low 触发改写重检索 ↺ 复评 → refused 四类归因 → evidence_gap 闭环 + 增强支路</span>
+      </div>
+      <div class="j-grid">
+        <div class="j-left">
+          <svg class="j-svg" viewBox="0 0 1140 520" id="cSvg" aria-hidden="true"></svg>
+          <div class="j-log" id="cLog" aria-live="polite"></div>
+        </div>
+        <aside class="j-detail" id="cDetail">
+          <div class="kicker">当前焦点 · 点击任意节点查看特性详情（悬停点亮邻接链路）</div>
+          <h4 id="cDTitle">CRAG 自纠错</h4>
+          <code class="j-detail-path" id="cDPath">rag/crag.py · crag_v2.py</code>
+          <p id="cDBody">守门人逻辑：检索质量不达标不硬答——先纠错（改写重检索/邻域扩展），纠不回来就拒答并给出四类归因；拒答不是终点，evidence_gap 闭环让「下次能答」可验证。</p>
+          <div class="flagline" id="cDFlags"></div>
+        </aside>
+      </div>
+    </div>
+    <p class="chapter-lead">CRAG（Corrective RAG）是可信的守门人：<b>检索质量不达标时不硬答</b>——先纠错，纠不回来就拒答并给出理由。V3 开启后从三档离散分级升级为连续置信度五档 + 完整归因。</p>
+    <table class="grid">
+      <tr><th>置信度档位（V3）</th><th>触发条件（evidence_strength + rerank 分）</th><th>动作（action×grade 矩阵）</th></tr>
+      <tr><td><span class="tag on">high</span></td><td>es ≥ rt_crag_high（默认约 0.75，热调）</td><td>直接生成，句级引用</td></tr>
+      <tr><td><span class="tag info">medium_high</span></td><td>证据较充分</td><td>生成 + 标注置信度</td></tr>
+      <tr><td><span class="tag warn">medium_low</span></td><td>证据部分支撑</td><td>rewrite 改写重检索 / 邻域扩展补证据（opt-in）</td></tr>
+      <tr><td><span class="tag hot">low</span></td><td>es ≤ rt_crag_low</td><td>二次重检索，仍低 → refused</td></tr>
+      <tr><td><span class="tag hot">refused</span></td><td>纠错穷尽仍无证据</td><td>拒答 + refusedReason，绝不编造</td></tr>
+    </table>
+    <table class="grid">
+      <tr><th>refusedReason 四类归因</th><th>含义</th><th>后续闭环</th></tr>
+      <tr><td><code>no_recall</code></td><td>知识库无召回</td><td>进 evidence_gap 自动收集（CRAG_REFUSED_TO_GAP ✓）</td></tr>
+      <tr><td><code>rewrite_exhausted</code></td><td>改写重检索穷尽</td><td>rewriteDelta 记录增量，回测评估</td></tr>
+      <tr><td><code>out_of_domain</code></td><td>域外问题</td><td>引导到正确知识域</td></tr>
+      <tr><td><code>evidence_contradict</code></td><td>证据相互矛盾</td><td>标记知识冲突，进治理队列</td></tr>
+    </table>
+    <div class="cards3">
+      <div class="mini"><h4><span class="dot" style="background:var(--coral)"></span>改写有评估闭环</h4>
+        <p>QUERY_REWRITE 不是盲改：REWRITE_EVAL_ENABLE ✓ 对每次改写评估增益；REWRITE_ADAPTIVE_ENABLE ✓ 让 classifier 判定正常的 query 直接跳过改写省延迟。</p></div>
+      <div class="mini"><h4><span class="dot" style="background:var(--sun)"></span>低置信增强</h4>
+        <p>DEBATE_ON_LOW_CONFIDENCE（opt-in）：medium_low/low/refused 触发 debate_agent 三专家裁决共识注入答案并升置信；SUFFICIENCY_GATE（opt-in）：judge.answerability 判证据不足直接降一档。</p></div>
+      <div class="mini"><h4><span class="dot" style="background:var(--teal)"></span>过自信对齐</h4>
+        <p>CONFIDENCE_OVERCONFIDENT_ENABLE ✓：dislike × 历史 high 置信冲突 → 触发 evidence_gap 复核 + 机器人工对齐，防止"自信地答错"。</p></div>
+    </div>
+  </div>
+
+  <div class="tab-panel" id="t-graph">
+    <div class="journey" style="margin-top:0;padding:18px 20px 14px">
+      <div class="bar">
+        <h3>▶ GraphRAG 连线 · 离线构建 × 在线三跳 × 故障降级兜底 × CIM 旁路</h3>
+        <button class="j-btn" id="gPlay" type="button">开始演示</button>
+        <button class="j-btn ghost" id="gStep" type="button">单步</button>
+        <span class="stage-now" id="gStage">离线：入库 → 抽三元组 → 归一 → Neo4j → MySQL 镜像；在线：graph_context 三跳 → 证据融合；降级：镜像兜底主链路不停；旁路：CIM 为 SCADA 打底</span>
+      </div>
+      <div class="j-grid">
+        <div class="j-left">
+          <svg class="j-svg" viewBox="0 0 1140 520" id="gSvg" aria-hidden="true"></svg>
+          <div class="j-log" id="gLog" aria-live="polite"></div>
+        </div>
+        <aside class="j-detail" id="gDetail">
+          <div class="kicker">当前焦点 · 点击任意节点查看特性详情（悬停点亮邻接链路）</div>
+          <h4 id="gDTitle">GraphRAG 图谱融合</h4>
+          <code class="j-detail-path" id="gDPath">services/kg_service.py</code>
+          <p id="gDBody">图谱给关系骨架、向量给语义细节：离线把规程抽成设备-故障-处置知识图谱并对账镜像，在线多跳展开注入 prompt；Neo4j 故障走 MySQL 镜像降级，主链路不停。</p>
+          <div class="flagline" id="gDFlags"></div>
+        </aside>
+      </div>
+    </div>
+    <div class="loop-flow">
+      <div class="loop-step"><b>文档入库</b>KG_AUTO_EXTRACT ✓ 后台 LLM 抽三元组</div>
+      <div class="loop-step"><b>图谱构建</b>Neo4j 设备-故障-处置关系 + kg_normalize 实体归一</div>
+      <div class="loop-step"><b>对账镜像</b>kg_reconcile · KgTriple 镜像 MySQL 可审计</div>
+      <div class="loop-step"><b>问答融合</b>KG_RAG_ENABLE ✓ 多跳上下文注入 prompt</div>
+      <div class="loop-step back"><b>故障降级</b>图谱不可用 → obs.degraded · 主链路不停</div>
+    </div>
+    <div class="cards2">
+      <div class="mini"><h4><span class="dot" style="background:var(--leaf)"></span>典型多跳查询</h4>
+        <p>"开关柜局放超限怎么处置" → <b>设备型号 → 关联缺陷模式 → 关联处置工艺 → 关联安规条款</b> 三跳邻居展开，
+        结构化上下文与向量块互补：向量给语义细节，图谱给关系骨架。</p></div>
+      <div class="mini"><h4><span class="dot" style="background:var(--ocean)"></span>CIM 语义对齐</h4>
+        <p>cim_service + rag/cim_parser：电网 CIM 模型解析入图谱，让拓扑关系有标准语义；为后续 SCADA 实时数据接入打底。</p></div>
+    </div>
+  </div>
+
+  <div class="tab-panel" id="t-adv">
+    <div class="journey" style="margin-top:0;padding:18px 20px 14px">
+      <div class="bar">
+        <h3>▶ 进阶检索军械库连线 · 主干 × 五把 opt-in 武器 × 一把默认表格武器</h3>
+        <button class="j-btn" id="aPlay" type="button">开始演示</button>
+        <button class="j-btn ghost" id="aStep" type="button">单步</button>
+        <span class="stage-now" id="aStage">主干：query → 路由 → 混合检索 → 证据集 → 生成；武器：HyDE / Multi-Query / Self-RAG / RAPTOR / Agentic 全 ○，table_lookup ✓ 唯一默认有</span>
+      </div>
+      <div class="j-grid">
+        <div class="j-left">
+          <svg class="j-svg" viewBox="0 0 1140 520" id="aSvg" aria-hidden="true"></svg>
+          <div class="j-log" id="aLog" aria-live="polite"></div>
+        </div>
+        <aside class="j-detail" id="aDetail">
+          <div class="kicker">当前焦点 · 点击任意节点查看特性详情（悬停点亮邻接链路）</div>
+          <h4 id="aDTitle">进阶检索军械库</h4>
+          <code class="j-detail-path" id="aDPath">backend/app/rag + services</code>
+          <p id="aDBody">主干负责默认路径的稳态输出，五把武器全部 opt-in 寄生在主干的各个环节上——开=增强，关=现状行为，前端零改动；table_lookup 是唯一默认启用的结构化支线。</p>
+          <div class="flagline" id="aDFlags"></div>
+        </aside>
+      </div>
+    </div>
+    <p class="chapter-lead">全部 <b>opt-in 默认关</b>——开=增强，关=现状行为，前端零改动。这是仓库一贯的开关治理纪律。</p>
+    <details class="armory"><summary>HyDE 假设答案检索 <span class="tag off">HYDE_ENABLE · 默认关</span></summary>
+      <div class="body"><p>LLM 先生成假设答案，用假设答案的向量去检索——短口语问题（"开关柜响是怎么回事"）召回提升明显，代价是多一次 LLM 调用。services/hyde.py。</p></div></details>
+    <details class="armory"><summary>多查询分解 <span class="tag off">MULTI_QUERY_ENABLE · 默认关</span></summary>
+      <div class="body"><p>复杂问题拆子问题并行检索再融合（multi_query.py），适合复合故障研判类提问。</p></div></details>
+    <details class="armory"><summary>Self-RAG 按需检索 <span class="tag off">SELF_RAG_ENABLE · 默认关</span></summary>
+      <div class="body"><p>LLM 自判"要不要检索 / 证据够不够"（self_rag.py），简单寒暄/闲聊问题直接回答省链路。</p></div></details>
+    <details class="armory"><summary>RAPTOR 层次摘要检索 <span class="tag off">RAPTOR_ENABLE · 默认关</span></summary>
+      <div class="body"><p>rag/raptor.py 对知识库做层次化摘要树，多粒度融合召回——长规程"总-分"结构问答受益。</p></div></details>
+    <details class="armory"><summary>Agentic 检索 <span class="tag off">AGENTIC_RETRIEVAL_ENABLE · 默认关</span></summary>
+      <div class="body"><p>检索从"一次管线"升级为"Agent 多轮工具调用"：模型自主决定查向量、查图谱、查表格、再检索，适合开放域深挖。</p></div></details>
+    <details class="armory"><summary>表格结构化查询 <span class="tag on">table_lookup_service</span></summary>
+      <div class="body"><p>规程中的阈值表/参数表按结构化查询命中，避免"表格被切碎后语义丢失"。</p></div></details>
+  </div>
+</section>
+
+<!-- ================= 05 模型服务与容错 ================= -->
+<section class="chapter wrap" id="providers">
+  <div class="chapter-head"><span class="chapter-no">05</span><h2>模型 Provider 层：四层容错路由</h2></div>
+  <p class="chapter-lead">
+    多云 LLM（deepseek / qwen / doubao）+ 本地 ollama 兜底，经 <code>providers/llm_router.py</code> 透明包装——30+ 调用方零感知。
+    实测教训沉淀的容错链：<b>空 answer 也要切、熔断要探活、分档要省成本</b>。
+  </p>
+  <table class="grid">
+    <tr><th>层</th><th>机制</th><th>开关 / 参数</th><th>实测效果</th></tr>
+    <tr><td><b>L0 · Fallback 链</b></td><td>主 provider 失败/超时/空 answer 依次切换备选</td><td><code>LLM_FALLBACK_CHAIN</code> · <code>LLM_FALLBACK_ON_EMPTY ✓</code></td><td>deepseek 空输出自动切 qwen，链路不断</td></tr>
+    <tr><td><b>L1 · 健康度熔断</b></td><td>后台 30s 探活 provider，健康度低直接熔断摘流</td><td><code>LLM_HEALTH_PROBE_ENABLE ✓</code></td><td>provider_health=1.0 稳态；故障秒级摘除</td></tr>
+    <tr><td><b>L2 · Query 分档</b></td><td>query_classifier 复用：简单事实走 turbo，复杂研判走 plus</td><td><code>LLM_TIER_ENABLE</code> opt-in · <code>LLM_TIER_FACT_FAST_ENABLE ✓</code></td><td>turbo 6.67s / plus 13.17s 实测分档</td></tr>
+    <tr><td><b>L3 · Trace 标记</b></td><td>每次路由决策打 trace 标记，可回放</td><td>随 QA_TRACE_ENABLE ✓</td><td>瀑布图可见 provider 切换原因</td></tr>
+  </table>
+  <div class="cards3">
+    <div class="mini"><h4><span class="dot" style="background:var(--ocean)"></span>双向量空间隔离</h4>
+      <p>云 qwen <b>1024 维</b> → grid_chunks；本地 bge <b>512 维</b> → grid_chunks_bge。DOC_SIZE_THRESHOLD 决定单篇走云还是本地；EMBED_MODEL_GUARD_ENABLE ✓ 防两个空间混写——切 provider 必须重建 collection。</p>
+      <div class="chips"><span>bge 离线 · HF_HUB_OFFLINE</span><span>启动预热防首问 80s</span></div></div>
+    <div class="mini"><h4><span class="dot" style="background:var(--sun)"></span>Rerank 超时降级</h4>
+      <p>gte-rerank-v2 精排 <code>RERANK_TIMEOUT=2.0s</code>——超时自动跳过精排直接用 RRF 序，慢比弱好，但断了比慢好。</p></div>
+    <div class="mini"><h4><span class="dot" style="background:var(--violet)"></span>成本与审计</h4>
+      <p>cost_tracker_service 用量追踪 + LLM_USAGE_TRACK（opt-in）+ agent_tool_audit_service 工具调用审计；prompt_cache 与模板热更（config:prompt Redis 覆盖）。</p></div>
+  </div>
+</section>
+
+<!-- ================= 06 缓存体系 ================= -->
+<section class="chapter wrap" id="cache">
+  <div class="chapter-head"><span class="chapter-no">06</span><h2>三级缓存：把 90% 的重复问题挡在检索之前</h2></div>
+  <p class="chapter-lead">
+    数据链路闭环改造的产物：<b>点赞自动写入 hotqa 高频问答对</b>，命中即跳过检索/CRAG/生成全链路，实测 <b>112ms</b> 直达。
+    缓存 key 内嵌版本串——语义相关开关一变，旧缓存自动失效，不存在"改了逻辑还吃老缓存"的脏读。
+  </p>
+  <div class="loop-flow">
+    <div class="loop-step"><b>L1 · Redis 热点</b>hotqa:{nq} 永久 · qa: 分层 TTL（手册 7d / 案例 3d / 实时 5min）</div>
+    <div class="loop-step"><b>L1.5 · 语义缓存</b>embedding 相似度 ≥0.85 命中（SEMANTIC_CACHE opt-in · 治理过滤 opt-in）</div>
+    <div class="loop-step"><b>L2 · MySQL 历史</b>Write-Through 双写（CACHE_PERSIST ✓）</div>
+    <div class="loop-step back"><b>版本串失效</b>citation_cache_version：引用开关+治理代际 G+CRAG_V3 拼进 key</div>
+  </div>
+  <table class="grid">
+    <tr><th>机制</th><th>说明</th><th>开关</th></tr>
+    <tr><td><b>hotqa 高频对</b></td><td>用户点赞的优质答案自动沉淀为永久高频问答对，最高优先级</td><td><span class="tag on">HOTQA_ENABLE ✓</span></td></tr>
+    <tr><td><b>分层 TTL</b></td><td>手册类 7 天 / 案例类 3 天 / 实时类 5 分钟，按知识时效性差异化过期</td><td><span class="tag on">CACHE_TIERED_TTL_ENABLE ✓</span></td></tr>
+    <tr><td><b>命中续期</b></td><td>L1 命中时 EXPIRE 续期，热 query 保活防 evict；embedding 缓存同款</td><td><span class="tag off">SLIDE_TTL opt-in ×2</span></td></tr>
+    <tr><td><b>启动预热</b></td><td>启动 + 每 6h 周期预热高频内容</td><td><span class="tag on">CACHE_WARMUP_ENABLE ✓</span></td></tr>
+    <tr><td><b>向量缓存</b></td><td>query embedding 结果缓存 + chunk_id 级缓存</td><td><span class="tag off">EMBED_CHUNK_CACHE opt-in</span></td></tr>
+    <tr><td><b>多轮不缓存</b></td><td>多轮对话中间态不进缓存，防指代语境污染</td><td><span class="tag off">MULTI_TURN_CACHE opt-in</span></td></tr>
+  </table>
+</section>
+
+<!-- ================= 07 可信与质量闭环 ================= -->
+<section class="chapter wrap" id="trust">
+  <div class="chapter-head"><span class="chapter-no">07</span><h2>可信闭环：引用、证据缺口、知识自进化</h2></div>
+  <p class="chapter-lead">
+    强监管行业的答案必须<b>可核验、可追溯、可拒答</b>。三条闭环咬合成飞轮：引用体系管"说得有据"，
+    证据缺口管"答不上来的去向"，知识自进化管"下次能答上来"。
+  </p>
+
+  <h3 style="color:#f2fafd;font-size:18px;margin:26px 0 4px">① 可核验引用五层</h3>
+  <div class="loop-flow">
+    <div class="loop-step"><b>句级角标</b>citation.py 每句标 [n] 溯源 chunk</div>
+    <div class="loop-step"><b>自动补标</b>CITATION_AUTO ✓ 无标句向量相似度补配</div>
+    <div class="loop-step"><b>结构化输出</b>CitationAnswer LLM 结构化（opt-in）</div>
+    <div class="loop-step"><b>四层校验</b>格式+引用存在+向量相似+NLI（VERIFIER ✓ / NLI opt-in·可异步）</div>
+    <div class="loop-step back"><b>失败联动</b>校验失败→CRAG rewrite 重检索 / refused 拒答 ✓</div>
+  </div>
+
+  <h3 style="color:#f2fafd;font-size:18px;margin:30px 0 4px">② 证据缺口闭环（答不上来 ≠ 结束）</h3>
+  <div class="loop-flow">
+    <div class="loop-step"><b>自动收集</b>medium/refused 档 query 入 evidence_gap（EVIDENCE_GAP_AUTO_COLLECT ✓）</div>
+    <div class="loop-step"><b>多维汇聚</b>dislike→质量事件（opt-in）· 评测低分 emit（opt-in）· over-confident 冲突复核 ✓</div>
+    <div class="loop-step"><b>人工补全</b>evidence_gap 补全 cron + 审核台</div>
+    <div class="loop-step back"><b>回测验证</b>补全知识重跑 member_queries 验证 lift</div>
+  </div>
+
+  <h3 style="color:#f2fafd;font-size:18px;margin:30px 0 4px">③ 知识自进化闭环（每周配额 · 降权 · 可撤回）</h3>
+  <div class="loop-flow">
+    <div class="loop-step"><b>差评聚类</b>dislike 反馈零依赖贪心聚类</div>
+    <div class="loop-step"><b>盲区定位</b>Milvus 检索盲区扫描（knowledge_evolution_service）</div>
+    <div class="loop-step"><b>草稿生成</b>LLM 基于现有规程 RAG 起草知识</div>
+    <div class="loop-step"><b>人工审核</b>审核台 7 端点 · Vue 审核界面</div>
+    <div class="loop-step back"><b>降权回流</b>source_type=ai_evolution 降权入库 · 每周配额 · 支持撤回</div>
+  </div>
+
+  <table class="grid">
+    <tr><th>评测分层</th><th>内容</th><th>门禁 / 产出</th></tr>
+    <tr><td><b>golden_set</b></td><td>黄金问答集回归</td><td>validate_golden CI 门禁</td></tr>
+    <tr><td><b>eval_retrieval</b></td><td>离线召回评测</td><td>recall &lt; <b>92%</b> 退出码 1</td></tr>
+    <tr><td><b>eval_generation</b></td><td>生成质量（支撑率/忠实度）</td><td>平均支撑率 &lt; <b>0.85</b> 退出码 1</td></tr>
+    <tr><td><b>online_eval</b></td><td>线上异步 LLM-judge 幻觉率</td><td>ONLINE_FAITHFULNESS ✓ 前端可见</td></tr>
+    <tr><td><b>eval→tune</b></td><td>评测低分自动触发调参扫描</td><td>EVAL_TO_TUNE opt-in</td></tr>
+    <tr><td><b>修复率聚合</b></td><td>反馈修复效果 cron 聚合</td><td>FIX_RATE_ENABLE ✓</td></tr>
+  </table>
+</section>
+
+<!-- ================= 08 安全与合规 ================= -->
+<section class="chapter wrap" id="security">
+  <div class="chapter-head"><span class="chapter-no">08</span><h2>安全与合规：强监管行业的硬约束</h2></div>
+  <p class="chapter-lead">
+    电网场景里安全不是 feature 而是 floor：<b>每个路由都挂 <code>require_perm</code></b>，权限矩阵 4 角色 × 操作域，
+    文档级 ACL 下沉到单篇文档，前端 <code>utils/perm.js</code> 做操作级隐藏——后端拦截 + 前端隐藏双保险。
+  </p>
+  <table class="grid">
+    <tr><th>控制点</th><th>实现</th><th>备注</th></tr>
+    <tr><td><b>认证与账号治理</b></td><td>auth_service · 用户 CRUD / 禁用 / 删除 / 改密</td><td>自我保护 + 最后一个 admin 不可删，防止锁死系统</td></tr>
+    <tr><td><b>RBAC 权限矩阵</b></td><td>core/permissions.py 常量 + dependencies.require_perm 装饰全路由</td><td>4 角色 × 操作域矩阵；role_permission_service 可编辑</td></tr>
+    <tr><td><b>文档级 ACL</b></td><td>单篇文档可见性控制</td><td>租户内再隔离，敏感规程按需授权</td></tr>
+    <tr><td><b>多租户</b></td><td>tenant 贯穿检索 / 缓存 / 图谱 / 预览</td><td>跨租户数据零泄漏</td></tr>
+    <tr><td><b>Prompt 注入防护</b></td><td>SAFETY_FILTER ✓ 入站检测 · INJECTION_GUARD_STRICT（opt-in）高危指令覆盖类直接结构化拒答</td><td>默认只告警防误杀，严格模式按需开</td></tr>
+    <tr><td><b>出站脱敏</b></td><td>PII_MASK_ENABLE（opt-in）</td><td>答案侧敏感信息脱敏，按合规要求开启</td></tr>
+    <tr><td><b>审计与留痕</b></td><td>操作日志写库 + agent_tool_audit 工具调用审计 + 日志 90 天自动归档 jsonl</td><td>log_archive_service 每日后台任务</td></tr>
+    <tr><td><b>响应约定</b></td><td>BizError → HTTP 恒 200，业务码放 body {code, message, data}</td><td>core/response.py，网关与前端统一口径</td></tr>
+    <tr><td><b>数据备份</b></td><td>backup_service 纯 Python 全表 dump → .sql · 3h 周期</td><td>持久卷 grid-backend-data，恢复演练可用</td></tr>
+  </table>
+</section>
+
+<!-- ================= 09 可观测与运维 ================= -->
+<section class="chapter wrap" id="observe">
+  <div class="chapter-head"><span class="chapter-no">09</span><h2>可观测与运维：看见每一次降级</h2></div>
+  <p class="chapter-lead">
+    指标、链路、trace 三套体系并行：<b>Prometheus 看趋势、Langfuse 看调用链、QA trace 看单次请求的十步瀑布</b>。
+    踩过的坑沉淀成机制——事件驱动指标首次触发前在 /metrics 隐身，于是 <code>init_metric_series</code> 启动预注册 0 值序列。
+  </p>
+  <div class="cards3">
+    <div class="mini"><h4><span class="dot" style="background:var(--sun)"></span>Prometheus · Grafana</h4>
+      <p>/metrics 全量业务指标（CRAG 分档 / 拒答原因 / 缓存层级 / DEGRADED 降级 / provider 健康 / rewriteDelta / over-confident 等）；Grafana 18 面板开箱可视。</p></div>
+    <div class="mini"><h4><span class="dot" style="background:var(--violet)"></span>OTel → Langfuse</h4>
+      <p>OTEL_* 环境变量装配，otel_genai 语义化 LLM 调用 span；全链路 trace 回放，Langfuse :3001 独立栈（postgres + clickhouse + worker）。</p></div>
+    <div class="mini"><h4><span class="dot" style="background:var(--teal)"></span>QA trace 瀑布图</h4>
+      <p>逐请求 13 节点瀑布（缓存/路由/检索/精排/CRAG/生成…耗时逐一可见），Chat 内嵌 + 诊断页回放，异步落库不阻塞首答。</p></div>
+  </div>
+  <table class="grid">
+    <tr><th>后台常驻任务（lifespan 装配 · shutdown 优雅取消）</th><th>周期</th><th>职责</th></tr>
+    <tr><td>组件健康探活</td><td>30s</td><td>MySQL/Milvus/Neo4j/Redis/MinIO 可用性 → 健康面板</td></tr>
+    <tr><td>LLM provider 探活</td><td>周期</td><td>熔断底座：健康度低摘流</td></tr>
+    <tr><td>缓存预热</td><td>启动 + 6h</td><td>高频内容预载，冷启动不冷</td></tr>
+    <tr><td>缓存持久化清理</td><td>周期</td><td>L2 与 Redis 对账清理</td></tr>
+    <tr><td>日志归档</td><td>每日</td><td>&gt;90 天操作日志 → jsonl 归档后删除</td></tr>
+    <tr><td>三合一全量备份</td><td>3h</td><td>MySQL 全表 dump → .sql</td></tr>
+    <tr><td>task-center workers</td><td>常驻</td><td>持久化任务/事件消费</td></tr>
+    <tr><td>知识自进化 cron</td><td>每周配额</td><td>盲区扫描 → 草稿 → 审核回流</td></tr>
+    <tr><td>证据补全 / 修复率聚合 cron</td><td>周期</td><td>evidence_gap 补全 · fix_rate 重算</td></tr>
+  </table>
+  <div class="cards2">
+    <div class="mini"><h4><span class="dot" style="background:var(--coral)"></span>降级哲学</h4>
+      <p>所有外部依赖 try/except → <code>core/obs.degraded(name, e)</code> 记 DEGRADED 指标后继续：Neo4j 挂了走 MySQL 镜像、rerank 超时跳精排、LLM 切 fallback——<b>慢可以，死不行</b>。</p></div>
+    <div class="mini"><h4><span class="dot" style="background:var(--ocean)"></span>热配置体系</h4>
+      <p>config_service.rt_*（如 rt_crag_high/low）读 Redis config:*，/api/system/config/* 改即生效免重启；可选 Nacos 配置中心（CONFIG_SOURCE=nacos，降级安全）。</p></div>
+  </div>
+</section>
+
+<!-- ================= 10 业务能力全景 ================= -->
+<section class="chapter wrap" id="business">
+  <div class="chapter-head"><span class="chapter-no">10</span><h2>业务能力全景：不止于问答</h2></div>
+  <p class="chapter-lead">
+    问答是主链路，但平台长出了完整的运维智能生态——<b>22 个 API 路由域</b>覆盖从实时告警到交接班演练的运维全流程。
+  </p>
+  <div class="cards3">
+    <div class="mini"><h4><span class="dot" style="background:var(--teal)"></span>数字孪生布局</h4><p>twin_service 双轨布局（P1-7 收口）：站所设备拓扑可视化编排。</p></div>
+    <div class="mini"><h4><span class="dot" style="background:var(--ocean)"></span>设备档案</h4><p>device_dossier_service：一设备一档，缺陷/检修/告警历史贯通。</p></div>
+    <div class="mini"><h4><span class="dot" style="background:var(--coral)"></span>故障预测</h4><p>fault_prediction_service：告警频次/趋势聚合 → 风险分级 + 处置建议，/prediction 视图。</p></div>
+    <div class="mini"><h4><span class="dot" style="background:var(--sun)"></span>工单审计与生命周期</h4><p>ticket_audit + ticket_lifecycle（TICKET_ACTION_LOOP opt-in）：工单从发现到闭环全程留痕。</p></div>
+    <div class="mini"><h4><span class="dot" style="background:var(--leaf)"></span>实时事件中心</h4><p>realtime_event + event_center + quality_event_bus：WebSocket 实时推送（ws_manager），质量事件异步派发。</p></div>
+    <div class="mini"><h4><span class="dot" style="background:var(--violet)"></span>交接班 · 演练</h4><p>shift_handover_service 班次交接摘要 + drill_service 应急演练流程编排。</p></div>
+    <div class="mini"><h4><span class="dot" style="background:var(--teal)"></span>运维报告工作台</h4><p>ops_report / ops_snapshot / ops_workbench（opt-in）+ telemetry_history 遥测导入。</p></div>
+    <div class="mini"><h4><span class="dot" style="background:var(--ocean)"></span>文档协作与签批</h4><p>doc_collab 协作编辑 · doc_signoff 签批流 · doc_quality 质量评分 · VLM 图纸理解（opt-in）。</p></div>
+    <div class="mini"><h4><span class="dot" style="background:var(--coral)"></span>Agent 生态</h4><p>通用 Agent 引擎 + diagnose 诊断 persona + debate 三专家裁决 + 长期记忆（MEMORY ✓）+ MCP 工具总线（mock-scada 已接入）。</p></div>
+  </div>
+</section>
+
+<!-- ================= 11 部署拓扑 ================= -->
+<section class="chapter wrap" id="deploy">
+  <div class="chapter-head"><span class="chapter-no">11</span><h2>部署拓扑：18 容器一键编排</h2></div>
+  <p class="chapter-lead">
+    源码 bake 进镜像、无 bind mount——<b>改代码 / 改 .env 必须 <code>docker compose up -d --build</code> 重建</b>。
+    全部端口避开本机默认值（MySQL 3307 / 后端 8001），三块持久卷保障数据安全。
+  </p>
+  <div class="topo reveal">
+    <div class="svc core"><b>backend <span class="port">:8001</span></b><p>FastAPI 应用 · /api 前缀 · /metrics · Alembic 迁移</p></div>
+    <div class="svc"><b>frontend <span class="port">:5173/:80</span></b><p>Vue 3 dev / nginx 生产托管 dist</p></div>
+    <div class="svc"><b>mysql <span class="port">:3307</span></b><p>元数据 + L2 缓存 + 治理持久层 · mysql-data 卷</p></div>
+    <div class="svc"><b>redis <span class="port">:6379</span></b><p>L1 热点缓存 · 热配置 · 向量缓存</p></div>
+    <div class="svc"><b>milvus <span class="port">:19530</span></b><p>双向量 + 记忆 collection · HNSW</p></div>
+    <div class="svc"><b>neo4j <span class="port">:7474/7687</span></b><p>知识图谱 · 三元组镜像 MySQL</p></div>
+    <div class="svc"><b>minio <span class="port">:9000/9001</span></b><p>原文对象存储 · 引用回源</p></div>
+    <div class="svc"><b>ollama <span class="port">:11434</span></b><p>本地 LLM 兜底（离线场景）</p></div>
+    <div class="svc"><b>nacos <span class="port">:8848</span></b><p>配置中心（CONFIG_SOURCE=nacos opt-in）</p></div>
+    <div class="svc"><b>mock-scada</b><p>SCADA 模拟数据源 · MCP server 形态接入</p></div>
+    <div class="svc"><b>prometheus <span class="port">:9090</span></b><p>指标采集</p></div>
+    <div class="svc"><b>grafana <span class="port">:3000</span></b><p>18 面板监控大屏</p></div>
+    <div class="svc"><b>langfuse <span class="port">:3001</span></b><p>LLM 链路追踪 · OTel 接入</p></div>
+    <div class="svc"><b>clickhouse</b><p>Langfuse 分析存储</p></div>
+    <div class="svc"><b>postgres-langfuse</b><p>Langfuse 元数据库</p></div>
+    <div class="svc"><b>langfuse-worker</b><p>Langfuse 异步写入</p></div>
+    <div class="svc"><b>etcd + milvus-minio</b><p>Milvus 依赖底座（内部协同）</p></div>
+    <div class="svc core"><b>mcp <span class="port">:9100</span></b><p>MCP 工具总线 · registry · 外部工具 opt-in</p></div>
+  </div>
+  <table class="grid">
+    <tr><th>工程铁律</th><th>内容</th></tr>
+    <tr><td><b>bge 离线策略</b></td><td>HF_HUB_OFFLINE=1 + 宿主 HF 缓存 ro 挂载 + 启动预热——否则首问卡 ~80s 模型下载；宿主代理仅回环，容器内不设 HTTPS_PROXY</td></tr>
+    <tr><td><b>依赖钉子</b></td><td>pymilvus≥2.4,&lt;2.5（setuptools&lt;81，pkg_resources 依赖）· rapidocr-onnxruntime（规避 paddle Win bug）</td></tr>
+    <tr><td><b>数据卷</b></td><td>mysql-data / grid-backend-data（备份产物）/ clickhouse-data</td></tr>
+    <tr><td><b>CI/CD</b></td><td>main + ci-cd 双分支 · ruff · golden 门禁 · eval 门禁（recall 92% / faithfulness 0.85）</td></tr>
+  </table>
+</section>
+
+<!-- ================= 12 实测与演进 ================= -->
+<section class="chapter wrap" id="perf">
+  <div class="chapter-head"><span class="chapter-no">12</span><h2>性能实测与演进路线</h2></div>
+  <p class="chapter-lead">
+    所有优化都有实测数字背书——<b>不实测就会修错地方</b>：TTFT 瓶颈曾不在 LLM 而在检索（占 79%），
+    dense p99 真凶是调用方每次 search 重复 Collection+load，不是 Milvus 服务端。
+  </p>
+  <table class="grid">
+    <tr><th>指标</th><th>优化前</th><th>优化后</th><th>根因与抓手</th></tr>
+    <tr><td><b>dense 检索 p99</b></td><td>偶发 1.7s</td><td><b>4-8ms 稳定</b></td><td>_col_cache 缓存 Collection 句柄，消除重复 load RPC</td></tr>
+    <tr><td><b>热问题 TTFT</b></td><td>~3.0s</td><td><b>1.3-1.8s</b></td><td>检索链路修复 + rerank 2s 超时降级</td></tr>
+    <tr><td><b>生成输出</b></td><td>1100 字 / 17s</td><td><b>674 字 / 12-15s</b></td><td>qwen + max_tokens=768 + 简洁指令，置信度反升</td></tr>
+    <tr><td><b>LLM 分档延迟</b></td><td>统一 plus 13.17s</td><td><b>turbo 6.67s</b></td><td>L2 query 分档（opt-in）：事实型问题走快档</td></tr>
+    <tr><td><b>重复问题</b></td><td>全链路 12-15s</td><td><b>hotqa 112ms</b></td><td>点赞沉淀高频对，命中跳过检索/CRAG/生成</td></tr>
+    <tr><td><b>provider 稳态</b></td><td>单点故障全链路拒答</td><td><b>provider_health=1.0</b></td><td>L0 fallback 链 + L1 熔断探活</td></tr>
+  </table>
+  <div class="cards3">
+    <div class="mini"><h4><span class="dot" style="background:var(--ocean)"></span>SCADA MCP 生产化</h4><p>mock-scada 已跑通 MCP 接入形态，下一步对接真实配电自动化主站（只读工具封装，不直连生产控制）。</p></div>
+    <div class="mini"><h4><span class="dot" style="background:var(--leaf)"></span>CIM 拓扑全量</h4><p>cim_parser/cim_service 已就位，推进 CIM 模型全量入图谱，解锁拓扑级推理问答。</p></div>
+    <div class="mini"><h4><span class="dot" style="background:var(--violet)"></span>LazyGraphRAG · ColPali</h4><p>图谱先验 + 惰性扩展降成本；ColPali 视觉化图纸检索，配 VLM 理解图纸空间语义。</p></div>
+  </div>
+</section>
+
+<footer>
+  GridQA · 电网自主运维智能问答系统 · 架构交互演示 v5 · 2026-10-13<br>
+  内容与数字取自仓库真实代码与实测记录（backend/app · docker-compose.yml · CI 门禁）；问答示例内容为演示示意
+</footer>
+
+<script>
+(() => {
+  /* ============ scroll-spy ============ */
+  const links = [...document.querySelectorAll("#navlinks a")];
+  const sections = links.map(a => document.querySelector(a.getAttribute("href"))).filter(Boolean);
+  const spy = new IntersectionObserver((es) => {
+    es.forEach((e) => {
+      if (e.isIntersecting) {
+        links.forEach(l => l.classList.toggle("active", l.getAttribute("href") === "#" + e.target.id));
+      }
+    });
+  }, { rootMargin: "-30% 0px -60% 0px" });
+  sections.forEach(s => spy.observe(s));
+
+  /* ============ reveal + counters ============ */
+  const fmt = (n) => n % 1 !== 0 ? n.toFixed(2) : String(n);
+  const reveal = new IntersectionObserver((es) => {
+    es.forEach((e) => {
+      if (!e.isIntersecting) return;
+      e.target.classList.add("in");
+      e.target.querySelectorAll("[data-count]").forEach((el) => {
+        const target = parseFloat(el.dataset.count);
+        const suffix = el.dataset.suffix || "";
+        const t0 = performance.now(), dur = 1100;
+        const tick = (now) => {
+          const p = Math.min(1, (now - t0) / dur);
+          const eased = 1 - Math.pow(1 - p, 3);
+          el.textContent = fmt(target * eased) + (p === 1 ? suffix : "");
+          if (p < 1) requestAnimationFrame(tick);
+        };
+        requestAnimationFrame(tick);
+      });
+      reveal.unobserve(e.target);
+    });
+  }, { threshold: 0.15 });
+  document.querySelectorAll(".reveal").forEach(el => reveal.observe(el));
+
+  /* ============ tabs ============ */
+  document.querySelectorAll(".tab-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const group = btn.closest("section");
+      group.querySelectorAll(".tab-btn").forEach(b => b.classList.toggle("active", b === btn));
+      group.querySelectorAll(".tab-panel").forEach(p => p.classList.toggle("show", p.id === btn.dataset.tab));
+    });
+  });
+
+  /* ============ 主链路 stepper ============ */
+  const steps = [
+    {
+      title: "① 插件预处理", path: "services/plugin_registry.py",
+      desc: "请求先过插件框架的 3 个 hook（query_preprocess 等）。内置 safety_banner（安全横幅）与 length_guard（长度护栏）两个官方插件；可选双 RAG 热备：副路（bm25+LLM）与主路并行，主路异常时副路结果兜底，副路失败静默降级不报错。",
+      kv: { "插件钩子": "query_preprocess / 响应侧 hook ×2", "内置插件": "safety_banner · length_guard", "双 RAG 热备": "rag_router 主/副路（opt-in）" },
+      flags: []
+    },
+    {
+      title: "② 三级缓存探测", path: "services/qa_service.py → redis → semantic_cache → mysql",
+      desc: "L1 Redis：hotqa:{nq} 永久高频问答对（用户点赞自动沉淀，命中即跳过检索/CRAG/生成全链路，实测 112ms）；qa:* 分层 TTL（手册 7d / 案例 3d / 实时 5min）。L1.5 语义缓存：query embedding 相似度 ≥0.85 命中。L2 MySQL：历史问答持久层，Write-Through 双写回填。缓存 key 内嵌 citation_cache_version 版本串——引用开关、治理代际 G、CRAG_V3 任一变化，旧缓存自动失效。",
+      kv: { "命中延迟": "hotqa 112ms 直达", "分层 TTL": "手册 7d / 案例 3d / 实时 5min", "key 版本串": "开关 + 治理代际 G + V3" },
+      flags: [["HOTQA_ENABLE", 1], ["CACHE_PERSIST_ENABLE", 1], ["CACHE_TIERED_TTL_ENABLE", 1], ["CACHE_WARMUP_ENABLE", 1], ["SEMANTIC_CACHE_ENABLE", 0], ["SLIDE_TTL ×2", 0]]
+    },
+    {
+      title: "③ 多轮指代消解", path: "services/standalone_query.py",
+      desc: "把「那它的处置流程呢？」这类追问改写成带完整上下文的独立查询（STANDALONE_REWRITE_ENABLE 默认开）。多轮对话中间态不进缓存（MULTI_TURN_CACHE 默认关），防止指代语境污染缓存池。",
+      kv: { "输入": "原始 query + 会话历史", "输出": "standalone query", "缓存策略": "多轮不缓存防污染" },
+      flags: [["STANDALONE_REWRITE_ENABLE", 1], ["MULTI_TURN_CACHE_ENABLE", 0]]
+    },
+    {
+      title: "④ 智能路由", path: "routing/query_classifier.py → routing_service.route_query",
+      desc: "query_classifier 按查询特征（编号/术语/口语度/复合度）决策四路：sparse（BM25 直查最快）、dense（纯向量）、hybrid（双路 RRF 融合，召回上限最高）、sparse_first（精确优先向量兜底）。路由感知模式下 RRF 权重、MMR λ、HNSW ef 随 route 动态调整。",
+      kv: { "路由输出": "route ∈ {sparse, dense, hybrid, sparse_first}", "感知联动": "权重 / λ / ef 动态调（opt-in）" },
+      flags: [["ROUTING_ENABLE", 1], ["RRF_ROUTE_AWARE_ENABLE", 0]]
+    },
+    {
+      title: "⑤ 混合检索", path: "services/retrieval_service.py · mixed_search",
+      desc: "稠密：Milvus 双 collection（云 1024 维 / bge 512 维空间隔离）HNSW 召回，_col_cache 句柄缓存后稳定 4-8ms；稀疏：BM25（jieba 分词，规程编号/设备型号强匹配）。RRF 融合 → gte-rerank-v2 精排（top20→top5，2s 超时自动降级跳过）→ MMR 多样性去冗余。small-to-big：小块检索命中、大块上下文进 prompt。",
+      kv: { "dense": "Milvus 双 collection · 4-8ms", "sparse": "BM25 · jieba", "融合": "RRF", "精排": "gte-rerank-v2 · 2s 降级", "去冗余": "MMR" },
+      flags: [["RERANK_ENABLE", 1], ["MMR_ENABLE", 1], ["SMALL_TO_BIG_ENABLE", 1], ["HYDE_ENABLE", 0], ["MULTI_QUERY_ENABLE", 0], ["RAPTOR_ENABLE", 0], ["AGENTIC_RETRIEVAL_ENABLE", 0]]
+    },
+    {
+      title: "⑥ CRAG 自纠错", path: "rag/crag.py · crag_v2.py",
+      desc: "以 rerank 分 + evidence_strength（统一 [0,1] 口径）分级：correct / ambiguous / incorrect 三档。V3 开启后升级连续置信度五档（high → refused）+ 归因矩阵。低分触发 query 改写重检索（改写有评估闭环：REWRITE_EVAL 对每次改写验增益，ADAPTIVE 让正常 query 跳过改写省延迟）；穷尽仍低 → refused 拒答 + refusedReason 四类归因，绝不编造。refused 自动流入 evidence_gap 待补全。",
+      kv: { "分级": "correct / ambiguous / incorrect", "V3 置信度": "连续 5 档", "拒答归因": "no_recall / rewrite_exhausted / out_of_domain / evidence_contradict", "阈值": "rt_crag_high / low 热调" },
+      flags: [["CRAG_ENABLE", 1], ["CRAG_V3_ENABLE", 1], ["CRAG_PERDOC_ENABLE", 1], ["REWRITE_EVAL_ENABLE", 1], ["REWRITE_ADAPTIVE_ENABLE", 1], ["CRAG_REFUSED_TO_GAP_ENABLE", 1], ["CONFIDENCE_OVERCONFIDENT_ENABLE", 1], ["DEBATE_ON_LOW_CONFIDENCE_ENABLE", 0], ["SUFFICIENCY_GATE_ENABLE", 0], ["CRAG_NEIGHBOR_EXPAND_ENABLE", 0]]
+    },
+    {
+      title: "⑦ GraphRAG 融合", path: "services/kg_service.py · graph_context",
+      desc: "Neo4j 展开「设备 → 故障模式 → 处置工艺 → 安规条款」多跳邻居，结构化上下文与向量块互补：图谱给关系骨架，向量给语义细节。文档入库时 KG_AUTO_EXTRACT 后台 LLM 抽取三元组，kg_reconcile 对账，KgTriple 镜像 MySQL 可审计。图谱故障 → obs.degraded 降级只走镜像，主链路不中断。",
+      kv: { "多跳": "设备-故障-处置", "抽取": "入库后台自动三元组", "镜像": "KgTriple @ MySQL", "降级": "obs.degraded 不阻断" },
+      flags: [["KG_RAG_ENABLE", 1], ["KG_AUTO_EXTRACT_ENABLE", 1], ["KG_TOKENIZE_CACHE_ENABLE", 0]]
+    },
+    {
+      title: "⑧ 可信生成", path: "providers/llm_router.py · factory.py + rag/prompt_templates.py",
+      desc: "prompt_templates.build_messages_with_history 组装多轮感知 prompt（模板集中管理，config:prompt Redis 覆盖热更）。LLM 经 llm_router 四层容错：L0 fallback 链（失败/超时/空 answer 依次切换）→ L1 健康度熔断（后台 30s 探活摘流）→ L2 query 分档（事实型 turbo 6.67s / 研判型 plus 13.17s）→ L3 trace 标记。max_tokens=768 + 简洁指令约束输出——实测字数降 40% 而置信度反升。",
+      kv: { "容错": "L0 链 → L1 熔断 → L2 分档 → L3 trace", "本地兜底": "ollama 容器", "SSE": "/api/qa/answer/stream 流式输出" },
+      flags: [["LLM_FALLBACK_ON_EMPTY", 1], ["LLM_HEALTH_PROBE_ENABLE", 1], ["LLM_TIER_FACT_FAST_ENABLE", 1], ["LLM_TIER_ENABLE", 0], ["PROMPT_CACHE_ENABLE", 0]]
+    },
+    {
+      title: "⑨ 句级引用与校验", path: "rag/citation.py · citation_index.py · citation_verifier.py",
+      desc: "答案每句标 [n] 角标溯源到 chunk；无角标句向量相似度自动补标（CITATION_AUTO）。四层校验引擎：格式合法 → 引用存在 → 向量语义支撑 → NLI 精准核验（最重，独立开关可异步后置不阻塞首答）。校验失败联动 CRAG：rewrite 二次检索或 refused 拒答。引用一键回源 MinIO 原文。",
+      kv: { "角标": "句级 [n] → chunk → 原文", "校验": "格式 + 存在 + 向量 + NLI", "失败联动": "rewrite / refused" },
+      flags: [["CITATION_AUTO_ENABLE", 1], ["CITATION_VERIFIER_ENABLE", 1], ["CITATION_REWRITE_ON_FAIL", 1], ["CITATION_NLI_ENABLE", 0], ["CITATION_NLI_ASYNC_ENABLE", 0], ["CITATION_STRUCTURED_OUTPUT", 0]]
+    },
+    {
+      title: "⑩ trace 与异步落库", path: "core/qa_trace.py · services/qa_trace_service.py",
+      desc: "逐请求 13 节点瀑布图（缓存/路由/检索/精排/CRAG/生成各段耗时）随响应返回前端内嵌展示，并异步落库支持诊断页回放。答案异步 Write-Through 回写 L2；线上忠实度 judge（ONLINE_FAITHFULNESS）后台评分供前端展示幻觉率；反馈（点赞/点踩）回流 hotqa 沉淀与自进化闭环。",
+      kv: { "trace": "13 节点 · 异步落库", "回流": "hotqa 沉淀 · dislike → 自进化", "在线评测": "异步 LLM-judge 幻觉率" },
+      flags: [["QA_TRACE_ENABLE", 1], ["ONLINE_FAITHFULNESS_ENABLE", 1], ["QA_TRACE_DETAIL_ENABLE", 0]]
+    }
+  ];
+
+  const pipeDetail = document.getElementById("pipeDetail");
+  function renderStep(i) {
+    const s = steps[i];
+    const kv = Object.entries(s.kv).map(([k, v]) => `<div class="row"><b>${k}</b><span>${v}</span></div>`).join("");
+    const flags = s.flags.length
+      ? `<div class="flagline">` + s.flags.map(([f, on]) => `<span class="flag${on ? "" : " off"}">${f} ${on ? "✓开" : "○opt-in"}</span>`).join("") + `</div>`
+      : "";
+    pipeDetail.innerHTML = `
+      <h3>${s.title}</h3>
+      <span class="path">${s.path}</span>
+      <p>${s.desc}</p>
+      <div class="kv">${kv}</div>
+      ${flags ? `<div style="font-size:11.5px;color:var(--muted);margin-top:4px;font-family:var(--mono)">特性开关（黄=默认开 · 灰=opt-in 默认关）</div>${flags}` : ""}`;
+  }
+  document.querySelectorAll("#stepList .step-item").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      document.querySelectorAll("#stepList .step-item").forEach(b => b.classList.toggle("active", b === btn));
+      renderStep(Number(btn.dataset.step));
+    });
+  });
+  renderStep(0);
+
+  /* ============ 一次请求的旅程 · 全链路 trace 回放 ============ */
+  const svg = document.getElementById("jSvg");
+  const NS = "http://www.w3.org/2000/svg";
+  const mk = (tag, attrs, text) => {
+    const el = document.createElementNS(NS, tag);
+    for (const k in attrs) el.setAttribute(k, attrs[k]);
+    if (text != null) el.textContent = text;
+    return el;
+  };
+  const nodeMeta = [
+    { ti: "请求入口", pa: "routers/qa.py", bo: "薄路由：参数校验 + require_perm 权限装饰 + 操作日志；流式走 POST /api/qa/answer/stream（SSE）。业务逻辑全在 service 层。" },
+    { ti: "L1 · Redis 热点缓存", pa: "redis_client · hotqa:/qa:", bo: "hotqa: 用户点赞沉淀的永久高频问答对，命中跳过全部下游（实测 112ms）；qa: 分层 TTL 手册 7d/案例 3d/实时 5min，命中 EXPIRE 续期保活。", fl: [["HOTQA_ENABLE", 1], ["CACHE_TIERED_TTL_ENABLE", 1], ["CACHE_PERSIST_ENABLE", 1]] },
+    { ti: "L1.5 · 语义缓存", pa: "rag/semantic_cache.py", bo: "query embedding 相似度 ≥0.85 判定同一问题直接复用；本次 0.72 未命中。多轮中间态不进缓存，防指代语境污染。", fl: [["SEMANTIC_CACHE_ENABLE", 0]] },
+    { ti: "多轮指代消解", pa: "services/standalone_query.py", bo: "把「那它的处置流程呢？」这类追问改写为带完整上下文的独立查询，检索与缓存都基于 standalone query 进行。", fl: [["STANDALONE_REWRITE_ENABLE", 1], ["MULTI_TURN_CACHE_ENABLE", 0]] },
+    { ti: "智能路由", pa: "routing/query_classifier.py", bo: "按编号/术语/口语度/复合度决策 sparse / dense / hybrid / sparse_first 四路；本次编号+语义复合 → hybrid，双路召回收益最大。", fl: [["ROUTING_ENABLE", 1], ["RRF_ROUTE_AWARE_ENABLE", 0]] },
+    { ti: "dense 稠密召回", pa: "retrieval_service → Milvus", bo: "双向量 collection（云 1024d / bge 512d 空间隔离）HNSW top20；_col_cache 句柄缓存后稳定 4-8ms，此前偶发 1.7s 的 p99 已消除。", fl: [["SMALL_TO_BIG_ENABLE", 1], ["EMBED_MODEL_GUARD_ENABLE", 1]] },
+    { ti: "BM25 稀疏召回", pa: "services/bm25_service.py", bo: "jieba 分词精确匹配规程编号/设备型号/术语，与向量语义互补——编号类 query 的强项。" },
+    { ti: "RRF 融合", pa: "rag/rrf.py", bo: "两路候选倒数排名融合；路由感知模式下融合权重随 route 动态调整（opt-in）。" },
+    { ti: "rerank 精排", pa: "services/rerank_service.py", bo: "gte-rerank-v2 精排 top31→top5；RERANK_TIMEOUT=2.0s——超时自动降级跳过精排，用 RRF 序兜底，慢比弱好、断了比慢好。", fl: [["RERANK_ENABLE", 1]] },
+    { ti: "MMR 去冗余", pa: "rag/mmr.py", bo: "相关性-多样性平衡重排，剔除同质证据；λ 路由感知可调。" },
+    { ti: "CRAG 自纠错", pa: "rag/crag.py · crag_v2.py", bo: "evidence_strength 分级 + V3 连续置信五档（high→refused）；低分触发改写重检索，穷尽仍低 refused 拒答 + refusedReason 四类归因；阈值 rt_crag_high/low 热调免重启。", fl: [["CRAG_V3_ENABLE", 1], ["REWRITE_EVAL_ENABLE", 1], ["CRAG_REFUSED_TO_GAP_ENABLE", 1], ["CONFIDENCE_OVERCONFIDENT_ENABLE", 1]] },
+    { ti: "GraphRAG 融合", pa: "services/kg_service.py", bo: "Neo4j 设备-故障-处置多跳邻居注入 prompt；入库时 KG_AUTO_EXTRACT 后台抽三元组，KgTriple 镜像 MySQL；图谱故障 obs.degraded 降级不阻断。", fl: [["KG_RAG_ENABLE", 1], ["KG_AUTO_EXTRACT_ENABLE", 1]] },
+    { ti: "可信生成", pa: "providers/llm_router.py", bo: "L0 fallback 链（失败/超时/空 answer 都切）→ L1 健康度熔断（30s 探活）→ L2 query 分档（turbo/plus）→ L3 trace 标记；prompt_templates 集中管理 + config:prompt Redis 热更。", fl: [["LLM_FALLBACK_ON_EMPTY", 1], ["LLM_HEALTH_PROBE_ENABLE", 1], ["LLM_TIER_ENABLE", 0]] },
+    { ti: "句级引用校验", pa: "rag/citation*.py", bo: "每句 [n] 角标溯源 chunk；格式+引用存在+向量支撑+NLI 四层校验（NLI 最重、可异步后置）；校验失败联动 CRAG rewrite/refused；一键回源 MinIO 原文。", fl: [["CITATION_AUTO_ENABLE", 1], ["CITATION_VERIFIER_ENABLE", 1], ["CITATION_NLI_ENABLE", 0]] },
+    { ti: "返回与落库", pa: "core/qa_trace.py · qa_trace_service.py", bo: "13 节点 trace 瀑布随响应返回并异步落库（Chat 内嵌 + 诊断页回放）；答案 Write-Through 回写 L2；点赞沉淀 hotqa、点踩进知识自进化。", fl: [["QA_TRACE_ENABLE", 1], ["ONLINE_FAITHFULNESS_ENABLE", 1]] }
+  ];
+  const rows = [
+    [["提问", "POST /api/qa/answer"], ["L1 缓存", "hotqa: · qa: · Redis"], ["L1.5 语义", "相似度 ≥0.85"], ["指代消解", "standalone_query"], ["路由", "classifier → hybrid"]],
+    [["dense", "Milvus 双collection"], ["BM25", "jieba 分词"], ["RRF", "融合排序"], ["rerank", "gte-rerank-v2"], ["MMR", "多样性去冗余"]],
+    [["CRAG", "置信分级 · 自纠错"], ["图谱", "Neo4j 3 跳"], ["生成", "llm_router · SSE"], ["引用", "角标 + 四层校验"], ["返回 · 落库", "trace 13 节点"]]
+  ];
+  const NW = 160, NH = 54, XS = [15, 240, 465, 690, 915], YS = [14, 118, 222];
+  const nodeEls = [];
+  const addNode = (n, x, y, idx) => {
+    const g = mk("g", { class: "j-node", id: "jn-" + idx });
+    g.appendChild(mk("rect", { x, y, width: NW, height: NH, rx: 11 }));
+    g.appendChild(mk("text", { x: x + NW / 2, y: y + 23, "text-anchor": "middle" }, n[0]));
+    g.appendChild(mk("text", { x: x + NW / 2, y: y + 40, "text-anchor": "middle", class: "sub" }, n[1]));
+    g.addEventListener("click", () => { jDetailSet(nodeMeta[idx]); jLogAdd("查看节点：" + nodeMeta[idx].ti); });
+    svg.appendChild(g); nodeEls.push(g);
+  };
+  rows[0].forEach((n, i) => addNode(n, XS[i], YS[0], i));
+  rows[1].forEach((n, i) => addNode(n, XS[i], YS[1], 5 + i));
+  rows[2].forEach((n, i) => addNode(n, XS[4 - i], YS[2], 10 + i));
+  const jLinks = {};
+  const addLink = (name, d, cls) => { const p = mk("path", { d, class: "j-link " + (cls || "") }); svg.appendChild(p); jLinks[name] = p; return p; };
+  for (let i = 0; i < 4; i++) addLink("a" + i, `M${XS[i] + NW} ${YS[0] + 27} H${XS[i + 1] - 2}`);
+  addLink("drop1", "M995 70 C 995 96, 95 90, 95 114");              // 路由 → dense
+  for (let i = 0; i < 4; i++) addLink("b" + i, `M${XS[i] + NW} ${YS[1] + 27} H${XS[i + 1] - 2}`);
+  addLink("drop2", "M995 174 V218");                                 // MMR → CRAG
+  for (let i = 0; i < 4; i++) addLink("c" + i, `M${XS[4 - i] - 2} ${YS[2] + 27} H${XS[4 - i - 1] + NW + 2}`, "ret");
+  const hotArc = addLink("hot", "M320 70 C 258 138, 178 172, 100 218", "hot");      // 缓存 → 返回 捷径
+  const rwArc = addLink("rw", "M1055 220 C 1122 204, 1122 92, 185 138", "loop");    // CRAG → dense 改写回路
+  const hotLabel = mk("text", { x: 205, y: 150, "text-anchor": "middle", fill: "#2dd4bf", "font-size": 10.5, "font-weight": 700, opacity: 0 }, "hotqa 命中 112ms 直达");
+  const rwLabel = mk("text", { x: 1132, y: 148, "text-anchor": "end", fill: "#a78bfa", "font-size": 10.5, "font-weight": 700, opacity: 0 }, "query 改写 → 重检索（自纠错回路）");
+  svg.appendChild(hotLabel); svg.appendChild(rwLabel);
+
+  /* 数据包动画：沿当前点亮链路滑行 */
+  const pkt = mk("circle", { id: "jPkt", r: 5.5, fill: "#5eead4", stroke: "#07211f", "stroke-width": 2, opacity: 0 });
+  svg.appendChild(pkt);
+  let pktAnim = null;
+  function stopPkt() { if (pktAnim) { cancelAnimationFrame(pktAnim); pktAnim = null; } pkt.setAttribute("opacity", 0); }
+  function animatePkt(paths, dur, color) {
+    stopPkt();
+    pkt.setAttribute("fill", color);
+    const pSegs = paths.map(p => ({ p, len: p.getTotalLength() }));
+    const totalLen = pSegs.reduce((s, x) => s + x.len, 0);
+    const t0 = performance.now();
+    pkt.setAttribute("opacity", 1);
+    const frame = (now) => {
+      const t = Math.min(1, (now - t0) / dur);
+      const ease = t < .5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+      let d = totalLen * ease;
+      for (const s of pSegs) {
+        if (d <= s.len || s === pSegs[pSegs.length - 1]) {
+          const pt = s.p.getPointAtLength(Math.min(d, s.len));
+          pkt.setAttribute("cx", pt.x); pkt.setAttribute("cy", pt.y);
+          break;
+        }
+        d -= s.len;
+      }
+      if (t < 1) pktAnim = requestAnimationFrame(frame);
+      else pkt.setAttribute("opacity", 0);
+    };
+    pktAnim = requestAnimationFrame(frame);
+  }
+
+  const jLog = document.getElementById("jLog");
+  const jStage = document.getElementById("jStage");
+  const jPlay = document.getElementById("jPlay");
+  const jStepBtn = document.getElementById("jStep");
+  const jReplay = document.getElementById("jReplay");
+  const jSpeed = document.getElementById("jSpeed");
+  const jSpeedVal = document.getElementById("jSpeedVal");
+  const wfBar = document.getElementById("jWfBar");
+  const wfLabels = document.getElementById("jWfLabels");
+  const wfTotal = document.getElementById("jWfTotal");
+  const dTitle = document.getElementById("jDetailTitle");
+  const dPath = document.getElementById("jDetailPath");
+  const dBody = document.getElementById("jDetailBody");
+  const dFlags = document.getElementById("jDetailFlags");
+  const jQ = document.getElementById("jQ");
+  const jQMode = document.getElementById("jQMode");
+  const jQText = document.getElementById("jQText");
+  const jToast = document.getElementById("jToast");
+  let jTypeTimer = null;
+  function jType(txt) {
+    clearTimeout(jTypeTimer);
+    jQText.classList.add("typing");
+    jQText.textContent = "";
+    let i = 0;
+    const tk = () => {
+      jQText.textContent = txt.slice(0, ++i);
+      if (i < txt.length) jTypeTimer = setTimeout(tk, 24 / jSpeedN);
+      else jQText.classList.remove("typing");
+    };
+    tk();
+  }
+
+  function jDetailSet(d) {
+    dTitle.textContent = d.ti;
+    dPath.textContent = d.pa;
+    dBody.textContent = d.bo;
+    dFlags.innerHTML = (d.fl || []).map(([f, on]) => `<span class="flag${on ? "" : " off"}">${f} ${on ? "✓开" : "○opt-in"}</span>`).join("");
+  }
+  function jLogAdd(msg) {
+    const item = document.createElement("div");
+    item.className = "li";
+    const now = new Date();
+    item.innerHTML = `<span class="t">${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}:${String(now.getSeconds()).padStart(2, "0")}</span>${msg}`;
+    jLog.prepend(item);
+    while (jLog.children.length > 12) jLog.lastChild.remove();
+  }
+
+  const C = { cache: "#2dd4bf", emb: "#a78bfa", ret: "#38bdf8", judge: "#f5c542", loopc: "#ff8a70", kg: "#34d399", fail: "#ff5d5d", gen: "#4cc3ff", misc: "#94b8d6" };
+  const journey = [
+    { t: "准备演示", n: [], l: [], log: "POST /api/qa/answer · tenant=T1 · 运维专责 · require_perm 校验通过", d: { ti: "请求入口", pa: "routers/qa.py", bo: "薄路由：参数校验 + require_perm 权限装饰 + 操作日志；流式走 /api/qa/answer/stream（SSE）。业务逻辑全在 service 层。" } },
+    { t: "① 自然语言提问", n: [0], l: [], q: ["原始提问", "110kV 城东站 10kV 开关柜局放检测阈值是多少？超标了怎么处置？", ""], log: "[入口] 「110kV 城东站 10kV 开关柜局放检测阈值是多少？超标了怎么处置？」（会话第 2 轮）", seg: ["插件预处理", 3, C.misc] },
+    { t: "② L1 Redis 未命中", n: [1], l: ["a0"], log: "[缓存] safety_banner / length_guard 插件通过 · hotqa: / qa: 均未命中", seg: ["L1 探测", 8, C.cache] },
+    { t: "③ L1.5 语义未命中", n: [2], l: ["a1"], log: "[缓存] 语义缓存：query 向量相似度 0.72 &lt; 0.85 → 放行检索", seg: ["L1.5 语义", 45, C.emb] },
+    { t: "④ 指代消解", n: [3], l: ["a2"], q: ["standalone · 指代已消解", "10kV 开关柜局部放电检测阈值及超标处置流程", "resolved"], log: "[消解] standalone_query：追问补全主语 →「开关柜局放检测阈值及超标处置流程」独立查询", seg: ["指代消解", 230, C.emb] },
+    { t: "⑤ 智能路由", n: [4], l: ["a3"], log: "[路由] query_classifier：编号+语义复合 → route=hybrid（双路召回收益最大）", seg: ["路由", 1, C.misc] },
+    { t: "⑥ dense 稠密召回", n: [5], l: ["drop1"], log: "[检索] Milvus grid_chunks HNSW top20 · 6ms（_col_cache 句柄缓存生效）", seg: ["dense", 6, C.ret] },
+    { t: "⑦ BM25 稀疏召回", n: [6], l: ["b0"], log: "[检索] BM25 jieba top20 · 12ms ·「局放」「阈值」精确命中", seg: ["BM25", 12, C.ret] },
+    { t: "⑧ RRF 融合", n: [7], l: ["b1"], log: "[检索] 两路候选 RRF 融合 40 → 去重 31", seg: ["RRF", 1, C.ret] },
+    { t: "⑨ rerank 精排", n: [8], l: ["b2"], log: "[检索] gte-rerank-v2 top31→top5 · 480ms（超时上限 2s，超时自动降级跳过）", seg: ["rerank", 480, C.ret] },
+    { t: "⑩ MMR 去冗余", n: [9], l: ["b3"], log: "[检索] MMR 多样性重排 → 5 条互补证据准备进 prompt", seg: ["MMR", 2, C.ret] },
+    { t: "⑪ CRAG 一级分级", n: [10], l: ["drop2"], log: "[CRAG] evidence_strength=0.52 → medium_low → 触发 query 改写自纠错", seg: ["CRAG 分级", 3, C.judge], d: nodeMeta[10] },
+    { t: "⑫ 改写重检索（自纠错回路）", n: [10, 5, 6], l: ["rw"], rw: 1, q: ["CRAG 改写 query", "开关柜 局部放电 检测限值 超标处置", "rw"], log: "[CRAG] 改写「开关柜 局部放电 检测限值 超标处置」→ dense+BM25 重检索（rewriteDelta 跟踪）", seg: ["改写+重检索", 669, C.loopc], d: { ti: "Query 改写重检索", pa: "rag/crag.py · rewrite", bo: "medium_low / low 档触发改写重检索；REWRITE_EVAL 对每次改写验证增益，ADAPTIVE 让 classifier 判定正常的 query 跳过改写省延迟；穷尽仍低 → refused + refusedReason 四类归因，绝不编造。", fl: [["REWRITE_EVAL_ENABLE", 1], ["REWRITE_ADAPTIVE_ENABLE", 1], ["QUERY_REWRITE_ENABLE", 0]] } },
+    { t: "⑬ CRAG 二级分级", n: [10], l: ["drop2"], log: "[CRAG] 二轮 es=0.81 → correct · confidence=high（rewriteDelta +0.29，增益入档）", seg: ["CRAG 复评", 3, C.judge] },
+    { t: "⑭ GraphRAG 融合", n: [11], l: ["c0"], log: "[图谱] Neo4j 设备-缺陷-处置 3 跳邻居 · 140ms · 与向量块互补注入", seg: ["图谱", 140, C.kg] },
+    { t: "⑮ LLM fallback 切换", n: [12], l: ["c1"], log: "[生成] deepseek-v4 返回空 answer（2.8s 白耗）→ L0 链自动切 qwen", seg: ["fallback 损耗", 2800, C.fail], d: nodeMeta[12] },
+    { t: "⑯ qwen 生成", n: [12], l: ["c1"], log: "[生成] qwen-plus · 674 字 · max_tokens=768 · SSE 流式（TTFT 1.4s）", seg: ["LLM 生成", 8200, C.gen] },
+    { t: "⑰ 句级引用校验", n: [13], l: ["c2"], log: "[引用] 角标 [1]-[5] 全句覆盖 · 格式+向量校验通过 · NLI 异步后置", seg: ["引用校验", 95, C.judge] },
+    { t: "⑱ 返回与落库", n: [14], l: ["c3"], toast: 1, log: "[返回] confidence=high · 13 节点 trace 异步落库 · L2 Write-Through 回写", seg: ["响应+落库", 5, C.misc] },
+    { t: "⑲ hotqa 沉淀闭环", n: [14], l: ["hot"], hot: 1, log: "[闭环] 用户点赞 → 沉淀 hotqa: → 同类问题下次 112ms 直达（跳过全部下游）", d: nodeMeta[1] },
+    { t: "⑳ 全链路小结", n: [14], l: ["c3"], log: "[小结] 端到端 12.7s（含 fallback 损耗 2.8s）· 命中 hotqa 仅 112ms · trace 可在诊断页回放" }
+  ];
+  let ji = 0, jPlaying = false, jTimer = null, jSpeedN = 1, segs = [];
+  function renderWf() {
+    const total = segs.reduce((s, x) => s + x[1], 0);
+    wfBar.innerHTML = segs.map(s => `<i style="width:${(s[1] / total * 100).toFixed(2)}%;background:${s[2]}" title="${s[0]} ${s[1]}ms"></i>`).join("");
+    wfLabels.innerHTML = segs.map(s => `<span><i style="background:${s[2]}"></i>${s[0]} ${s[1] >= 1000 ? (s[1] / 1000).toFixed(1) + "s" : s[1] + "ms"}</span>`).join("");
+    wfTotal.textContent = total >= 1000 ? (total / 1000).toFixed(1) + "s" : total + "ms";
+  }
+  function jApply(i) {
+    ji = i;
+    const st = journey[i];
+    nodeEls.forEach((el, idx) => el.classList.toggle("on", st.n.includes(idx)));
+    Object.entries(jLinks).forEach(([k, el]) => el.classList.toggle("lit", st.l.includes(k)));
+    hotLabel.setAttribute("opacity", st.hot ? 1 : 0);
+    rwLabel.setAttribute("opacity", st.rw ? 1 : 0);
+    if (i === 0) { jQ.hidden = true; jToast.classList.remove("show"); clearTimeout(jTypeTimer); }
+    if (st.q) {
+      jQ.hidden = false;
+      jQ.className = "j-q" + (st.q[2] ? " " + st.q[2] : "");
+      jQMode.textContent = st.q[0];
+      jType(st.q[1]);
+    }
+    if (st.toast) jToast.classList.add("show");
+    const litPaths = st.l.map(k => jLinks[k]).filter(Boolean);
+    if (litPaths.length) animatePkt(litPaths, Math.max(480, 960 / jSpeedN), st.rw ? "#a78bfa" : st.hot ? "#2dd4bf" : "#5eead4");
+    else stopPkt();
+    jStage.textContent = st.t + `（${i + 1}/${journey.length}）`;
+    jDetailSet(st.d || nodeMeta[st.n[st.n.length - 1]] || nodeMeta[0]);
+    if (st.seg) { segs.push(st.seg); renderWf(); }
+    jLogAdd(st.log);
+  }
+  function jSchedule() {
+    clearTimeout(jTimer);
+    if (!jPlaying) return;
+    if (ji >= journey.length - 1) { jPause(); jPlay.textContent = "▶ 开始演示"; return; }
+    jTimer = setTimeout(() => { jApply(ji + 1); jSchedule(); }, 1200 / jSpeedN);
+  }
+  function jPlayFn() {
+    if (ji >= journey.length - 1) jApply(0);
+    jPlaying = true; jPlay.disabled = true; jPlay.textContent = "演示中";
+    jSchedule();
+  }
+  function jPause() { jPlaying = false; clearTimeout(jTimer); jPlay.disabled = false; jPlay.textContent = "▶ 继续"; }
+  jPlay.addEventListener("click", () => jPlaying ? jPause() : jPlayFn());
+  jStepBtn.addEventListener("click", () => { jPause(); jApply(ji >= journey.length - 1 ? 0 : ji + 1); });
+  jReplay.addEventListener("click", () => { jPause(); jLog.innerHTML = ""; segs = []; renderWf(); jApply(0); jPlayFn(); });
+  jSpeed.addEventListener("input", () => {
+    jSpeedN = Number(jSpeed.value);
+    jSpeedVal.textContent = jSpeedN.toFixed(1) + "×";
+    if (jPlaying) jSchedule();
+  });
+  /* ============ 产品视角 · 答案交互（角标回源 / SSE 回放 / 反馈闭环） ============ */
+  const ansText = document.getElementById("ansText");
+  const srcPanel = document.getElementById("srcPanel");
+  const fbUp = document.getElementById("fbUp");
+  const fbDown = document.getElementById("fbDown");
+  const SRC = {
+    1: { doc: "《10kV 开关柜局部放电检测作业指导书》（站内修订）", chunk: "……UHF 法检测注意值 300 pC、异常值 500 pC；超过注意值应缩短周期复测，并结合超声 / 红外综合判定……", score: "rerank 0.91" },
+    2: { doc: "站内检修细则 · 第 4 章 检测结果判定", chunk: "……局放数据超标不直接定性，先排除干扰（悬浮电位 / 外部电晕）后复测确认，两次复测均超标方判定缺陷……", score: "rerank 0.88" },
+    3: { doc: "缺陷分级处置工艺卡 K-27", chunk: "……危急缺陷：24 小时内消缺；严重缺陷：一周内安排带电处理或计划停电消缺；一般缺陷：纳入检修计划……", score: "rerank 0.84" },
+    5: { doc: "安规 · 带电检测作业安全措施", chunk: "……带电检测应保持规定的安全距离，实行一人操作、一人监护，仪器接地良好……", score: "rerank 0.79" }
+  };
+  const ANS = [
+    { t: "依据《10kV 开关柜局部放电检测作业指导书》：10kV 空气绝缘开关柜 UHF 法局放检测注意值 300 pC、异常值 500 pC（以适用规程版本为准）" },
+    { c: 1 },
+    { t: "。实测超过注意值时不要直接定性，应先排除干扰并复测确认" },
+    { c: 2 },
+    { t: "；复测仍超标则按缺陷分级处置：危急 24 小时内消缺、严重一周内安排、一般纳入检修计划" },
+    { c: 3 },
+    { t: "。带电检测全过程执行一人操作一人监护的安措要求" },
+    { c: 5 },
+    { t: "。以上结论由 5 条证据支撑，句级角标可点击回源核验。" }
+  ];
+  const citeHtml = (n, pop) => `<sup class="cite${pop ? " pop" : ""}" data-src="${n}" title="点击查看证据原文">[${n}]</sup>`;
+  function ansRender() {
+    ansText.innerHTML = ANS.map(s => s.c != null ? citeHtml(s.c) : `<span>${s.t}</span>`).join("");
+  }
+  let sseBusy = false;
+  function ssePlay() {
+    if (sseBusy) return;
+    sseBusy = true;
+    ansText.innerHTML = "";
+    ansText.classList.add("typing");
+    let si = 0;
+    const nextSeg = () => {
+      if (si >= ANS.length) { ansText.classList.remove("typing"); sseBusy = false; return; }
+      const s = ANS[si++];
+      if (s.c != null) {
+        ansText.insertAdjacentHTML("beforeend", citeHtml(s.c, true));
+        setTimeout(nextSeg, 240);
+      } else {
+        const sp = document.createElement("span");
+        ansText.appendChild(sp);
+        let i = 0;
+        const tk = () => {
+          sp.textContent = s.t.slice(0, ++i);
+          if (i < s.t.length) setTimeout(tk, 15);
+          else setTimeout(nextSeg, 70);
+        };
+        tk();
+      }
+    };
+    nextSeg();
+  }
+  ansRender();
+  document.getElementById("ansPlay").addEventListener("click", ssePlay);
+  ansText.addEventListener("click", (e) => {
+    const c = e.target.closest(".cite");
+    if (!c) return;
+    const s = SRC[c.dataset.src];
+    if (!s) return;
+    ansText.querySelectorAll(".cite").forEach(x => x.classList.toggle("sel", x === c));
+    srcPanel.hidden = false;
+    srcPanel.innerHTML = `<div class="src-head"><b>${s.doc}</b><span>${s.score}</span></div><p>${s.chunk}</p><div class="src-foot">chunk #${c.dataset.src} · 向量+BM25 双路召回 · rerank 精排 · MinIO 原文一键回源</div>`;
+  });
+  fbUp.addEventListener("click", () => {
+    if (fbUp.classList.contains("done")) return;
+    fbUp.classList.add("done");
+    fbUp.textContent = "👍 已沉淀 hotqa";
+    fbDown.disabled = true;
+  });
+  fbDown.addEventListener("click", () => {
+    if (fbDown.classList.contains("done")) return;
+    fbDown.classList.add("done");
+    fbDown.textContent = "👎 已进入知识自进化";
+    fbUp.disabled = true;
+  });
+
+  /* ============ 04 章 · 检索引擎全景连线（细颗粒版：四路路由 / dense 双挡位 / 双路 RRF / 精排降级 / CRAG 回路） ============ */
+  const rSvg = document.getElementById("rSvg");
+  const rMeta = [
+    { ti: "standalone query", pa: "services/standalone_query.py", bo: "多轮指代消解后的独立查询——检索与缓存都基于它进行；多轮中间态不进缓存，防指代语境污染缓存池。", fl: [["STANDALONE_REWRITE_ENABLE", 1], ["MULTI_TURN_CACHE_ENABLE", 0]] },
+    { ti: "query_classifier 特征提取", pa: "routing/query_classifier.py", bo: "四个特征维度打分：编号命中（10kV / K-27）、术语密度（局放 / 介损）、口语度（低=专业表达）、复合度（阈值+处置两问）。特征组合决定四路归属。" },
+    { ti: "四路路由决策", pa: "routing/routing_service.py · route_query", bo: "sparse：编号/型号/术语精确命中，只走 BM25 最快；dense：口语化语义模糊，只走向量；hybrid：编号+描述复合（最常见），双路 RRF 融合召回上限最高；sparse_first：疑似精确但需兜底，BM25 先行、不足补向量。本例编号+语义复合 → hybrid。路由感知模式下 RRF 权重 / MMR λ / HNSW ef 随 route 动态调（opt-in）。", fl: [["ROUTING_ENABLE", 1], ["RRF_ROUTE_AWARE_ENABLE", 0]] },
+    { ti: "dense 挡位① · 云向量", pa: "embedding_service(qwen) → Milvus grid_chunks", bo: "云 qwen embedding 1024 维 → grid_chunks collection；HNSW top20 召回；_col_cache 缓存 Collection 句柄后稳定 4-8ms（此前偶发 1.7s 的 p99 已消除）。EMB_PROVIDER=qwen 时本挡位生效。", fl: [["EMBED_MODEL_GUARD_ENABLE", 1]] },
+    { ti: "dense 挡位② · 本地 bge", pa: "embedding_service(bge) → Milvus grid_chunks_bge", bo: "本地 bge 512 维 → grid_chunks_bge 独立 collection，两个向量空间绝不混写（EMBED_MODEL_GUARD 防混）；DOC_SIZE_THRESHOLD 决定单篇文档入哪个空间；HF_HUB_OFFLINE 离线 + 启动预热防首问卡 80s。⚠ 切 embedding provider / 改维度必须重建 collection。", fl: [["EMBED_MODEL_GUARD_ENABLE", 1], ["HF_HUB_OFFLINE", 1]] },
+    { ti: "jieba 切词", pa: "services/bm25_service.py · jieba", bo: "自定义电力词表（后台词表 CRUD 可维护）+ jieba 分词：「开关柜|局部放电|检测限值|超标处置」。术语切分完整性直接决定稀疏路召回质量——「局部放电」不能被切成「局部」+「放电」。" },
+    { ti: "BM25 倒排匹配", pa: "services/bm25_service.py", bo: "倒排索引按词项精确匹配：规程编号、设备型号、术语是稀疏路强项——向量对这类「字面精确」query 反而不如倒排；sparse 路由下的唯一通道。top20 · 12ms。" },
+    { ti: "RRF 融合", pa: "rag/rrf.py", bo: "倒数排名融合：score(d) = Σ 1/(k + rank_i(d))，k=60。只用每路的排名、不用原始分——天然免疫 dense 余弦分与 BM25 分数量纲不可比的问题。两路各 top20 → 融合池 40 → 去重 31。路由感知权重 opt-in。", fl: [["RRF_ROUTE_AWARE_ENABLE", 0]] },
+    { ti: "rerank 精排", pa: "services/rerank_service.py · gte-rerank-v2", bo: "cross-encoder 对 (query, chunk) 逐对深度交互打分（不是向量余弦那种浅层相似），重排 top31→top5；本例分数 0.91/0.88/0.84/0.79。精排是最能拉高证据质量的单点，也是除 LLM 外最贵的一步（480ms）。", fl: [["RERANK_ENABLE", 1]] },
+    { ti: "精排降级兜底", pa: "config.RERANK_TIMEOUT = 2.0s", bo: "rerank 超时/异常 → try/except 捕获 → 跳过精排直接用 RRF 序进 MMR。设计哲学：慢比弱好，断了比慢好。obs.degraded 记 DEGRADED 指标、Grafana 可见，主链路绝不中断。", fl: [["RERANK_ENABLE", 1]] },
+    { ti: "MMR 去冗余", pa: "rag/mmr.py", bo: "score = λ·sim(q,d) − (1−λ)·max sim(d, 已选集)：相关性与多样性平衡，剔除同质 chunk 防证据冗余；λ 随 route 感知可调（编号类 query 容忍更高同质度）。", fl: [["MMR_ENABLE", 1]] },
+    { ti: "CRAG es 分级", pa: "rag/crag.py · crag_v2.py", bo: "evidence_strength 统一 [0,1] 口径（rerank 分 + V2 逐条评估）；CRAG_V3 连续五档 high / medium_high / medium_low / low / refused，阈值 rt_crag_high≈0.75 / rt_crag_low 热调免重启；穷尽仍低 → refused + 四类归因（no_recall / rewrite_exhausted / out_of_domain / evidence_contradict）。", fl: [["CRAG_V3_ENABLE", 1], ["REWRITE_EVAL_ENABLE", 1], ["CRAG_REFUSED_TO_GAP_ENABLE", 1]] },
+    { ti: "GraphRAG 3 跳", pa: "services/kg_service.py · Neo4j", bo: "设备型号 → 关联缺陷模式 → 关联处置工艺 → 关联安规条款，三跳邻居展开。图谱给关系骨架、向量给语义细节，互补注入 prompt；KgTriple 镜像 MySQL 可审计；图谱故障 obs.degraded 降级走镜像，主链路不阻断。", fl: [["KG_RAG_ENABLE", 1], ["KG_AUTO_EXTRACT_ENABLE", 1]] },
+    { ti: "证据集 top5", pa: "prompt 组装 · small-to-big", bo: "小块检索命中、大块上下文进 prompt（small-to-big 默认开）——检索用细粒度保证准、生成用粗粒度保证上下文完整；docType 过滤贯穿召回全程。", fl: [["SMALL_TO_BIG_ENABLE", 1]] },
+    { ti: "进可信生成", pa: "providers/llm_router.py", bo: "证据 + 图谱上下文 → build_messages_with_history 组装 → llm_router L0-L3 容错生成 → 句级引用校验，闭环衔接第 02 章主链路 ⑧。", fl: [["LLM_FALLBACK_ON_EMPTY", 1], ["LLM_HEALTH_PROBE_ENABLE", 1]] }
+  ];
+  const RYS = [14, 122, 230, 338, 446];
+  const rLinks = {};
+  const rAddLink = (name, d, cls) => { const p = mk("path", { d, class: "j-link " + (cls || "") }); rSvg.appendChild(p); rLinks[name] = p; };
+  rAddLink("p0", "M175 41 H238");                          // query → classifier
+  rAddLink("p1", "M400 41 H463");                          // classifier → 路由决策（宽节点）
+  rAddLink("p2", "M500 68 C 440 96, 330 96, 320 122");     // 路由 → dense 挡位① ·落顶边中心
+  rAddLink("p3", "M820 68 C 844 94, 770 90, 770 122");     // 路由 → jieba ·垂直入顶边中心
+  rAddLink("p4", "M175 149 H238");                         // 挡位② ↔ 挡位①（EMB_PROVIDER 换挡）
+  rAddLink("p5", "M400 149 C 420 205, 437 257, 465 257");  // 挡位① → RRF ·水平入左边中心
+  rAddLink("p6", "M850 149 H913");                         // jieba 右缘 → BM25
+  rAddLink("p7", "M995 176 C 980 214, 545 204, 545 230");  // BM25 → RRF ·垂直入顶边中心
+  rAddLink("p8", "M625 257 H688");                         // RRF → rerank
+  rAddLink("p9", "M850 257 H913");                         // rerank → MMR
+  rAddLink("p10", "M995 284 C 995 316, 770 306, 770 338"); // MMR → CRAG ·垂直入顶边中心
+  rAddLink("p11", "M690 365 H627");                        // CRAG → GraphRAG
+  rAddLink("p12", "M465 365 H403");                        // GraphRAG → 证据集
+  rAddLink("p13", "M320 392 V446");                        // 证据集 → 进生成
+  rAddLink("rw", "M735 392 C 800 482, 1020 472, 1020 300 C 1020 238, 1000 206, 996 178", "loop"); // CRAG → 双路召回 · 改写回路
+  const laneD = mk("text", { x: 15, y: 116, fill: "#8fd8ff", "font-size": 9.5, "font-weight": 700 }, "┄ 稠密向量路（语义召回）");
+  const laneS = mk("text", { x: 690, y: 116, fill: "#ffd97a", "font-size": 9.5, "font-weight": 700 }, "┄ 稀疏关键词路（精确匹配）");
+  const gearTag = mk("text", { x: 206, y: 144, "text-anchor": "middle", fill: "#7d97ab", "font-size": 9 }, "EMB 换挡");
+  const rwTag = mk("text", { x: 1128, y: 415, "text-anchor": "end", fill: "#a78bfa", "font-size": 10.5, "font-weight": 700, opacity: 0 }, "es 低 → 改写重检索 ↺");
+  const rToTag = mk("text", { x: 770, y: 302, "text-anchor": "middle", fill: "#7d97ab", "font-size": 9, "font-weight": 600 }, "⚠ 超时 2s → 跳过精排 · RRF 序直入 MMR");
+  [laneD, laneS, gearTag, rwTag, rToTag].forEach(t => rSvg.appendChild(t));
+  const rNodeEls = [];
+  const rAddNode = (n, x, y, idx) => {
+    const g = mk("g", { class: "j-node", id: "rn-" + idx });
+    g.appendChild(mk("rect", { x, y, width: NW, height: NH, rx: 11 }));
+    g.appendChild(mk("text", { x: x + NW / 2, y: y + 23, "text-anchor": "middle" }, n[0]));
+    g.appendChild(mk("text", { x: x + NW / 2, y: y + 40, "text-anchor": "middle", class: "sub" }, n[1]));
+    g.addEventListener("click", () => { rDetailSet(rMeta[idx]); rLogAdd("查看节点：" + rMeta[idx].ti); });
+    rSvg.appendChild(g); rNodeEls[idx] = g;
+  };
+  rAddNode(["standalone query", "会话第2轮 · 指代已消解"], XS[0], RYS[0], 0);
+  rAddNode(["query_classifier", "编号·术语·口语度·复合度"], XS[1], RYS[0], 1);
+  // 宽节点 2：四路路由决策（内嵌 sparse / dense / hybrid / sparse_first 四个 pill，hybrid 高亮）
+  const g2 = mk("g", { class: "j-node", id: "rn-2" });
+  g2.appendChild(mk("rect", { x: 465, y: RYS[0], width: 385, height: NH, rx: 11 }));
+  g2.appendChild(mk("text", { x: 473, y: RYS[0] + 20, "text-anchor": "start" }, "query 路由决策 → route = hybrid"));
+  [["sparse", 475], ["dense", 569], ["hybrid ✓", 663], ["sparse_first", 757]].forEach((pl, pi) => {
+    const hit = pi === 2;
+    g2.appendChild(mk("rect", { x: pl[1], y: RYS[0] + 31, width: 84, height: 17, rx: 8, class: "pill" + (hit ? " hit" : "") }));
+    g2.appendChild(mk("text", { x: pl[1] + 42, y: RYS[0] + 43, "text-anchor": "middle", class: "ptxt" + (hit ? " hit" : "") }, pl[0]));
+  });
+  g2.addEventListener("click", () => { rDetailSet(rMeta[2]); rLogAdd("查看节点：" + rMeta[2].ti); });
+  rSvg.appendChild(g2); rNodeEls[2] = g2;
+  rAddNode(["dense · 挡位① 云 qwen", "1024d → grid_chunks · top20"], XS[1], RYS[1], 3);
+  rAddNode(["dense · 挡位② 本地 bge", "512d → grid_chunks_bge"], XS[0], RYS[1], 4);
+  rAddNode(["jieba 切词", "电力词表 · 术语完整性"], XS[3], RYS[1], 5);
+  rAddNode(["BM25 倒排匹配", "编号·型号·术语强匹配"], XS[4], RYS[1], 6);
+  rAddNode(["RRF 融合", "Σ 1/(k+rank) · k=60 · 40→31"], XS[2], RYS[2], 7);
+  rAddNode(["rerank 精排", "gte-v2 逐对打分 31→5"], XS[3], RYS[2], 8);
+  rAddNode(["MMR 去冗余", "λ·相关性 −(1−λ)·冗余度"], XS[4], RYS[2], 9);
+  rAddNode(["CRAG es 分级", "es[0,1] · 五档 high→refused"], XS[3], RYS[3], 10);
+  rAddNode(["GraphRAG 3 跳", "设备→故障→处置→安规"], XS[2], RYS[3], 11);
+  rAddNode(["证据集 top5", "small-to-big 大块进prompt"], XS[1], RYS[3], 12);
+  rAddNode(["进可信生成", "证据+图谱 → llm_router"], XS[1], RYS[4], 13);
+  const rPkt = mk("circle", { id: "rPkt", r: 5.5, fill: "#5eead4", stroke: "#07211f", "stroke-width": 2, opacity: 0 });
+  rSvg.appendChild(rPkt);
+  let rPktAnim = null;
+  function rStopPkt() { if (rPktAnim) { cancelAnimationFrame(rPktAnim); rPktAnim = null; } rPkt.setAttribute("opacity", 0); }
+  function rAnimatePkt(paths, dur, color) {
+    rStopPkt();
+    rPkt.setAttribute("fill", color);
+    const pSegs = paths.map(p => ({ p, len: p.getTotalLength() }));
+    const totalLen = pSegs.reduce((s, x) => s + x.len, 0);
+    const t0 = performance.now();
+    rPkt.setAttribute("opacity", 1);
+    const frame = (now) => {
+      const t = Math.min(1, (now - t0) / dur);
+      const ease = t < .5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+      let d = totalLen * ease;
+      for (const s of pSegs) {
+        if (d <= s.len || s === pSegs[pSegs.length - 1]) {
+          const pt = s.p.getPointAtLength(Math.min(d, s.len));
+          rPkt.setAttribute("cx", pt.x); rPkt.setAttribute("cy", pt.y);
+          break;
+        }
+        d -= s.len;
+      }
+      if (t < 1) rPktAnim = requestAnimationFrame(frame);
+      else rPkt.setAttribute("opacity", 0);
+    };
+    rPktAnim = requestAnimationFrame(frame);
+  }
+  const rLog = document.getElementById("rLog");
+  const rStage = document.getElementById("rStage");
+  const rPlay = document.getElementById("rPlay");
+  const rStepBtn = document.getElementById("rStep");
+  const rReplayBtn = document.getElementById("rReplay");
+  const rdTitle = document.getElementById("rDetailTitle");
+  const rdPath = document.getElementById("rDetailPath");
+  const rdBody = document.getElementById("rDetailBody");
+  const rdFlags = document.getElementById("rDetailFlags");
+  function rDetailSet(d) {
+    rdTitle.textContent = d.ti;
+    rdPath.textContent = d.pa;
+    rdBody.textContent = d.bo;
+    rdFlags.innerHTML = (d.fl || []).map(([f, on]) => `<span class="flag${on ? "" : " off"}">${f} ${on ? "✓开" : "○opt-in"}</span>`).join("");
+  }
+  function rLogAdd(msg) {
+    const item = document.createElement("div");
+    item.className = "li";
+    const now = new Date();
+    item.innerHTML = `<span class="t">${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}:${String(now.getSeconds()).padStart(2, "0")}</span>${msg}`;
+    rLog.prepend(item);
+    while (rLog.children.length > 12) rLog.lastChild.remove();
+  }
+  const rStages = [
+    { t: "准备演示", n: [], l: [], log: "「10kV 开关柜局部放电检测阈值及超标处置」（standalone query）进入引擎——先看四路怎么选、双挡位怎么分、双路怎么融", d: { ti: "混合检索 mixed_search", pa: "services/retrieval_service.py", bo: "引擎三段式：先做宽（四路路由 + dense 双挡位 + 稀疏路双路并发），再做实（RRF 融合 → 精排 → 去冗余），最后守住可信（CRAG 分级 + 拒答）。" } },
+    { t: "① query_classifier 特征提取", n: [0, 1], l: ["p0"], log: "[分类] 编号✓ 术语✓ 口语度低 复合度高（阈值+处置两问）→ 四维打分定路由", d: rMeta[1] },
+    { t: "② 四路决策 → hybrid", n: [1, 2], l: ["p1"], log: "[路由] sparse=仅BM25 / dense=仅向量 / hybrid=双路融合 / sparse_first=BM25先行兜底 → 编号+语义复合选 hybrid", d: rMeta[2] },
+    { t: "③ 稠密路 · 挡位① 云向量", n: [2, 3], l: ["p2"], log: "[dense] EMB_PROVIDER=qwen → 1024d embed → grid_chunks HNSW top20 · 6ms（_col_cache 生效）", d: rMeta[3] },
+    { t: "④ 稠密路 · 挡位② 本地 bge", n: [3, 4], l: ["p4"], log: "[dense] 备挡 bge 512d → grid_chunks_bge：DOC_SIZE_THRESHOLD 分流 · 空间隔离不混 · 离线可用 · 切挡须重建 collection", d: rMeta[4] },
+    { t: "⑤ 稀疏路 · jieba 切词", n: [2, 5], l: ["p3"], log: "[sparse] 电力词表加持 →「开关柜|局部放电|检测限值|超标处置」（术语不被切碎）", d: rMeta[5] },
+    { t: "⑥ 稀疏路 · BM25 倒排", n: [5, 6], l: ["p6"], log: "[sparse] 倒排索引精确匹配 规程编号/型号/术语 · top20 · 12ms（与 dense 并发）", d: rMeta[6] },
+    { t: "⑦ RRF 融合", n: [3, 6, 7], l: ["p5", "p7"], log: "[融合] score=Σ 1/(k+rank) k=60 · 只用排名免疫量纲差异 · 融合池 40 → 去重 31", d: rMeta[7] },
+    { t: "⑧ rerank 精排", n: [7, 8], l: ["p8"], log: "[精排] gte-rerank-v2 cross-encoder 逐对打分 31→5 · 480ms · 0.91/0.88/0.84/0.79", d: rMeta[8] },
+    { t: "⑨ 精排降级兜底", n: [8], l: [], de: 1, log: "[兜底] RERANK_TIMEOUT=2.0s：超时跳过精排 → RRF 序直入 MMR（慢比弱好，断了比慢好）", d: rMeta[9] },
+    { t: "⑩ MMR 去冗余", n: [8, 9], l: ["p9"], log: "[去冗余] score = λ·相关性 − (1−λ)·与已选集最大相似 → 剔除同质证据", d: rMeta[10] },
+    { t: "⑪ CRAG es 分级", n: [9, 10], l: ["p10"], log: "[CRAG] evidence_strength=0.52 → medium_low → 触发自纠错回路", d: rMeta[11] },
+    { t: "⑫ 改写重检索（自纠错回路）", n: [10, 6], l: ["rw"], rw: 1, log: "[CRAG] 改写「开关柜 局部放电 检测限值 超标处置」→ 回到双路召回重检索（rewriteDelta 跟踪）", d: { ti: "改写重检索", pa: "rag/crag.py · rewrite", bo: "medium_low / low 档触发改写重检索；REWRITE_EVAL 验证每次改写增益，ADAPTIVE 让 classifier 判定正常的 query 跳过改写省延迟；穷尽仍低 → refused + 四类归因，绝不编造。", fl: [["REWRITE_EVAL_ENABLE", 1], ["REWRITE_ADAPTIVE_ENABLE", 1]] } },
+    { t: "⑬ CRAG 复评", n: [10], l: ["p10"], log: "[CRAG] 二轮 es=0.81 → correct · confidence=high（rewriteDelta +0.29 增益入档）", d: rMeta[11] },
+    { t: "⑭ GraphRAG 3 跳", n: [10, 11], l: ["p11"], log: "[图谱] 设备型号→缺陷模式→处置工艺→安规条款 · 140ms · 关系骨架互补语义细节", d: rMeta[12] },
+    { t: "⑮ 证据集组装", n: [11, 12], l: ["p12"], log: "[证据] top5 · small-to-big 小块命中大块进 prompt · docType 过滤贯穿", d: rMeta[13] },
+    { t: "⑯ 进可信生成", n: [12, 13], l: ["p13"], log: "[生成] 证据+图谱 → build_messages_with_history → llm_router L0-L3（衔接第 02 章 ⑧）", d: rMeta[14] },
+    { t: "⑰ 引擎小结", n: [13], l: ["p13"], log: "[小结] 宽（四路路由 + 双挡位双路召回）→ 实（RRF + 精排 + MMR）→ 可信（CRAG 五档守门）", d: rMeta[14] }
+  ];
+  let ri = 0, rPlaying = false, rTimer = null;
+  function rApply(i) {
+    ri = i;
+    const st = rStages[i];
+    rNodeEls.forEach((el, idx) => el.classList.toggle("on", st.n.includes(idx)));
+    Object.entries(rLinks).forEach(([k, el]) => el.classList.toggle("lit", st.l.includes(k)));
+    rwTag.setAttribute("opacity", st.rw ? 1 : 0);
+    rToTag.setAttribute("fill", st.de ? "#ffd97a" : "#7d97ab");
+    rToTag.setAttribute("font-weight", st.de ? "800" : "600");
+    const lit = st.l.map(k => rLinks[k]).filter(Boolean);
+    if (lit.length) rAnimatePkt(lit, Math.max(480, 960 / jSpeedN), st.rw ? "#a78bfa" : "#5eead4");
+    else rStopPkt();
+    rStage.textContent = st.t + `（${i + 1}/${rStages.length}）`;
+    rDetailSet(st.d || rMeta[st.n[st.n.length - 1]] || rMeta[0]);
+    rLogAdd(st.log);
+  }
+  function rPause() { rPlaying = false; clearTimeout(rTimer); rPlay.disabled = false; rPlay.textContent = "▶ 继续"; }
+  function rSchedule() {
+    clearTimeout(rTimer);
+    if (!rPlaying) return;
+    if (ri >= rStages.length - 1) { rPause(); rPlay.textContent = "▶ 开始演示"; return; }
+    rTimer = setTimeout(() => { rApply(ri + 1); rSchedule(); }, 1150 / jSpeedN);
+  }
+  rPlay.addEventListener("click", () => {
+    if (rPlaying) { rPause(); return; }
+    if (ri >= rStages.length - 1) rApply(0);
+    rPlaying = true; rPlay.disabled = true; rPlay.textContent = "演示中";
+    rSchedule();
+  });
+  rStepBtn.addEventListener("click", () => { rPause(); rApply(ri >= rStages.length - 1 ? 0 : ri + 1); });
+  rReplayBtn.addEventListener("click", () => { rPause(); rLog.innerHTML = ""; rApply(0); rPlaying = true; rPlay.disabled = true; rPlay.textContent = "演示中"; rSchedule(); });
+  rApply(0);
+
+  /* ============ 04 章 · tabs 连线图工厂（混合检索 / CRAG / GraphRAG / 军械库 共用） ============ */
+  function tabEngine(cfg) {
+    const s = document.getElementById(cfg.svg);
+    const L = {};
+    cfg.links.forEach(k => { const p = mk("path", { d: k.d, class: "j-link " + (k.c || "") }); s.appendChild(p); L[k.n] = p; });
+    const tg = {};
+    (cfg.tags || []).forEach(t => { tg[t.n] = mk("text", t.a, t.x); s.appendChild(tg[t.n]); });
+    const dt = document.getElementById(cfg.d.t), dp = document.getElementById(cfg.d.p), db = document.getElementById(cfg.d.b), df = document.getElementById(cfg.d.f);
+    function dSet(d) {
+      dt.textContent = d.ti; dp.textContent = d.pa; db.textContent = d.bo;
+      df.innerHTML = (d.fl || []).map(([f, on]) => `<span class="flag${on ? "" : " off"}">${f} ${on ? "✓开" : "○opt-in"}</span>`).join("");
+    }
+    const lg = document.getElementById(cfg.log);
+    function logAdd(m) {
+      const it = document.createElement("div"); it.className = "li"; const nw = new Date();
+      it.innerHTML = `<span class="t">${String(nw.getHours()).padStart(2, "0")}:${String(nw.getMinutes()).padStart(2, "0")}:${String(nw.getSeconds()).padStart(2, "0")}</span>${m}`;
+      lg.prepend(it); while (lg.children.length > 12) lg.lastChild.remove();
+    }
+    const NE = [];
+    cfg.nodes.forEach(N => {
+      const g = mk("g", { class: "j-node", id: (cfg.idp || "en-") + N.i });
+      const w = N.w || NW;
+      g.appendChild(mk("rect", { x: N.x, y: N.y, width: w, height: NH, rx: 11 }));
+      if (N.pills) {
+        g.appendChild(mk("text", { x: N.x + 8, y: N.y + 20 }, N.t));
+        N.pills.forEach(pl => {
+          const pw = pl[3] || 84;
+          g.appendChild(mk("rect", { x: pl[1], y: N.y + 31, width: pw, height: 17, rx: 8, class: "pill" + (pl[2] ? " hit" : "") }));
+          g.appendChild(mk("text", { x: pl[1] + pw / 2, y: N.y + 43, "text-anchor": "middle", class: "ptxt" + (pl[2] ? " hit" : "") }, pl[0]));
+        });
+      } else {
+        g.appendChild(mk("text", { x: N.x + w / 2, y: N.y + 23, "text-anchor": "middle" }, N.t));
+        g.appendChild(mk("text", { x: N.x + w / 2, y: N.y + 40, "text-anchor": "middle", class: "sub" }, N.s));
+      }
+      g.addEventListener("click", () => { dSet(cfg.meta[N.i]); logAdd("查看节点：" + cfg.meta[N.i].ti); });
+      if (N.adj) {
+        g.addEventListener("mouseenter", () => { N.adj.forEach(k => L[k] && L[k].classList.add("lit")); g.classList.add("on"); });
+        g.addEventListener("mouseleave", () => { N.adj.forEach(k => L[k] && L[k].classList.remove("lit")); g.classList.remove("on"); });
+      }
+      s.appendChild(g); NE[N.i] = g;
+    });
+    const pk = mk("circle", { r: 5.5, fill: "#5eead4", stroke: "#07211f", "stroke-width": 2, opacity: 0 });
+    s.appendChild(pk);
+    let pa = null;
+    function stopPk() { if (pa) { cancelAnimationFrame(pa); pa = null; } pk.setAttribute("opacity", 0); }
+    function runPk(paths, dur, color) {
+      stopPk(); pk.setAttribute("fill", color);
+      const segs = paths.map(p => ({ p, len: p.getTotalLength() }));
+      const tot = segs.reduce((a, x) => a + x.len, 0); const t0 = performance.now();
+      pk.setAttribute("opacity", 1);
+      const fr = (now) => {
+        const t = Math.min(1, (now - t0) / dur);
+        const ease = t < .5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+        let d = tot * ease;
+        for (const sg of segs) {
+          if (d <= sg.len || sg === segs[segs.length - 1]) { const pt = sg.p.getPointAtLength(Math.min(d, sg.len)); pk.setAttribute("cx", pt.x); pk.setAttribute("cy", pt.y); break; }
+          d -= sg.len;
+        }
+        if (t < 1) pa = requestAnimationFrame(fr); else pk.setAttribute("opacity", 0);
+      };
+      pa = requestAnimationFrame(fr);
+    }
+    const stEl = document.getElementById(cfg.stage), plBtn = document.getElementById(cfg.play), spBtn = document.getElementById(cfg.step);
+    let ci = 0, playing = false, tm = null;
+    function apply(n) {
+      ci = n; const st = cfg.stages[n];
+      NE.forEach((el, idx) => { if (el) el.classList.toggle("on", st.n.includes(idx)); });
+      Object.entries(L).forEach(([k, el]) => el.classList.toggle("lit", st.l.includes(k)));
+      (cfg.tagCtl || []).forEach(fn => fn(tg, st));
+      const lit = st.l.map(k => L[k]).filter(Boolean);
+      if (lit.length) runPk(lit, Math.max(480, 960 / jSpeedN), st.rw ? "#a78bfa" : st.hot ? "#2dd4bf" : "#5eead4"); else stopPk();
+      stEl.textContent = st.t + `（${n + 1}/${cfg.stages.length}）`;
+      dSet(st.d || cfg.meta[st.n[st.n.length - 1]] || cfg.meta[0]);
+      logAdd(st.log);
+    }
+    function pause() { playing = false; clearTimeout(tm); plBtn.disabled = false; plBtn.textContent = "▶ 继续"; }
+    function sched() {
+      clearTimeout(tm); if (!playing) return;
+      if (ci >= cfg.stages.length - 1) { pause(); plBtn.textContent = "▶ 开始演示"; return; }
+      tm = setTimeout(() => { apply(ci + 1); sched(); }, 1150 / jSpeedN);
+    }
+    plBtn.addEventListener("click", () => { if (playing) { pause(); return; } if (ci >= cfg.stages.length - 1) apply(0); playing = true; plBtn.disabled = true; plBtn.textContent = "演示中"; sched(); });
+    spBtn.addEventListener("click", () => { pause(); apply(ci >= cfg.stages.length - 1 ? 0 : ci + 1); });
+    apply(0);
+  }
+
+  /* ---- tab 1 · 混合检索 ---- */
+  tabEngine({
+    svg: "hSvg", idp: "hn-", stage: "hStage", play: "hPlay", step: "hStep", log: "hLog",
+    d: { t: "hDTitle", p: "hDPath", b: "hDBody", f: "hDFlags" },
+    meta: [
+      { ti: "query · docType 过滤前置", pa: "routers/qa.py → retrieval_service", bo: "检索入口即带 docType 过滤——手册/案例/规程等文档类型约束贯穿召回全程：召回池先按类型收窄再做语义匹配，避免跨类型噪声证据混入最终答案。", fl: [["docType 过滤", 1]] },
+      { ti: "四路路由决策", pa: "routing/routing_service.py · route_query", bo: "sparse：编号/型号/术语精确命中，只走 BM25 最快；dense：口语化语义模糊，只走向量；hybrid：编号+描述复合（最常见），双路 RRF 融合召回上限最高；sparse_first：疑似精确但需兜底，BM25 先行、不足补向量。", fl: [["ROUTING_ENABLE", 1], ["RRF_ROUTE_AWARE_ENABLE", 0]] },
+      { ti: "文档入库 · 切块", pa: "services/chunk_service.py", bo: "索引侧离线动作：解析（含 OCR）→ 基础切块 → 同时入双向量 collection 与 BM25 倒排（同源）；contextual chunk（opt-in）在切块时为每块拼上游上下文摘要，增强短块的语义自含性。", fl: [["CONTEXTUAL_CHUNK_ENABLE", 0]] },
+      { ti: "dense 挡位① · 云向量", pa: "embedding_service(qwen) → Milvus grid_chunks", bo: "云 qwen 1024 维 → grid_chunks；HNSW top20；_col_cache 句柄缓存后稳定 4-8ms。EMB_PROVIDER=qwen 时本挡位生效。", fl: [["EMBED_MODEL_GUARD_ENABLE", 1]] },
+      { ti: "dense 挡位② · 本地 bge", pa: "embedding_service(bge) → Milvus grid_chunks_bge", bo: "本地 bge 512 维 → grid_chunks_bge 独立 collection，向量空间绝不混写；DOC_SIZE_THRESHOLD 决定单篇入哪个空间；HF_HUB_OFFLINE 离线 + 启动预热。⚠ 切 provider 必须重建 collection。", fl: [["EMBED_MODEL_GUARD_ENABLE", 1]] },
+      { ti: "small-to-big 检索粒度", pa: "retrieval_service · SMALL_TO_BIG_ENABLE", bo: "小块（细粒度）用于检索命中保证准，命中后扩展父级大块进 prompt 保证上下文完整——检索准与生成全两头兼顾；默认开。图中右侧支路即『大块直进 prompt』。", fl: [["SMALL_TO_BIG_ENABLE", 1], ["CONTEXTUAL_CHUNK_ENABLE", 0]] },
+      { ti: "jieba 切词", pa: "services/bm25_service.py · jieba", bo: "自定义电力词表（后台词表 CRUD 可维护）+ jieba 分词：「开关柜|局部放电|检测限值|超标处置」——术语切分完整性直接决定稀疏路召回质量。", fl: [["电力词表 CRUD", 1]] },
+      { ti: "BM25 倒排匹配", pa: "services/bm25_service.py", bo: "倒排索引按词项精确匹配：规程编号、设备型号、术语是稀疏路强项；sparse 路由下的唯一通道。top20 · 12ms，与 dense 并发执行。", fl: [["BM25", 1]] },
+      { ti: "RRF 融合", pa: "rag/rrf.py", bo: "倒数排名融合：score(d) = Σ 1/(k + rank_i(d))，k=60。只用每路排名、不用原始分——天然免疫 dense 余弦分与 BM25 分数量纲不可比。两路各 top20 → 融合池 40 → 去重 31。", fl: [["RRF_ROUTE_AWARE_ENABLE", 0]] },
+      { ti: "rerank 精排", pa: "services/rerank_service.py · gte-rerank-v2", bo: "cross-encoder 对 (query, chunk) 逐对深度交互打分，重排 top31→top5（0.91/0.88/0.84/0.79）；最拉高证据质量的单点，也是除 LLM 外最贵的一步（480ms）。", fl: [["RERANK_ENABLE", 1]] },
+      { ti: "精排降级兜底", pa: "config.RERANK_TIMEOUT = 2.0s", bo: "rerank 超时/异常 → try/except 捕获 → 跳过精排直接用 RRF 序进 MMR；obs.degraded 记 DEGRADED 指标、Grafana 可见。慢比弱好，断了比慢好。", fl: [["RERANK_ENABLE", 1]] },
+      { ti: "MMR 去冗余", pa: "rag/mmr.py", bo: "score = λ·sim(q,d) − (1−λ)·max sim(d, 已选集)：相关性与多样性平衡，剔除同质 chunk 防证据冗余；λ 路由感知可调（编号类 query 容忍更高同质度）。", fl: [["MMR_ENABLE", 1]] },
+      { ti: "证据集 top5", pa: "retrieval_service → prompt 组装", bo: "MMR 后 5 条互补证据 + small-to-big 大块上下文组装进 prompt；docType 过滤从入口贯穿到此处——每条证据都带类型约束与来源元数据，供句级角标回源。", fl: [["SMALL_TO_BIG_ENABLE", 1]] },
+      { ti: "retrieval_tune 调参扫描", pa: "services/retrieval_tune_service.py", bo: "持续扫描低分 query，给出 RRF 权重 / MMR λ / HNSW ef 等参数建议；retrieval_eval_service 线上评估回流提供低分样本源，eval_matrix 汇总呈现。", fl: [["EVAL_TO_TUNE_ENABLE", 0]] },
+      { ti: "评测低分 → 自动调参", pa: "retrieval_eval_service → retrieval_tune_service", bo: "EVAL_TO_TUNE_ENABLE（opt-in）打通『评测低分 → 自动触发调参扫描』：线上评估持续回流低分 query → 调参扫描产出参数建议 → 回写检索管线生效——检索质量的飞轮。", fl: [["EVAL_TO_TUNE_ENABLE", 0]] }
+    ],
+    links: [
+      { n: "l0", d: "M175 41 H238" },
+      { n: "l1", d: "M320 68 V122" },
+      { n: "l2", d: "M610 68 C 644 94, 770 92, 770 122" },
+      { n: "l3", d: "M175 149 H238" },
+      { n: "l4", d: "M995 68 V122" },
+      { n: "l5", d: "M400 149 H463" },
+      { n: "l6", d: "M545 176 V230" },
+      { n: "l7", d: "M850 149 H913" },
+      { n: "l8", d: "M995 176 C 995 208, 580 202, 580 230" },
+      { n: "l9", d: "M625 257 H688" },
+      { n: "l10", d: "M770 284 V338" },
+      { n: "l11", d: "M850 257 H913" },
+      { n: "l12", d: "M995 284 C 995 312, 850 308, 850 338" },
+      { n: "l13", d: "M690 365 H627" },
+      { n: "l14", d: "M545 392 V446" },
+      { n: "l15", d: "M465 473 H402" },
+      { n: "l16", d: "M320 446 C 320 368, 388 257, 463 257", c: "loop" },
+      { n: "l17", d: "M625 149 C 690 175, 600 316, 600 338", c: "hot" }
+    ],
+    tags: [
+      { n: "laneD", a: { x: 15, y: 116, fill: "#8fd8ff", "font-size": 9.5, "font-weight": 700 }, x: "┄ 稠密向量路（双挡位 · 语义召回）" },
+      { n: "laneS", a: { x: 690, y: 116, fill: "#ffd97a", "font-size": 9.5, "font-weight": 700 }, x: "┄ 稀疏关键词路（精确匹配）" },
+      { n: "idxT", a: { x: 995, y: 116, fill: "#7d97ab", "font-size": 9, "font-weight": 600, "text-anchor": "middle" }, x: "索引侧（离线）" },
+      { n: "tuneT", a: { x: 15, y: 440, fill: "#a78bfa", "font-size": 9.5, "font-weight": 700 }, x: "┄ 调参闭环（线上回流 · opt-in）" },
+      { n: "gearTag", a: { x: 206, y: 144, "text-anchor": "middle", fill: "#7d97ab", "font-size": 9 }, x: "EMB 换挡" },
+      { n: "deTag", a: { x: 758, y: 306, "text-anchor": "end", fill: "#7d97ab", "font-size": 9, "font-weight": 600 }, x: "⚠ 超时 2s → RRF 序兜底" },
+      { n: "s2bTag", a: { x: 645, y: 240, fill: "#2dd4bf", "font-size": 9, "font-weight": 600, opacity: 0 }, x: "大块上下文 → prompt" }
+    ],
+    nodes: [
+      { i: 0, x: 15, y: 14, t: "query · docType 过滤", s: "手册/规程类型约束前置", adj: ["l0"] },
+      { i: 1, x: 240, y: 14, w: 385, t: "query 路由决策 → route = hybrid", pills: [["sparse", 250, 0], ["dense", 344, 0], ["hybrid ✓", 438, 1], ["sparse_first", 532, 0]], adj: ["l0", "l1", "l2"] },
+      { i: 2, x: 915, y: 14, t: "文档入库 · 切块", s: "chunk_service · 索引侧", adj: ["l4"] },
+      { i: 3, x: 240, y: 122, t: "dense 挡位① 云", s: "qwen 1024d · HNSW top20", adj: ["l1", "l3", "l5"] },
+      { i: 4, x: 15, y: 122, t: "dense 挡位② bge", s: "512d 空间隔离 · 离线可用", adj: ["l3"] },
+      { i: 5, x: 465, y: 122, t: "small-to-big ✓", s: "小块检索 · 大块进 prompt", adj: ["l5", "l6", "l17"] },
+      { i: 6, x: 690, y: 122, t: "jieba 切词", s: "电力词表 · 术语完整性", adj: ["l2", "l7"] },
+      { i: 7, x: 915, y: 122, t: "BM25 倒排", s: "编号·型号·术语强匹配", adj: ["l4", "l7", "l8"] },
+      { i: 8, x: 465, y: 230, t: "RRF 融合", s: "Σ1/(k+rank) · k=60 · 40→31", adj: ["l6", "l8", "l9", "l16"] },
+      { i: 9, x: 690, y: 230, t: "rerank 精排", s: "gte-v2 逐对 31→5 · 480ms", adj: ["l9", "l10", "l11"] },
+      { i: 10, x: 915, y: 230, t: "⚠ 降级兜底", s: "超时 2s → RRF 序", adj: ["l11", "l12"] },
+      { i: 11, x: 690, y: 338, t: "MMR 去冗余", s: "λ·相关 −(1−λ)·冗余", adj: ["l10", "l12", "l13"] },
+      { i: 12, x: 465, y: 338, t: "证据集 top5", s: "docType 贯穿 · 带来源元数据", adj: ["l13", "l14", "l17"] },
+      { i: 13, x: 240, y: 446, t: "retrieval_tune", s: "低分 query 扫描 · 参数建议", adj: ["l15", "l16"] },
+      { i: 14, x: 465, y: 446, t: "eval → tune 回流", s: "评测低分自动触发调参 ○", adj: ["l14", "l15"] }
+    ],
+    tagCtl: [(t, st) => {
+      if (t.deTag) t.deTag.setAttribute("fill", st.de ? "#ffd97a" : "#7d97ab");
+      if (t.s2bTag) t.s2bTag.setAttribute("opacity", st.hot ? 1 : 0);
+    }],
+    stages: [
+      { t: "准备演示", n: [], l: [], log: "hybrid 检索深潜：先看四路怎么选、切块怎么影响索引、双挡位怎么隔离，再看融合-精排-去冗余与降级兜底，最后看线上低分怎么回流调参", d: { ti: "混合检索 mixed_search", pa: "services/retrieval_service.py", bo: "宽（四路 + 双挡位 + 稀疏路并发）→ 实（RRF + 精排 + MMR）→ 稳（2s 降级兜底）→ 进化（评测低分回流调参）。每个特性开关都穿在链路上，点节点看详情。" } },
+      { t: "① docType 过滤 · 四路决策", n: [0, 1], l: ["l0"], log: "[入口] docType=规程+手册 收窄召回池 → classifier：编号+语义复合 → hybrid", d: null },
+      { t: "② 稠密路 · 挡位① 云向量", n: [1, 3], l: ["l1"], log: "[dense] qwen 1024d → grid_chunks HNSW top20 · 6ms（_col_cache 生效）" },
+      { t: "③ 挡位② 本地 bge 备挡", n: [3, 4], l: ["l3"], log: "[dense] bge 512d → grid_chunks_bge：DOC_SIZE_THRESHOLD 分流 · 空间隔离不混 · 切挡须重建 collection" },
+      { t: "④ small-to-big 检索粒度", n: [3, 5], l: ["l5"], log: "[粒度] 小块检索命中（细粒度保准）；命中后的父级大块扩展见 ⑪" },
+      { t: "⑤ 稀疏路 · jieba → BM25", n: [1, 6, 7], l: ["l2", "l7"], log: "[sparse] 电力词表切词 → 倒排精确匹配 编号/型号 · top20 · 12ms（与 dense 并发）" },
+      { t: "⑥ 索引侧 · 入库切块", n: [2, 7], l: ["l4"], log: "[索引] 文档入库 chunk_service 切块 → BM25 倒排与双向量 collection 同源；contextual chunk opt-in 增强短块语义" },
+      { t: "⑦ RRF 融合", n: [5, 7, 8], l: ["l6", "l8"], log: "[融合] Σ 1/(k+rank) k=60 · 只用排名免疫量纲差异 · 融合池 40 → 去重 31" },
+      { t: "⑧ rerank 精排", n: [8, 9], l: ["l9"], log: "[精排] gte-rerank-v2 逐对打分 31→5 · 480ms · 0.91/0.88/0.84/0.79" },
+      { t: "⑨ 精排降级兜底", n: [9, 10, 11], l: ["l11", "l12"], de: 1, log: "[兜底] ⚠ 超时 2s：跳过精排 → RRF 序直入 MMR（DEGRADED 指标可见，主链路不断）" },
+      { t: "⑩ MMR 去冗余", n: [9, 11], l: ["l10"], log: "[去冗余] λ·相关性 −(1−λ)·冗余 → 5 条互补证据" },
+      { t: "⑪ 证据集 · 大块进 prompt", n: [5, 11, 12], l: ["l13", "l17"], hot: 1, log: "[证据] top5 组装；small-to-big 大块上下文直达 prompt——检索用小块保准、生成用大块保全" },
+      { t: "⑫ 低分回流 · 调参闭环", n: [12, 14, 13, 8], l: ["l14", "l15", "l16"], rw: 1, log: "[闭环] 线上评估低分 query → EVAL_TO_TUNE（opt-in）触发 retrieval_tune 扫描 → 权重/λ/ef 建议回写检索参数" },
+      { t: "⑬ 小结", n: [12], l: ["l13"], log: "[小结] 宽 → 实 → 稳 → 进化：一条链路把 80+ 特性开关里检索相关的每一个都穿起来了" }
+    ]
+  });
+
+  /* ---- tab 2 · CRAG 自纠错 ---- */
+  tabEngine({
+    svg: "cSvg", idp: "cn-", stage: "cStage", play: "cPlay", step: "cStep", log: "cLog",
+    d: { t: "cDTitle", p: "cDPath", b: "cDBody", f: "cDFlags" },
+    meta: [
+      { ti: "证据集 top5", pa: "retrieval_service → CRAG 入口", bo: "上一图混合检索的终点即本图起点：MMR 后 5 条互补证据（各带 rerank 分与来源元数据）进入可信评估——两图在「证据集」节点衔接。", fl: [["MMR_ENABLE", 1], ["SMALL_TO_BIG_ENABLE", 1]] },
+      { ti: "evidence_strength 统一口径", pa: "rag/crag.py + crag_v2.py", bo: "rerank 精排分 + V2 逐条证据 LLM 评估，归一成 [0,1] 连续口径 evidence_strength——不再只看单一相关性，而是证据对问题的整体支撑强度；本例 es=0.52。", fl: [["CRAG_ENABLE", 1], ["CRAG_PERDOC_ENABLE", 1]] },
+      { ti: "五档置信判决", pa: "rag/crag.py · CRAG_V3", bo: "es 与 rerank 分共同判决五档：high（≥rt_crag_high≈0.75，热调）/ medium_high / medium_low / low（≤rt_crag_low）/ refused。action×grade 矩阵给出每档动作与归因；阈值经 config:Redis 热调免重启；缓存 key 版本串含 V3 段——切档老缓存自动失效。", fl: [["CRAG_V3_ENABLE", 1]] },
+      { ti: "high · 直接生成", pa: "action×grade 矩阵", bo: "证据充分可信 → 直接生成，句级引用全句覆盖，confidence=high——快路径，零纠错开销。", fl: [["CRAG_V3_ENABLE", 1]] },
+      { ti: "medium_high · 生成+标注", pa: "action×grade 矩阵", bo: "证据较充分 → 正常生成并显式标注置信度；若 dislike 与历史 high 冲突会触发 over-confident 复核。", fl: [["CRAG_V3_ENABLE", 1], ["CONFIDENCE_OVERCONFIDENT_ENABLE", 1]] },
+      { ti: "medium_low · 改写重检索", pa: "rag/crag.py · rewrite", bo: "证据部分支撑 → 触发自纠错：改写 query 重检索；CRAG_NEIGHBOR_EXPAND（opt-in）可顺带补邻块证据。本例落此档。", fl: [["CRAG_NEIGHBOR_EXPAND_ENABLE", 0]] },
+      { ti: "low · 二次重检索", pa: "rag/crag.py · rewrite ×2", bo: "es≤rt_crag_low → 二次重检索，穷尽仍低 → 升 refused 拒答；rewriteDelta 全程记录两轮 es 增量供回测。", fl: [["REWRITE_EVAL_ENABLE", 1]] },
+      { ti: "refused · 拒答+归因", pa: "rag/crag.py · refusedReason", bo: "纠错穷尽仍无证据 → 拒答，绝不编造；refusedReason 四类归因（no_recall / rewrite_exhausted / out_of_domain / evidence_contradict）让「答不上来」可运营。", fl: [["CRAG_REFUSED_TO_GAP_ENABLE", 1]] },
+      { ti: "query 改写器", pa: "rag/crag.py · rewrite", bo: "不是盲改：REWRITE_EVAL（默认开）对每次改写验证增益——改了没提升就停；REWRITE_ADAPTIVE（默认开）让 classifier 判定正常的 query 直接跳过改写省延迟；邻域扩展 opt-in 补上下文邻块。", fl: [["REWRITE_EVAL_ENABLE", 1], ["REWRITE_ADAPTIVE_ENABLE", 1], ["CRAG_NEIGHBOR_EXPAND_ENABLE", 0]] },
+      { ti: "重检索 · 回混合检索", pa: "retrieval_service.mixed_search", bo: "改写后的 query 回到第 04 章顶部的混合检索管线双路重召回——CRAG 与检索是同一闭环的两半，不是孤立模块。", fl: [["ROUTING_ENABLE", 1]] },
+      { ti: "no_recall → evidence_gap", pa: "refusedReason ①", bo: "知识库无召回：query 自动进 evidence_gap（CRAG_REFUSED_TO_GAP 默认开）——拒答即收集，缺知识这件事本身成为数据。", fl: [["CRAG_REFUSED_TO_GAP_ENABLE", 1], ["EVIDENCE_GAP_AUTO_COLLECT_ENABLE", 1]] },
+      { ti: "rewrite_exhausted → 回测", pa: "refusedReason ②", bo: "改写重检索穷尽：rewriteDelta 记录的逐轮增量进入回测评估——改写策略是否有效用数据说话。", fl: [["REWRITE_EVAL_ENABLE", 1]] },
+      { ti: "out_of_domain → 域引导", pa: "refusedReason ③", bo: "域外问题：不硬答也不空手而归，引导用户到正确知识域或权限域。", fl: [["SAFETY_FILTER_ENABLE", 1]] },
+      { ti: "evidence_contradict → 治理", pa: "refusedReason ④", bo: "证据相互矛盾：标记知识冲突进治理队列（withdraw/supersede 裁决），源头解决而不是绕过。", fl: [["knowledge_governance", 1]] },
+      { ti: "evidence_gap 闭环", pa: "补全 cron + member_queries 回测", bo: "补全 cron 周期处理缺口：关联知识源入库 → member_queries 重跑验证召回 lift → 达标才算补全——「下次能答」有回测数据背书，不是自我感觉。", fl: [["EVIDENCE_GAP_AUTO_COLLECT_ENABLE", 1]] },
+      { ti: "低置信增强支路", pa: "debate / judge / over-confident", bo: "DEBATE_ON_LOW_CONFIDENCE（opt-in）：medium_low/low/refused 触发三专家裁决，共识注入答案并升置信；SUFFICIENCY_GATE（opt-in）：judge.answerability 判证据不足直接降一档防硬答；CONFIDENCE_OVERCONFIDENT（默认开）：dislike × 历史 high 冲突 → evidence_gap 复核 + 机器人工对齐，防「自信地答错」。", fl: [["DEBATE_ON_LOW_CONFIDENCE_ENABLE", 0], ["SUFFICIENCY_GATE_ENABLE", 0], ["CONFIDENCE_OVERCONFIDENT_ENABLE", 1]] }
+    ],
+    links: [
+      { n: "c0", d: "M175 41 H238" },
+      { n: "c1", d: "M400 41 H463" },
+      { n: "c2", d: "M505 68 C 360 96, 95 92, 95 122" },
+      { n: "c3", d: "M545 68 C 430 96, 320 92, 320 122" },
+      { n: "c4", d: "M590 68 C 575 94, 545 92, 545 122" },
+      { n: "c5", d: "M665 68 C 690 94, 770 92, 770 122" },
+      { n: "c6", d: "M895 68 C 950 94, 995 92, 995 122" },
+      { n: "c7", d: "M490 176 C 430 204, 320 200, 320 230" },
+      { n: "c8", d: "M730 176 C 720 204, 560 200, 560 230" },
+      { n: "c9", d: "M400 257 H463" },
+      { n: "c10", d: "M545 230 C 470 214, 420 120, 465 68", c: "loop" },
+      { n: "c12", d: "M990 176 C 990 300, 320 300, 320 338" },
+      { n: "c13", d: "M950 176 C 950 285, 545 315, 545 338" },
+      { n: "c14", d: "M920 176 C 920 285, 770 310, 770 338" },
+      { n: "c15", d: "M1010 176 V338" },
+      { n: "c16", d: "M320 392 V446" },
+      { n: "c17", d: "M400 473 C 445 440, 420 257, 463 257", c: "loop" },
+      { n: "c18", d: "M545 392 V446" }
+    ],
+    tags: [
+      { n: "g1", a: { x: 15, y: 116, fill: "#8fd8ff", "font-size": 9.5, "font-weight": 700 }, x: "┄ 证据评估（V3 连续置信度五档）" },
+      { n: "g2", a: { x: 1078, y: 250, "text-anchor": "end", fill: "#ffa48f", "font-size": 9.5, "font-weight": 700 }, x: "refusedReason 归因分发" },
+      { n: "g3", a: { x: 15, y: 440, fill: "#a78bfa", "font-size": 9.5, "font-weight": 700 }, x: "┄ 闭环回流（补全 → 回测 ↺）" },
+      { n: "g4", a: { x: 1078, y: 84, "text-anchor": "end", fill: "#7d97ab", "font-size": 9, "font-weight": 600 }, x: "阈值 rt_crag_high/low 热调" },
+      { n: "g5", a: { x: 440, y: 210, "text-anchor": "end", fill: "#a78bfa", "font-size": 9.5, "font-weight": 700, opacity: 0 }, x: "复评回路 ↺" },
+      { n: "g6", a: { x: 852, y: 440, "text-anchor": "end", fill: "#7d97ab", "font-size": 9, "font-weight": 600 }, x: "m_low/low/refused × dislike 触发" }
+    ],
+    nodes: [
+      { i: 0, x: 15, y: 14, t: "证据集 top5", s: "MMR 后互补证据 · 带元数据", adj: ["c0"] },
+      { i: 1, x: 240, y: 14, t: "es 计算", s: "rerank分 + V2逐条 [0,1]", adj: ["c0", "c1"] },
+      { i: 2, x: 465, y: 14, w: 470, t: "五档置信判决（CRAG_V3 ✓）", pills: [["high ✓", 477, 1, 82], ["m_high", 567, 0, 82], ["m_low ▸", 657, 1, 82], ["low", 747, 0, 82], ["refused", 837, 0, 82]], adj: ["c1", "c2", "c3", "c4", "c5", "c6", "c10"] },
+      { i: 3, x: 15, y: 122, t: "high · 快路", s: "直接生成 · 句级引用", adj: ["c2"] },
+      { i: 4, x: 240, y: 122, t: "m_high", s: "生成 + 标注置信度", adj: ["c3"] },
+      { i: 5, x: 465, y: 122, t: "m_low · 本例", s: "改写重检索 ↺ 邻域○", adj: ["c4", "c7"] },
+      { i: 6, x: 690, y: 122, t: "low", s: "二次重检索 → 仍低 refused", adj: ["c5", "c8"] },
+      { i: 7, x: 915, y: 122, t: "refused", s: "拒答 + refusedReason", adj: ["c6", "c12", "c13", "c14", "c15"] },
+      { i: 8, x: 240, y: 230, t: "query 改写器", s: "改写评估✓ 自适应✓ 邻域○", adj: ["c7", "c9"] },
+      { i: 9, x: 465, y: 230, t: "重检索", s: "回混合检索双路重召回", adj: ["c8", "c9", "c10", "c17"] },
+      { i: 10, x: 240, y: 338, t: "no_recall", s: "→ evidence_gap 自动收集 ✓", adj: ["c12", "c16"] },
+      { i: 11, x: 465, y: 338, t: "rewrite_exhausted", s: "→ rewriteDelta 回测", adj: ["c13", "c18"] },
+      { i: 12, x: 690, y: 338, t: "out_of_domain", s: "→ 域引导", adj: ["c14"] },
+      { i: 13, x: 915, y: 338, t: "contradict", s: "→ 知识治理队列", adj: ["c15"] },
+      { i: 14, x: 240, y: 446, t: "gap 闭环", s: "补全 cron + 回测 lift", adj: ["c16", "c17"] },
+      { i: 15, x: 465, y: 446, w: 385, t: "低置信增强支路", pills: [["DEBATE 三专家 ○", 475, 0, 112], ["SUFFICIENCY ○", 591, 0, 112], ["over-confident ✓", 707, 1, 112]], adj: ["c18"] }
+    ],
+    tagCtl: [(t, st) => {
+      if (t.g5) t.g5.setAttribute("opacity", st.rw ? 1 : 0);
+      if (t.g4) { t.g4.setAttribute("fill", st.thr ? "#ffd97a" : "#7d97ab"); t.g4.setAttribute("font-weight", st.thr ? "800" : "600"); }
+    }],
+    stages: [
+      { t: "准备演示", n: [], l: [], log: "CRAG 深潜：证据进来先算 evidence_strength，五档判决；m_low 触发改写重检索 ↺ 复评；穷尽仍低 refused 四类归因；拒答不是终点——gap 闭环让下次能答", d: { ti: "CRAG 自纠错", pa: "rag/crag.py · crag_v2.py", bo: "守门人逻辑：检索质量不达标不硬答——先纠错（改写重检索/邻域扩展），纠不回来就拒答并归因；四类 refusedReason + evidence_gap 闭环把「答不上来」变成数据运营的起点。" } },
+      { t: "① 证据评估", n: [0, 1], l: ["c0"], log: "[评估] top5 证据 → rerank 分 + V2 逐条证据评估 → es=0.52（统一 [0,1] 口径）" },
+      { t: "② 五档判决", n: [1, 2], l: ["c1"], thr: 1, log: "[判决] 0.52 ∈ (rt_crag_low, rt_crag_high) → medium_low；阈值 Redis 热调免重启" },
+      { t: "③ high 快路（对照）", n: [2, 3], l: ["c2"], log: "[对照] es≥0.75 → high：直接生成句级引用，零纠错开销（本例不走）" },
+      { t: "④ m_high（对照）", n: [2, 4], l: ["c3"], log: "[对照] 证据较充分 → 生成 + 标注置信度" },
+      { t: "⑤ m_low 触发纠错（本例）", n: [2, 5], l: ["c4"], log: "[本例] 证据部分支撑 → 不硬答，触发自纠错：改写 query" },
+      { t: "⑥ low（对照）", n: [2, 6], l: ["c5"], log: "[对照] es≤rt_crag_low → 二次重检索，仍低 → 升 refused" },
+      { t: "⑦ query 改写器", n: [5, 8], l: ["c7"], log: "[改写] 「开关柜 局部放电 检测限值 超标处置」；ADAPTIVE 正常 query 跳过改写；邻域扩展 ○ 可补邻块" },
+      { t: "⑧ 重检索", n: [8, 9], l: ["c9"], log: "[重检索] 改写后 query 回混合检索双路重召回（衔接左图管线）" },
+      { t: "⑨ 复评回路 ↺", n: [9, 2], l: ["c10"], rw: 1, log: "[复评] 二轮 es=0.81 → correct·high（rewriteDelta +0.29 增益入档，REWRITE_EVAL 验每次改写值不值）" },
+      { t: "⑩ refused 四路归因", n: [2, 7, 10, 11, 12, 13], l: ["c6", "c12", "c13", "c14", "c15"], log: "[拒答] 穷尽仍低：拒答 + refusedReason 四类——no_recall→gap / rewrite_exhausted→回测 / out_of_domain→域引导 / contradict→治理" },
+      { t: "⑪ gap 闭环回流 ↺", n: [10, 14, 9], l: ["c16", "c17"], rw: 1, log: "[闭环] no_recall 自动入 gap → 补全 cron 关联知识入库 → member_queries 重跑验证 lift → 下次能答（回测数据背书）" },
+      { t: "⑫ 低置信增强支路", n: [11, 15], l: ["c18"], log: "[增强] DEBATE 三专家共识升置信 ○ / SUFFICIENCY 证据不足降一档 ○ / over-confident：dislike×high 冲突复核 ✓" },
+      { t: "⑬ 小结", n: [2], l: ["c1"], log: "[小结] 五档守门 + 纠错回路 + 四路归因 + 缺口闭环 + 增强支路——CRAG 每个特性开关都穿在链路上" }
+    ]
+  });
+
+  /* ---- tab 3 · GraphRAG ---- */
+  tabEngine({
+    svg: "gSvg", idp: "gn-", stage: "gStage", play: "gPlay", step: "gStep", log: "gLog",
+    d: { t: "gDTitle", p: "gDPath", b: "gDBody", f: "gDFlags" },
+    meta: [
+      { ti: "文档入库 · 抽取触发点", pa: "services/document_service.py", bo: "离线侧起点：文档上传 → parse_service 解析（含 rapidocr OCR）→ 切块入向量库；入库动作同时触发 KG_AUTO_EXTRACT 后台三元组抽取任务——图谱构建不是独立流程，是入库链路的伴生动作。", fl: [["KG_AUTO_EXTRACT_ENABLE", 1]] },
+      { ti: "KG_AUTO_EXTRACT 三元组抽取", pa: "services/kg_auto_extract.py", bo: "后台任务用 LLM 从规程文本抽 (主体, 关系, 客体) 三元组：设备型号—存在缺陷—处置工艺—安规条款；异步执行不阻塞入库主流程，失败降级只记日志不回滚文档。", fl: [["KG_AUTO_EXTRACT_ENABLE", 1]] },
+      { ti: "kg_normalize 实体归一", pa: "services/kg_service.py · kg_normalize", bo: "同一设备在不同规程里叫「开关柜」「KYN28」「金属铠装开关柜」——归一化把它们合并成同一实体节点，否则图谱碎片化、多跳在第一步就断线；电力同义词表 + LLM 辅助判定。", fl: [["KG_NORMALIZE", 1]] },
+      { ti: "Neo4j 图谱构建", pa: "services/kg_service.py · Neo4j :7687", bo: "三元组写入 Neo4j：设备-故障-处置多跳关系网络；查询侧 graph_context 沿关系边展开邻居。断电恢复踩过坑的组件——现在有 MySQL 镜像兜底。", fl: [["KG_RAG_ENABLE", 1]] },
+      { ti: "KgTriple 对账镜像", pa: "models · KgTriple @ MySQL", bo: "kg_reconcile 把 Neo4j 三元组镜像到 MySQL KgTriple 表：可审计（图数据库的写入有 SQL 级留痕）、可对账（定期比对两侧数量与内容）、更是故障降级的查询底座——Neo4j 挂了，图谱查询走镜像。", fl: [["kg_reconcile", 1]] },
+      { ti: "query 示例", pa: "services/qa_service.py", bo: "「开关柜局放超限怎么处置」——这类问题的答案分散在设备台账、缺陷分级、工艺卡、安规四类文档里，纯向量检索只能捞到语义相似的片段，串不起跨文档的关系链——这正是图谱的用武之地。", fl: [["KG_RAG_ENABLE", 1]] },
+      { ti: "graph_context 多跳入口", pa: "services/kg_service.py · graph_context", bo: "KG_RAG_ENABLE（默认开）时 qa_service 调 graph_context：从 query 里识别的实体节点出发做邻居展开；KG_TOKENIZE_CACHE（opt-in）缓存切词结果省重复分词。", fl: [["KG_RAG_ENABLE", 1], ["KG_TOKENIZE_CACHE_ENABLE", 0]] },
+      { ti: "跳① 设备型号 → 定位", pa: "kg_service · hop 1", bo: "第一跳：实体识别定位设备节点（KYN28A-12 开关柜）——图谱查询的前提是实体先归一（kg_normalize 的工作在这里兑现）。" },
+      { ti: "跳② 关联缺陷模式", pa: "kg_service · hop 2", bo: "第二跳：沿「存在缺陷」边到缺陷模式节点（局放超标 → 危急缺陷）——缺陷分级来自工艺卡，跨文档关系由图谱串起。" },
+      { ti: "跳③ 处置工艺 + 安规", pa: "kg_service · hop 3", bo: "第三跳：缺陷节点沿「处置工艺」边到 K-27 工艺卡、沿「安规条款」边到带电检测安措——三跳后拿到的结构化上下文是一个完整的处置知识链。", fl: [["KG_RAG_ENABLE", 1]] },
+      { ti: "向量证据 top5", pa: "retrieval_service（左图终点）", bo: "混合检索的 5 条证据从另一路到达融合点——图谱与向量不是替代关系是互补关系：图谱给关系骨架，向量给语义细节与原文措辞。", fl: [["MMR_ENABLE", 1]] },
+      { ti: "证据融合", pa: "qa_service · prompt 组装", bo: "图谱上下文（结构化关系链）+ 向量证据（原文语义块）合并注入 prompt：答案既串得起跨文档逻辑（图谱功劳），又引用得出原文出处（向量功劳，句级角标挂在向量块上）。", fl: [["KG_RAG_ENABLE", 1]] },
+      { ti: "注入生成", pa: "rag/prompt_templates.py → llm_router", bo: "build_messages_with_history 组装后进 llm_router L0-L3 容错生成——衔接第 02 章主链路 ⑧；图谱上下文约 140ms，只占总链路零头。", fl: [["LLM_FALLBACK_ON_EMPTY", 1]] },
+      { ti: "Neo4j 故障 ✗", pa: "try/except → obs.degraded", bo: "查询时 Neo4j 连接失败/超时——强监管系统不允许单组件故障放大成全链路拒答，于是走「降级而非崩溃」铁律。", fl: [["降级而非崩溃", 1]] },
+      { ti: "obs.degraded 降级", pa: "core/obs.py · degraded()", bo: "捕获异常 → 记 DEGRADED 指标（Prometheus 预注册 0 值序列，Grafana 18 面板可见）→ 主链路继续走——图谱缺席答案降级不中断，这是全仓库 try/except 模式的标准形态。", fl: [["DEGRADED 指标", 1]] },
+      { ti: "镜像兜底查询", pa: "kg_service · KgTriple@MySQL", bo: "降级路径的查询底座：直接查 MySQL KgTriple 镜像表拿三元组拼上下文——效果不及图数据库的多跳遍历，但保证「有图谱可用」；恢复后自动切回 Neo4j。", fl: [["kg_reconcile", 1]] },
+      { ti: "cim_parser CIM 解析", pa: "rag/cim_parser.py", bo: "电网 CIM 标准模型文件解析：变压器/断路器/馈线的拓扑连接关系，转成图谱可吃的实体与关系——让拓扑关系有标准语义而不是散落在规程文本里。", fl: [["cim_parser", 1]] },
+      { ti: "CIM 语义入图", pa: "services/cim_service.py", bo: "CIM 模型语义化写入图谱：设备-连接-设备的拓扑边与现有设备-故障-处置边并存——图谱从「规程知识图谱」向「电网拓扑图谱」扩展的第一步。", fl: [["cim_service", 1]] },
+      { ti: "SCADA/MCP 接入预备", pa: "mcp/ · mock_scada_server", bo: "拓扑语义就位后，SCADA 实时数据（经 MCP 工具总线、mock-scada 已跑通形态）就能挂到拓扑节点上——「某馈线某开关当前状态」的实时问答是这条路演进的终点。", fl: [["MCP 工具总线", 1]] }
+    ],
+    links: [
+      { n: "k0", d: "M175 41 H238" },
+      { n: "k1", d: "M400 41 H463" },
+      { n: "k2", d: "M625 41 H688" },
+      { n: "k3", d: "M850 41 H913" },
+      { n: "k4", d: "M770 68 C 770 96, 320 92, 320 122" },
+      { n: "k5", d: "M175 149 H238" },
+      { n: "k6", d: "M400 149 H463" },
+      { n: "k7", d: "M625 149 H688" },
+      { n: "k8", d: "M850 149 H913" },
+      { n: "k9", d: "M995 176 C 995 195, 320 190, 320 230" },
+      { n: "k10", d: "M175 257 H238" },
+      { n: "k11", d: "M400 257 H463" },
+      { n: "k12", d: "M320 176 C 330 215, 995 195, 995 230" },
+      { n: "k13", d: "M995 284 V338" },
+      { n: "k14", d: "M915 365 H848" },
+      { n: "k15", d: "M690 365 C 620 365, 320 330, 320 284", c: "hot" },
+      { n: "k16", d: "M175 473 H238" },
+      { n: "k17", d: "M400 473 H463" },
+      { n: "k18", d: "M545 446 C 640 320, 660 41, 690 41", c: "loop" },
+      { n: "k19", d: "M915 68 C 915 110, 770 290, 770 338" }
+    ],
+    tags: [
+      { n: "q1", a: { x: 15, y: 108, fill: "#8fd8ff", "font-size": 9.5, "font-weight": 700 }, x: "┄ 离线索引侧（入库 → 抽取 → 归一 → 构建 → 镜像）" },
+      { n: "q2", a: { x: 465, y: 192, fill: "#34d399", "font-size": 9.5, "font-weight": 700 }, x: "┄ 在线多跳（KG_RAG ✓）" },
+      { n: "q3", a: { x: 1078, y: 435, "text-anchor": "end", fill: "#ffa48f", "font-size": 9.5, "font-weight": 600 }, x: "故障降级：obs.degraded → 镜像兜底 · 主链路不停" },
+      { n: "q4", a: { x: 15, y: 434, fill: "#7d97ab", "font-size": 9.5, "font-weight": 700 }, x: "┄ CIM 旁路（为 SCADA/MCP 实时接入打底）" },
+      { n: "q5", a: { x: 15, y: 326, fill: "#8fd8ff", "font-size": 9, "font-weight": 600 }, x: "┄ 可审计镜像（kg_reconcile 对账）" },
+      { n: "q6", a: { x: 590, y: 438, fill: "#a78bfa", "font-size": 9.5, "font-weight": 700, opacity: 0 }, x: "CIM 拓扑语义入图 ↺" }
+    ],
+    nodes: [
+      { i: 0, x: 15, y: 14, t: "文档入库", s: "解析·切块·伴生抽取", adj: ["k0"] },
+      { i: 1, x: 240, y: 14, t: "KG_AUTO_EXTRACT", s: "后台 LLM 抽三元组 ✓", adj: ["k0", "k1"] },
+      { i: 2, x: 465, y: 14, t: "kg_normalize", s: "实体归一 · 同义合并", adj: ["k1", "k2"] },
+      { i: 3, x: 690, y: 14, t: "Neo4j 图谱构建", s: "设备-故障-处置关系", adj: ["k2", "k3", "k4", "k18"] },
+      { i: 4, x: 915, y: 14, t: "KgTriple 镜像", s: "kg_reconcile · 可审计", adj: ["k3", "k19"] },
+      { i: 5, x: 15, y: 122, t: "query", s: "「开关柜局放超限…」", adj: ["k5"] },
+      { i: 6, x: 240, y: 122, t: "graph_context ✓", s: "KG_RAG 多跳邻居展开", adj: ["k4", "k5", "k6", "k12"] },
+      { i: 7, x: 465, y: 122, t: "跳① 设备型号", s: "KYN28A → 定位设备", adj: ["k6", "k7"] },
+      { i: 8, x: 690, y: 122, t: "跳② 缺陷模式", s: "局放超标 → 危急缺陷", adj: ["k7", "k8"] },
+      { i: 9, x: 915, y: 122, t: "跳③ 处置+安规", s: "工艺卡 K-27 + 安规", adj: ["k8", "k9"] },
+      { i: 10, x: 15, y: 230, t: "向量证据 top5", s: "来自混合检索（左图）", adj: ["k10"] },
+      { i: 11, x: 240, y: 230, t: "证据融合", s: "图谱骨架+向量细节", adj: ["k9", "k10", "k11", "k15"] },
+      { i: 12, x: 465, y: 230, t: "注入生成", s: "prompt → llm_router", adj: ["k11"] },
+      { i: 13, x: 915, y: 230, t: "Neo4j 故障 ✗", s: "连接失败 / 超时", adj: ["k12", "k13"] },
+      { i: 14, x: 915, y: 338, t: "obs.degraded ✓", s: "DEGRADED · 主链路不停", adj: ["k13", "k14"] },
+      { i: 15, x: 690, y: 338, t: "镜像兜底查询", s: "KgTriple@MySQL 直查", adj: ["k14", "k15", "k19"] },
+      { i: 16, x: 15, y: 446, t: "cim_parser", s: "CIM 模型解析", adj: ["k16"] },
+      { i: 17, x: 240, y: 446, t: "CIM 语义入图", s: "拓扑关系标准语义", adj: ["k16", "k17"] },
+      { i: 18, x: 465, y: 446, t: "SCADA/MCP 打底", s: "实时数据接入预备", adj: ["k17", "k18"] }
+    ],
+    tagCtl: [(t, st) => {
+      if (t.q6) t.q6.setAttribute("opacity", st.rw ? 1 : 0);
+      if (t.q3) { t.q3.setAttribute("fill", st.de ? "#ffd97a" : "#ffa48f"); t.q3.setAttribute("font-weight", st.de ? "800" : "600"); }
+    }],
+    stages: [
+      { t: "准备演示", n: [], l: [], log: "GraphRAG 深潜：离线（入库→抽取→归一→构建→镜像）× 在线（三跳展开→证据融合）× 降级（镜像兜底）× 旁路（CIM 打底）——图谱与向量是互补不是替代", d: { ti: "GraphRAG 图谱融合", pa: "services/kg_service.py", bo: "图谱给关系骨架、向量给语义细节：离线把规程抽成设备-故障-处置知识图谱并对账镜像，在线多跳展开注入 prompt；Neo4j 故障走 MySQL 镜像降级，主链路不停。" } },
+      { t: "① 离线 · 文档入库", n: [0], l: [], log: "[入库] 文档解析（含 OCR）→ 切块入向量库；入库动作伴生触发 KG_AUTO_EXTRACT 后台任务" },
+      { t: "② 离线 · 三元组抽取", n: [0, 1], l: ["k0"], log: "[抽取] 后台 LLM 抽 (设备, 存在缺陷, 局放超标) 类三元组 · 异步不阻塞入库 · 失败只记日志不回滚" },
+      { t: "③ 离线 · 实体归一", n: [1, 2], l: ["k1"], log: "[归一] 「开关柜/KYN28/铠装柜」合并为同一实体——不归一多跳第一步就断线" },
+      { t: "④ 离线 · 构建 + 对账镜像", n: [2, 3, 4], l: ["k2", "k3"], log: "[构建] 三元组写 Neo4j + kg_reconcile 镜像 MySQL KgTriple——可审计、可对账、故障降级的查询底座" },
+      { t: "⑤ 在线 · graph_context", n: [3, 5, 6], l: ["k4", "k5"], log: "[查询] 「开关柜局放超限怎么处置」→ graph_context 从归一实体节点出发做邻居展开（KG_TOKENIZE_CACHE ○ 可省重复分词）" },
+      { t: "⑥ 多跳① 设备型号", n: [6, 7], l: ["k6"], log: "[跳①] 实体识别定位 KYN28A-12 设备节点——kg_normalize 的归一成果在此兑现" },
+      { t: "⑦ 多跳② 缺陷模式", n: [7, 8], l: ["k7"], log: "[跳②] 沿「存在缺陷」边 → 局放超标=危急缺陷（缺陷分级来自工艺卡，跨文档关系图谱串起）" },
+      { t: "⑧ 多跳③ 处置+安规", n: [8, 9], l: ["k8"], log: "[跳③] 沿「处置工艺」「安规」边 → K-27 工艺卡 + 带电检测安措——三跳拿全处置知识链 · 140ms" },
+      { t: "⑨ 三跳结果回融合", n: [9, 10, 11], l: ["k9", "k10"], log: "[融合] 图谱结构化上下文（关系骨架）+ 混合检索 top5（语义细节·左图终点）在融合点会师" },
+      { t: "⑩ 注入生成", n: [11, 12], l: ["k11"], log: "[生成] 图谱+向量合并注入 prompt → llm_router L0-L3（衔接第 02 章 ⑧）；图谱段仅 140ms 占链路零头" },
+      { t: "⑪ 故障降级支路", n: [6, 13, 14, 15, 4, 11], l: ["k12", "k13", "k14", "k15", "k19"], de: 1, hot: 1, log: "[降级] Neo4j ✗ → obs.degraded 记 DEGRADED（Grafana 可见）→ KgTriple@MySQL 镜像直查 → 结果照回融合——图谱缺席答案降级，主链路不停" },
+      { t: "⑫ CIM 旁路 ↺", n: [16, 17, 18, 3], l: ["k16", "k17", "k18"], rw: 1, log: "[旁路] cim_parser 解析 CIM 模型 → 拓扑语义写入图谱（与设备-故障-处置边并存）→ 为 SCADA/MCP 实时数据挂载打底——图谱向电网拓扑演进的伏笔" },
+      { t: "⑬ 小结", n: [3, 6], l: ["k4"], log: "[小结] 离线构建 × 在线三跳 × 镜像兜底 × CIM 旁路——图谱每个特性开关都穿在链路上" }
+    ]
+  });
+
+  /* ---- tab 4 · 进阶检索军械库 ---- */
+  tabEngine({
+    svg: "aSvg", idp: "an-", stage: "aStage", play: "aPlay", step: "aStep", log: "aLog",
+    d: { t: "aDTitle", p: "aDPath", b: "aDBody", f: "aDFlags" },
+    meta: [
+      { ti: "query", pa: "services/qa_service.py", bo: "主链路第 ④ 步之后的检索入口。军械库的叙事从这里开始：不开任何武器时，query 走主干直达生成——这就是「默认关 = 现状行为」的字面意思；每把武器都是寄生在这条主干上的 opt-in 增强，开了才生效，前端零改动。" },
+      { ti: "智能路由", pa: "routing/query_classifier.py · route_query", bo: "四路决策（sparse/dense/hybrid/sparse_first，详见图 1）——HyDE 与 Multi-Query 的改写产物会重新经过这里进入检索；军械库不 bypass 主干，只在主干节点之间插增强环节。", fl: [["ROUTING_ENABLE", 1]] },
+      { ti: "混合检索管线", pa: "services/retrieval_service.py · mixed_search", bo: "主干核心段（图 1 已细拆）：dense 双挡位 + BM25 → RRF → rerank → MMR。五把武器里有三把的产物最终汇入这条管线（HyDE 假设答案向量、Multi-Query 子问题、RAPTOR 多粒度候选）——军械库不是替代检索，是给检索喂更好的输入。", fl: [["RERANK_ENABLE", 1], ["MMR_ENABLE", 1], ["SMALL_TO_BIG_ENABLE", 1]] },
+      { ti: "证据集 top5", pa: "retrieval_service → prompt 组装", bo: "管线的终点：5 条互补证据（带 rerank 分与来源元数据）。table_lookup 的结构化查询结果在这里与向量证据并列汇入——表格整行命中，不经切碎。", fl: [["SMALL_TO_BIG_ENABLE", 1]] },
+      { ti: "可信生成", pa: "providers/llm_router.py", bo: "衔接第 02 章主链路 ⑧：L0-L3 容错 + prompt_templates；Self-RAG 判定免检索的寒暄问题跳过整条检索直接到这里生成；Agentic 的多轮工具结果同样以此为终点。", fl: [["LLM_FALLBACK_ON_EMPTY", 1], ["LLM_HEALTH_PROBE_ENABLE", 1]] },
+      { ti: "HyDE 假设答案检索 ○", pa: "services/hyde.py", bo: "LLM 先生成一段假设答案，用假设答案的向量（而不是 query 向量）去检索——答案与文档的语义空间比问题与文档更近。短口语问题（「开关柜响是怎么回事」）召回提升明显；代价是多一次 LLM 调用与假设跑偏风险。默认关。", fl: [["HYDE_ENABLE", 0]] },
+      { ti: "Multi-Query 多查询分解 ○", pa: "rag/multi_query.py", bo: "复合问题拆子问题并行检索再融合：「局放超标的原因和处置」→ 「局放超标原因」+「局放超标处置」两路召回 RRF 汇流——复合故障研判类提问的召回上限更高；代价是检索次数 × 子问题数。默认关。", fl: [["MULTI_QUERY_ENABLE", 0]] },
+      { ti: "Self-RAG 按需检索 ○", pa: "rag/self_rag.py", bo: "LLM 自判「这个问题要不要检索 / 证据够不够」：寒暄、闲聊、常识问题直接走免检索出口，省下整条检索链路的延迟与成本；判定要检索则回主干。默认关——关掉时所有问题都过检索，行为与现状一致。", fl: [["SELF_RAG_ENABLE", 0]] },
+      { ti: "寒暄直答出口", pa: "rag/self_rag.py · 免检索分支", bo: "Self-RAG 的负向出口：「你好」「谢谢」「帮我记个工单」这类问题直接生成回答，跳过路由/检索/CRAG 全链路——军械库里唯一让链路变短而不是变强的武器，省的是成本。", fl: [["SELF_RAG_ENABLE", 0]] },
+      { ti: "RAPTOR 层次摘要检索 ○", pa: "rag/raptor.py", bo: "对知识库离线构建层次摘要树：叶子是原始 chunk、上层是逐级摘要的「总-分」结构；检索时多粒度候选融合召回。长规程问答受益——问「K-27 工艺卡整体讲什么」时摘要层命中、问「危急缺陷时限」时叶子层命中。默认关。", fl: [["RAPTOR_ENABLE", 0]] },
+      { ti: "table_lookup 表格结构化查询 ✓", pa: "services/table_lookup_service.py", bo: "军械库里唯一默认启用的武器：规程中的阈值表/参数表按结构化查询整行命中——「局放注意值多少」直接拿到 (方法, 注意值, 异常值) 整行，避免表格被切块后语义丢失（切块是给散文的，表格要按行活）。", fl: [["table_lookup_service", 1]] },
+      { ti: "Agentic 检索 ○", pa: "services/agent_runtime.py · AGENTIC_RETRIEVAL_ENABLE", bo: "检索从「一次管线」升级为「Agent 多轮工具调用」：模型自主决定第一步查什么、看完结果要不要再查、查到什么时候够——开放域深挖问题的上限更高；代价是延迟与 token 成本。复用通用 Agent 引擎（Tool/ToolRegistry/run_agent）。默认关。", fl: [["AGENTIC_RETRIEVAL_ENABLE", 0]] },
+      { ti: "工具调用环 · 查向量/图谱/表格", pa: "agent_runtime · ToolRegistry", bo: "Agent 的工具扇：查向量（mixed_search）、查图谱（graph_context）、查表格（table_lookup）、再检索（rewrite）——每轮调用经 agent_tool_audit 审计留痕；工具结果回 Agent 判定是否继续，形成 violet 色的多轮环。", fl: [["AGENTIC_RETRIEVAL_ENABLE", 0], ["agent_tool_audit", 1]] },
+      { ti: "层次摘要树 · 离线构建", pa: "rag/raptor.py · 离线", bo: "RAPTOR 的离线侧：入库时对 chunk 递归聚类+摘要，自底向上建「总-分」树——在线检索的多粒度候选全部来自这棵树；树重建成本高，所以默认关，需要长规程问答收益时再开。", fl: [["RAPTOR_ENABLE", 0]] },
+      { ti: "知识库 · 检索池基底", pa: "规程库 · Milvus 双 collection", bo: "一切检索的底座：规程/手册/案例文档经解析切块入双向量 collection 与 BM25 倒排——主干的召回池、RAPTOR 摘要树的原料、table_lookup 的表格来源，全部长在这同一个知识库上。", fl: [["EMBED_MODEL_GUARD_ENABLE", 1]] }
+    ],
+    links: [
+      { n: "b0", d: "M175 41 H238" },
+      { n: "b1", d: "M400 41 H463" },
+      { n: "b2", d: "M625 41 H688" },
+      { n: "b3", d: "M850 41 H913" },
+      { n: "b4", d: "M95 68 V122" },
+      { n: "b5", d: "M175 135 C 200 100, 210 58, 240 58" },
+      { n: "b6", d: "M140 68 C 140 96, 320 96, 320 122" },
+      { n: "b7", d: "M400 149 C 425 110, 435 50, 465 50" },
+      { n: "b8", d: "M545 122 V68" },
+      { n: "b9", d: "M625 149 H688" },
+      { n: "b10", d: "M850 149 C 900 149, 965 140, 965 68" },
+      { n: "b11", d: "M95 230 C 220 210, 465 200, 465 68" },
+      { n: "b12", d: "M625 257 C 650 230, 655 55, 690 55" },
+      { n: "b13", d: "M850 257 C 920 240, 995 160, 995 68" },
+      { n: "b14", d: "M770 284 C 770 315, 655 365, 625 365", c: "loop" },
+      { n: "b15", d: "M95 338 V284" },
+      { n: "b16", d: "M95 446 V392" },
+      { n: "b17", d: "M600 392 C 600 425, 770 330, 770 284", c: "loop" }
+    ],
+    tags: [
+      { n: "A1", a: { x: 15, y: 108, fill: "#8fd8ff", "font-size": 9.5, "font-weight": 700 }, x: "┄ 主干（默认路径 · 开关全关就是这个）" },
+      { n: "A2", a: { x: 15, y: 205, fill: "#ffd97a", "font-size": 9.5, "font-weight": 700 }, x: "┄ query 增强层（检索前 · 全 ○）" },
+      { n: "A3", a: { x: 120, y: 326, fill: "#7d97ab", "font-size": 9.5, "font-weight": 600 }, x: "┄ RAPTOR 离线侧（总-分多粒度树）" },
+      { n: "A4", a: { x: 465, y: 326, fill: "#a78bfa", "font-size": 9.5, "font-weight": 700 }, x: "┄ Agentic 工具环（多轮 ↺）" },
+      { n: "A5", a: { x: 915, y: 435, "text-anchor": "end", fill: "#5eead4", "font-size": 9.5, "font-weight": 600 }, x: "军械库纪律：○ 默认关 = 现状行为 · 前端零改动" },
+      { n: "A6", a: { x: 150, y: 440, fill: "#a78bfa", "font-size": 9.5, "font-weight": 700, opacity: 0 }, x: "Agent 自主决定下一步工具 ↺" }
+    ],
+    nodes: [
+      { i: 0, x: 15, y: 14, t: "query", s: "检索入口 · 会话已消解", adj: ["b0", "b4", "b6"] },
+      { i: 1, x: 240, y: 14, t: "智能路由", s: "四路决策（图 1）", adj: ["b0", "b1", "b5"] },
+      { i: 2, x: 465, y: 14, t: "混合检索管线", s: "dense+BM25+RRF+rerank+MMR", adj: ["b1", "b2", "b7", "b8", "b11"] },
+      { i: 3, x: 690, y: 14, t: "证据集 top5", s: "带 rerank 分与来源元数据", adj: ["b2", "b3", "b12"] },
+      { i: 4, x: 915, y: 14, t: "可信生成", s: "→ llm_router（02 章 ⑧）", adj: ["b3", "b10", "b13"] },
+      { i: 5, x: 15, y: 122, t: "HyDE ○", s: "假设答案 → 向量检索", adj: ["b4", "b5"] },
+      { i: 6, x: 240, y: 122, t: "Multi-Query ○", s: "子问题分解 · 并行融合", adj: ["b6", "b7"] },
+      { i: 7, x: 465, y: 122, t: "Self-RAG ○", s: "LLM 自判要不要检索", adj: ["b8", "b9"] },
+      { i: 8, x: 690, y: 122, t: "寒暄直答", s: "免检索出口 · 省全链路", adj: ["b9", "b10"] },
+      { i: 9, x: 15, y: 230, t: "RAPTOR ○", s: "层次摘要 · 多粒度召回", adj: ["b11", "b15"] },
+      { i: 10, x: 465, y: 230, t: "table_lookup ✓", s: "表格整行 · 唯一默认有", adj: ["b12"] },
+      { i: 11, x: 690, y: 230, t: "Agentic ○", s: "检索 → Agent 多轮", adj: ["b13", "b14", "b17"] },
+      { i: 12, x: 465, y: 338, t: "工具扇", s: "查向量/图谱/表格/再检索", adj: ["b14", "b17"] },
+      { i: 13, x: 15, y: 338, t: "层次摘要树", s: "离线 · 总-分结构", adj: ["b15", "b16"] },
+      { i: 14, x: 15, y: 446, t: "知识库", s: "检索池基底 · 双向量", adj: ["b16"] }
+    ],
+    tagCtl: [(t, st) => {
+      if (t.A6) t.A6.setAttribute("opacity", st.rw ? 1 : 0);
+      if (t.A5) { t.A5.setAttribute("fill", st.gov ? "#ffd97a" : "#5eead4"); t.A5.setAttribute("font-weight", st.gov ? "800" : "600"); }
+    }],
+    stages: [
+      { t: "准备演示", n: [], l: [], log: "军械库深潜：先走一遍主干（默认路径），再把五把 opt-in 武器逐把拉开——HyDE / Multi-Query / Self-RAG / RAPTOR / Agentic 全 ○，table_lookup ✓ 唯一默认有", d: { ti: "进阶检索军械库", pa: "backend/app/rag + services", bo: "主干负责默认路径的稳态输出，五把武器全部 opt-in 寄生在主干的各个环节上——开=增强，关=现状行为，前端零改动；table_lookup 是唯一默认启用的结构化支线。" } },
+      { t: "① 主干回放 · 默认路径", n: [0, 1, 2, 3, 4], l: ["b0", "b1", "b2", "b3"], log: "[主干] query → 路由 → 混合检索 → 证据集 → 生成——不开任何开关，这就是全部行为（= 图 1 已细拆的管线浓缩）" },
+      { t: "② HyDE 假设答案 ○", n: [0, 5, 1, 2], l: ["b4", "b5"], log: "[HyDE] LLM 先生成假设答案 → 用假设答案向量替代 query 向量进检索——短口语问（「开关柜响是怎么回事」）召回提升明显；代价 +1 次 LLM 调用" },
+      { t: "③ Multi-Query 分解 ○", n: [0, 6, 2], l: ["b6", "b7"], log: "[MultiQ] 复合问题拆子问题并行检索再融合——「原因+处置」两问各召回一路 RRF 汇流；代价：检索次数 × 子问题数" },
+      { t: "④ Self-RAG 判定要检索 ○", n: [0, 7, 2], l: ["b8"], log: "[SelfRAG] LLM 自判「要检索 / 证据够不够」→ 判定要检索则回主干走完整链路（行为与现状一致，只是多了判定环节）" },
+      { t: "⑤ Self-RAG 免检索直答 ○", n: [7, 8, 4], l: ["b9", "b10"], log: "[免检索] 寒暄/闲聊/常识问题 → 跳过路由/检索/CRAG 全链路直接生成——军械库里唯一让链路变短的武器，省的是延迟与成本" },
+      { t: "⑥ RAPTOR 离线建树 ○", n: [14, 13, 9], l: ["b16", "b15"], log: "[RAPTOR] 离线侧：知识库 chunk 递归聚类+摘要 → 自底向上「总-分」摘要树——长规程整体问（摘要层）与细节问（叶子层）各有命中层" },
+      { t: "⑦ RAPTOR 多粒度汇入 ○", n: [9, 2], l: ["b11"], log: "[RAPTOR] 在线侧：摘要层+叶子层多粒度候选汇入混合检索管线融合召回——问「K-27 整体讲什么」时摘要层兜住、问「危急缺陷时限」时叶子层命中" },
+      { t: "⑧ table_lookup ✓ 唯一默认有", n: [10, 3], l: ["b12"], hot: 1, log: "[表格] 阈值表/参数表结构化查询整行命中——「局放注意值多少」直接拿 (方法, 注意值, 异常值) 整行，不经切碎；军械库 6 件里唯一默认启用" },
+      { t: "⑨ Agentic 工具环 ↺ ○", n: [11, 12], l: ["b14", "b17"], rw: 1, log: "[Agentic] 检索升级为 Agent 多轮工具调用：查向量/图谱/表格/再检索，每轮结果回 Agent 判定是否继续（agent_tool_audit 审计留痕）" },
+      { t: "⑩ Agentic 证据进生成 ○", n: [11, 4], l: ["b13"], log: "[Agentic] 多轮攒够证据 → 终点仍是可信生成——开放域深挖上限更高，代价是延迟与 token 成本" },
+      { t: "⑪ 小结 · 开关治理纪律", n: [2], l: ["b1"], gov: 1, log: "[小结] 五把 ○ 武器 + 一把 ✓ 表格武器全部寄生主干：默认关=现状行为、前端零改动、缓存 key 版本串随开关变化自动失效——这是仓库 80+ 特性开关治理纪律的缩影" }
+    ]
+  });
+
+  jApply(0);
+})();
+</script>
+</body>
+</html>
